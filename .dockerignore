@@ -1,0 +1,15 @@
+.git
+.github
+__pycache__
+*.pyc
+.yandex_auth.json
+.panel_auth.json
+.panel_settings.json
+.metrics.json
+.tls
+data
+docs
+3d/*.step
+/README.md
+start.bat
+start.sh

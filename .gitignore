@@ -1,0 +1,15 @@
+# секреты и данные панели — никогда не коммитить
+.yandex_auth.json
+.panel_auth.json
+.panel_settings.json
+.metrics.json
+.tls/
+data/
+
+# окружение
+__pycache__/
+*.pyc
+platform-tools/
+.venv/
+.idea/
+.vscode/
