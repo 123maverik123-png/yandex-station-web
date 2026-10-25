@@ -5,6 +5,7 @@
 Зависимости: Python 3.9+ (только стандартная библиотека) и adb; ffmpeg и openssl — по желанию.
 Все параметры можно задать и переменными окружения (см. --help), так панель запускается в Docker.
 """
+import ipaddress
 import argparse
 import base64
 import collections
@@ -91,6 +92,7 @@ try:
 except OSError:
     VERSION = "0.0.0"
 REPO = "dimap/yandex-lite2-web"
+LED_PREFIX = "plum"
 GLAGOL_PLATFORM = "plum"   # так Лайт 2 называет себя в запросах check_updates
 # Где панель хранит своё (токен Яндекса, пароль, сертификаты, история графиков). По умолчанию — рядом с server.py;
 # --data-dir / PANEL_DATA_DIR меняет это (в Docker — том /data). Пути пересчитываются в set_data_dir().
@@ -284,7 +286,7 @@ def clock_player_script(frames):
     names = " ".join(CLOCK_LEDS)
     lines = [
         "#!/bin/sh",
-        f"L={LEDS}/plum:white:clock",
+        f"L={LEDS}/{LED_PREFIX}:white:clock",
         f"for n in {names}; do echo \"$n $(cat $L$n/brightness)\"; done > {snap}",
         f"restore() {{ while read n v; do echo $v > $L$n/brightness; done < {snap}; rm -f {snap}; exit 0; }}",
         "trap restore TERM INT",
@@ -531,7 +533,7 @@ def display_script(mode, frame=None, seconds=0, bright=160):
     snap = "/tmp/webpanel_display.snap"
     lines = [
         "#!/bin/sh",
-        f"L={LEDS}/plum:white:clock",
+        f"L={LEDS}/{LED_PREFIX}:white:clock",
         f"B={bright}",
         f"for n in {' '.join(CLOCK_LEDS)}; do echo \"$n $(cat $L$n/brightness)\"; done > {snap}",
         f"restore() {{ while read n v; do echo $v > $L$n/brightness; done < {snap}; rm -f {snap} {DISPLAY_MODE}; exit 0; }}",
@@ -788,7 +790,7 @@ class LedStream:
                        check=False)
 
     def _run(self):
-        clock = " ".join(f"plum:white:clock{n}" for n in CLOCK_LEDS)
+        clock = " ".join(f"{LED_PREFIX}:white:clock{n}" for n in CLOCK_LEDS)
         ring = " ".join(f"plum:{x}" for x in self.RING)
         # Не дольше 60 с (600 × 0,1 с): даже если сервер упадёт, цикл на колонке закончится сам.
         loop = (f"echo $$ > {self.PIDFILE}; cd {LEDS}; k=0; while [ $k -lt 600 ]; do k=$((k + 1)); o=; "
@@ -1109,7 +1111,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 raise AdbError(f"нужно {len(CLOCK_LEDS)} значений")
             self.stop_pattern("clock")
             self.display_stop()
-            self.adb.shell("; ".join(f"echo {val} > {LEDS}/plum:white:clock{n}/brightness"
+            self.adb.shell("; ".join(f"echo {val} > {LEDS}/{LED_PREFIX}:white:clock{n}/brightness"
                                      for n, val in zip(CLOCK_LEDS, v)))
             return {"ok": True}
         text = str(data.get("text", "")).upper()
@@ -1126,10 +1128,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         for pos, (ch, dot) in enumerate(cells):
             on = set(SEGMENTS.get(ch, "")) | ({"H"} if dot else set())
             for seg in "ABCDEFGH":
-                cmds.append(f"echo {bright if seg in on else 0} > {LEDS}/plum:white:clock{seg}{pos}/brightness")
+                cmds.append(f"echo {bright if seg in on else 0} > {LEDS}/{LED_PREFIX}:white:clock{seg}{pos}/brightness")
         for extra in ("DEGREE", "DH", "DL", "DM"):
             v = bright if data.get(extra.lower()) else 0
-            cmds.append(f"echo {v} > {LEDS}/plum:white:clock{extra}/brightness")
+            cmds.append(f"echo {v} > {LEDS}/{LED_PREFIX}:white:clock{extra}/brightness")
         self.adb.shell("; ".join(cmds))
         return {"ok": True}
 
@@ -1137,7 +1139,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         # Что сейчас горит на дисплее и кольце — для 3D-модели в «Обзоре».
         ring = [f"plum:{c}:ring{i}/brightness" for i in (1, 2, 3) for c in ("red", "green", "blue")]
         out, _, _ = self.adb.shell("cd /sys/class/leds && cat " + " ".join(
-            [f"plum:white:clock{n}/brightness" for n in CLOCK_LEDS] + ring))
+            [f"{LED_PREFIX}:white:clock{n}/brightness" for n in CLOCK_LEDS] + ring))
         v = [int(x) for x in out.split()]
         if len(v) != len(CLOCK_LEDS) + len(ring):
             raise AdbError("не удалось прочитать светодиоды")
@@ -2306,6 +2308,15 @@ class Handler(BaseHTTPRequestHandler):
     def _guard(self, path):
         """True — запрос уже отклонён. POST с чужого сайта (CSRF) режем всегда, даже без пароля:
         иначе любая открытая вкладка могла бы дёрнуть /api/shell на localhost."""
+        # Optional private worker: local listener + per-run key, never a LAN bypass.
+        gateway_key = os.environ.get("PANEL_GATEWAY_SECRET")
+        if gateway_key:
+            import hmac
+            local = ipaddress.ip_address(self.connection.getsockname()[0])
+            if local.is_loopback and hmac.compare_digest(self.headers.get("X-Panel-Gateway", ""), gateway_key):
+                return False
+            self._send(403, {"error": "private worker"})
+            return True
         if self.command == "POST":
             origin = self.headers.get("Origin")
             if origin and origin != "null" and urlparse(origin).netloc != self.headers.get("Host"):
@@ -2586,7 +2597,7 @@ class PanelUpdater:
     """Проверка новых релизов панели на GitHub и обновление — в зависимости от того, как панель установлена:
     zip (Windows-сборка, Download ZIP) — скачать релиз и заменить файлы панели; git — git pull --ff-only;
     docker — только подсказать команду (образ изнутри не обновить)."""
-    FILES = ("server.py", "access.py", "glagol.py", "VERSION", "LICENSE", "README.md", "start.bat", "start.sh",
+    FILES = ("server.py", "access.py", "glagol.py", "profiles.py", "multi.py", "speakers.example.json", "VERSION", "LICENSE", "README.md", "start.bat", "start.sh",
              "Dockerfile", "docker-compose.yml")
     DIRS = ("static", "device", "3d", "tools", "docs")
 
@@ -2733,6 +2744,7 @@ def save_settings(d):
 
 def main():
     env = os.environ.get
+    import profiles
     ap = argparse.ArgumentParser(description="Веб-панель для Яндекс Станции Лайт 2")
     ap.add_argument("--device", default=env("ADB_SERIAL"),
                     help="IP колонки (порт 5555 по умолчанию), host:port или серийник USB; запоминается [ADB_SERIAL]")
@@ -2744,7 +2756,9 @@ def main():
     ap.add_argument("--data-dir", default=env("PANEL_DATA_DIR"),
                     help="где хранить токен, пароль, сертификаты и историю (по умолчанию — рядом с server.py) [PANEL_DATA_DIR]")
     ap.add_argument("--open", action="store_true", help="открыть панель в браузере после запуска")
+    ap.add_argument("--model", choices=profiles.PROFILES, default=env("PANEL_MODEL", "lite2"), help="hardware profile [PANEL_MODEL]")
     args = ap.parse_args()
+    profiles.install(sys.modules[__name__], args.model)
     for stream in (sys.stdout, sys.stderr):   # консоль Windows: русский текст не должен ронять сервер
         try:
             stream.reconfigure(errors="replace", line_buffering=True)
@@ -2788,6 +2802,11 @@ def main():
             if attempt == 19:
                 raise
             time.sleep(0.5)
+    args.port = srv.server_address[1]
+    Handler.ports["http"] = args.port
+    ready = os.environ.get("PANEL_READY_FILE")
+    if ready:
+        Path(ready).write_text(json.dumps({"port": args.port}), encoding="utf8")
     shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
     print(f"Панель {VERSION}")
     print(f"adb: {adb.adb}  колонка: {device or 'по USB / единственное устройство adb'}  данные: {DATA_DIR}")
