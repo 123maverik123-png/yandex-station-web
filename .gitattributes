@@ -1,0 +1,7 @@
+# скрипты для колонки и Linux — всегда LF, для Windows — CRLF
+*.sh text eol=lf
+device/* text eol=lf
+*.bat text eol=crlf
+*.png binary
+*.stl binary
+*.step binary

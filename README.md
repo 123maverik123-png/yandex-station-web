@@ -74,6 +74,7 @@
 - Яндекс Станция Лайт 2 с **root-доступом по adb** — по сети (`adb connect <IP>:5555`) или по USB.
 - Компьютер или сервер в той же сети:
   - **Python 3.9+** (только стандартная библиотека) и **adb** ([Android platform-tools](https://developer.android.com/tools/releases/platform-tools));
+  - для заставки и анимаций часов (формат zstd) — **Python 3.14+** или программа **zstd**;
   - по желанию **ffmpeg** — чтобы играть mp3/ogg/opus и менять звуки (без него — только WAV) и **openssl** — для HTTPS;
   - или **Docker** — там всё уже есть.
 
@@ -92,14 +93,14 @@ Python в архиве уже есть. Остальное `start.bat` сдел�
 IP колонки, запомнит его и откроет браузер.
 
 Можно и без архива из Releases: **Code → Download ZIP** — тогда `start.bat` при необходимости скачает ещё и
-портативный Python с python.org (~11 МБ). Нужна Windows 10 (1803) или новее. Уже установленные Python 3.9+, adb (в `PATH` или папка `platform-tools`
+портативный Python с python.org (~11 МБ). Нужна Windows 10 (1803) или новее. Уже установленные Python 3.14+, adb (в `PATH` или папка `platform-tools`
 рядом с `server.py`) и ffmpeg `start.bat` найдёт и использует.
 
 ### Linux / macOS — запускать, когда нужно
 
 ```sh
-# Debian/Ubuntu: sudo apt install python3 adb ffmpeg      Fedora: sudo dnf install python3 android-tools ffmpeg
-# macOS:        brew install python android-platform-tools ffmpeg
+# Debian/Ubuntu: sudo apt install python3 adb ffmpeg zstd      Fedora: sudo dnf install python3 android-tools ffmpeg zstd
+# macOS:        brew install python android-platform-tools ffmpeg zstd
 git clone https://github.com/dimap/yandex-lite2-web.git
 cd yandex-lite2-web
 ./start.sh 192.168.1.50     # IP колонки; дальше можно просто ./start.sh

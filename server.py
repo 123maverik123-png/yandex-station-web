@@ -131,6 +131,11 @@ ALARM_STATE = "/tmp/webpanel_alarm.state"
 ALARM_CMD = "/tmp/webpanel_alarm.cmd"
 ALARM_FIRE = "/tmp/webpanel_alarm.fire"
 ALARM_SRC = Path(__file__).resolve().parent / "device" / "alarmd.sh"
+
+
+def alarm_script():
+    """Скрипт будильника для колонки — с \\n, даже если git на Windows переделал переводы строк."""
+    return ALARM_SRC.read_bytes().replace(b"\r\n", b"\n")
 ALARM_MODES = ("sound", "wave", "show", "music", "text")
 ALARM_DEFAULT_SOUND = "common/timer.wav"
 BOOT_HOOK_SCRIPT = (
@@ -181,12 +186,24 @@ class AdbError(Exception):
     pass
 
 
+def write_unix(path, text):
+    r"""Файл для колонки: всегда UTF-8 и \n. write_text на Windows пишет \r\n, и sh на колонке такие скрипты не выполняет."""
+    Path(path).write_bytes(text.encode("utf-8"))
+
+
+ZSTD_HELP = "для заставки и анимаций часов нужен Python 3.14+ (в нём есть zstd) или программа zstd"
+
+
 def zstd_decompress(data):
     try:
         from compression import zstd
         return zstd.decompress(data)
     except ImportError:
+        pass
+    try:
         return subprocess.run(["zstd", "-dc"], input=data, capture_output=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        raise AdbError(ZSTD_HELP) from None
 
 
 def zstd_compress(data):
@@ -196,8 +213,12 @@ def zstd_compress(data):
         c = zstd.ZstdCompressor(level=19)
         return c.compress(data) + c.flush()
     except ImportError:
+        pass
+    try:
         return subprocess.run(["zstd", "-19", "-c", "--no-content-size", "--no-check"],
                               input=data, capture_output=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        raise AdbError(ZSTD_HELP) from None
 
 
 def decode_clock_pattern(name, data):
@@ -980,7 +1001,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         script = "/tmp/webpanel_clock_anim.sh"
         with tempfile.TemporaryDirectory() as td:
             f = Path(td) / "anim.sh"
-            f.write_text(clock_player_script(frames))
+            write_unix(f, clock_player_script(frames))
             self.adb.push(f, script)
         self._run_timed("clock", f"sh {script}", seconds)
         return {"ok": True, "frames": len(frames)}
@@ -1012,7 +1033,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             raise AdbError("неизвестный режим дисплея")
         with tempfile.TemporaryDirectory() as td:
             f = Path(td) / "display.sh"
-            f.write_text(display_script(mode, frame, seconds, bright))
+            write_unix(f, display_script(mode, frame, seconds, bright))
             self.adb.push(f, DISPLAY_SCRIPT)
             if mode == "timer":
                 self._prepare_timer_sound(Path(td))
@@ -1168,7 +1189,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         единственная точка запуска при загрузке, которая живёт в /data. Перед правкой сохраняем копию.
         """
         with tempfile.TemporaryDirectory() as td:
-            (Path(td) / "hook").write_text(BOOT_HOOK_SCRIPT)
+            write_unix(Path(td) / "hook", BOOT_HOOK_SCRIPT)
             self.adb.shell(f"mkdir -p {WEB_DIR}")
             self.adb.push(Path(td) / "hook", BOOT_HOOK)
         _, err, rc = self.adb.shell(
@@ -1390,8 +1411,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                         f = Path(td) / n[6:]
                         f.write_bytes(data)
                         self.adb.push(f, f"{WEB_DIR}/{n}")
-            # скрипт — текущей версии, часовой пояс — этого компьютера
-            self.adb.push(ALARM_SRC, ALARMD)
+            # скрипт — текущей версии, часовой пояс — этого компьютера (их ставит alarm_install)
             n = len(self.alarm_install()["alarms"])
             report.append(f"будильник ({n})")
         return {"restored": report, "ui": manifest.get("ui") or {}, "created": manifest.get("created"),
@@ -1433,7 +1453,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 "snooze": {"at": int(sn[0]), "id": sn[1]} if len(sn) == 2 and sn[0].isdigit() else None,
                 "running": parts[6].strip() == "run", "ffmpeg": bool(self.ffmpeg),
                 "installed": bool(inst), "dir": ALARM_DIR,
-                "outdated": bool(inst) and inst[0] != hashlib.md5(ALARM_SRC.read_bytes()).hexdigest(),
+                "outdated": bool(inst) and inst[0] != hashlib.md5(alarm_script()).hexdigest(),
                 "size_kb": int(inst[2]) if len(inst) > 2 and inst[2].isdigit() else None}
 
     @staticmethod
@@ -1522,13 +1542,14 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         tz_name, tz_data = self._pc_tz()
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
-            (td / "conf").write_text("".join(l + "\n" for l in lines))
+            write_unix(td / "conf", "".join(l + "\n" for l in lines))
             self.adb.push(td / "conf", ALARM_CONF + ".new")
-            self.adb.push(ALARM_SRC, ALARMD)
+            (td / "alarmd").write_bytes(alarm_script())
+            self.adb.push(td / "alarmd", ALARMD)
             if tz_data:
                 (td / "tz").write_bytes(tz_data)
                 self.adb.push(td / "tz", f"{ALARM_DIR}/localtime")
-                (td / "tzn").write_text(tz_name or "")
+                write_unix(td / "tzn", tz_name or "")
                 self.adb.push(td / "tzn", f"{ALARM_DIR}/tzname")
         self.adb.shell(f"mv {ALARM_CONF}.new {ALARM_CONF}; chmod 644 {ALARM_DIR}/*; chmod 755 {ALARMD}; "
                        f"rm -f {ALARM_DIR}/last_fired.t {ALARM_DIR}/snooze"

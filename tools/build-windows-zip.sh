@@ -6,7 +6,7 @@ set -eu
 VER="${1:?версия, например 1.0.0}"
 ARCH="${2:-amd64}"
 OUT="${3:-dist}"
-PYVER="3.12.10"
+PYVER="3.14.8"   # 3.14+: в стандартной библиотеке есть zstd (анимации часов, заставка)
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NAME="yandex-lite2-web-${VER}-windows-$( [ "$ARCH" = amd64 ] && echo x64 || echo arm64 )"
 WORK="$(mktemp -d)"
@@ -18,7 +18,7 @@ cp -r server.py access.py glagol.py static device 3d start.bat LICENSE README.md
 curl -fsSL -o "$WORK/python.zip" "https://www.python.org/ftp/python/$PYVER/python-$PYVER-embed-$ARCH.zip"
 unzip -q "$WORK/python.zip" -d "$WORK/$NAME/runtime/python"
 # портативный Python не видит папку скрипта — добавляем корень панели (путь относительно ._pth)
-printf '..\\..\r\n' >> "$WORK/$NAME/runtime/python/python312._pth"
+for pth in "$WORK/$NAME/runtime/python"/python3*._pth; do printf '..\\..\r\n' >> "$pth"; done
 cat > "$WORK/$NAME/runtime/README.txt" <<TXT
 runtime — всё, что нужно панели, без установки в систему.
 python\  — Python $PYVER (embeddable) с python.org, лицензия PSF: python\LICENSE.txt

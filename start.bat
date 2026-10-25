@@ -8,7 +8,7 @@ rem Чего нет в системе (Python, adb, ffmpeg) — по согла�
 rem В систему ничего не ставится, права администратора не нужны. Удалить — просто удалить папку.
 
 set "RT=%~dp0runtime"
-set "PYVER=3.12.10"
+set "PYVER=3.14.8"
 set "ARCH=amd64"
 if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "ARCH=arm64"
 where curl >nul 2>nul || goto oldwin
@@ -19,10 +19,10 @@ set "PYEXE="
 if exist "%RT%\python\python.exe" set "PYEXE=%RT%\python\python.exe"
 if not defined PYEXE for /f "delims=" %%i in ('py -3 -c "import sys;print(sys.executable)" 2^>nul') do set "PYEXE=%%i"
 if not defined PYEXE for /f "delims=" %%i in ('python -c "import sys;print(sys.executable)" 2^>nul') do set "PYEXE=%%i"
-if defined PYEXE "%PYEXE%" -c "import sys;sys.exit(0 if sys.version_info>=(3,9) else 1)" >nul 2>nul || set "PYEXE="
+if defined PYEXE "%PYEXE%" -c "import sys;sys.exit(0 if sys.version_info>=(3,14) else 1)" >nul 2>nul || set "PYEXE="
 if defined PYEXE goto adb
 echo.
-echo Python 3.9+ не найден.
+echo Python 3.14+ не найден (в нём есть zstd — нужен для заставки и анимаций часов).
 echo Можно скачать портативный Python %PYVER% с python.org (около 11 МБ) в папку runtime.
 choice /c YN /m "Скачать"
 if errorlevel 2 goto nopy
