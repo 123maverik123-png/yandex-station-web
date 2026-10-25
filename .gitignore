@@ -5,6 +5,7 @@
 .metrics.json
 .tls/
 data/
+speakers.json
 
 # окружение
 __pycache__/

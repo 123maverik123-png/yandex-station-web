@@ -9,6 +9,7 @@ import ipaddress
 import json
 import os
 import secrets
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -178,8 +179,36 @@ def local_names():
     return sorted(names), sorted(ips, key=lambda a: ipaddress.ip_address(a))
 
 
+def find_openssl():
+    explicit = os.environ.get("PANEL_OPENSSL")
+    if explicit:
+        if Path(explicit).is_file():
+            return explicit
+        raise AccessError("PANEL_OPENSSL указывает на отсутствующий файл: " + explicit)
+    found = shutil.which("openssl")
+    if found:
+        return found
+    if os.name == "nt":
+        # Git for Windows includes OpenSSL but normally does not put it in PATH.
+        roots = [Path(os.environ.get(name, fallback)) for name, fallback in
+                 (("ProgramFiles", "C:/Program Files"), ("ProgramFiles(x86)", "C:/Program Files (x86)"))]
+        if os.environ.get("LOCALAPPDATA"):
+            roots.append(Path(os.environ["LOCALAPPDATA"])/"Programs")
+        for root in roots:
+            for suffix in ("Git/usr/bin/openssl.exe", "Git/mingw64/bin/openssl.exe"):
+                candidate = root/suffix
+                if candidate.is_file():
+                    return str(candidate)
+    raise AccessError("OpenSSL не найден: он нужен для создания HTTPS-сертификата. "
+                      "Укажите путь к openssl в PANEL_OPENSSL или добавьте его в PATH. "
+                      "Для работы только по HTTP используйте --https-port 0")
+
+
 def _openssl(*args, cwd):
-    r = subprocess.run(["openssl", *args], cwd=cwd, capture_output=True, text=True, timeout=60)
+    try:
+        r = subprocess.run([find_openssl(), *args], cwd=cwd, capture_output=True, text=True, timeout=60)
+    except FileNotFoundError as error:
+        raise AccessError("Не удалось запустить OpenSSL; проверьте PANEL_OPENSSL и доступность его файлов") from error
     if r.returncode:
         raise AccessError("openssl: " + (r.stderr.strip().splitlines() or ["ошибка"])[-1])
 

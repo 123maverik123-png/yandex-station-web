@@ -1,13 +1,16 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="static/panel-context.js"></script>
+<script defer src="static/speaker-selector.js"></script>
+<link rel="stylesheet" href="static/speaker-selector.css">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Станция Лайт 2</title>
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="stylesheet" href="/static/vendor/xterm/xterm.css">
-<link rel="icon" type="image/png" href="/static/icons/favicon-64.png">
-<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="static/vendor/xterm/xterm.css">
+<link rel="icon" type="image/png" href="static/icons/favicon-64.png">
+<link rel="apple-touch-icon" href="static/icons/apple-touch-icon.png">
 <meta name="theme-color" content="#F6F6F8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111116" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -573,7 +576,7 @@
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
   #toast.err { background: var(--danger); color: #fff; }
 </style>
-</head>
+<link rel="stylesheet" href="static/model.css"><style>[data-profile-hidden]{display:none!important}</style></head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
@@ -618,7 +621,7 @@
   <aside>
     <a class="brand" href="#overview" title="На «Обзор»">
       <svg class="brand-logo" viewBox="-50 -50 100 100" aria-hidden="true"><path fill-rule="evenodd" d="M0-46a46 46 0 1 1 0 92a46 46 0 1 1 0-92ZM0-25c3.5 0 5.6 2 7.6 5.5l13 22.5c2 3.5 2 6.4.3 9.3c-1.8 3-4.4 4.2-8.4 4.2h-25c-4 0-6.6-1.2-8.4-4.2c-1.7-2.9-1.7-5.8.3-9.3l13-22.5C-5.6-23-3.5-25 0-25Z"/></svg>
-      <div><b>Станция Лайт 2</b><small>Панель управления</small></div>
+      <div><b id="model-name">Станция Лайт 2</b><small>Панель управления</small></div>
     </a>
     <nav class="side" aria-label="Разделы">
       <a href="#overview" data-tab="overview"><svg width="20" height="20" aria-hidden="true"><use href="#i-grid"/></svg>Обзор</a>
@@ -856,6 +859,8 @@
     <header class="page-head"><div><h1>Настройки</h1><div class="sub">Оформление, доступ к панели и то, что панель хранит на колонке</div></div></header>
     <div class="settings">
 
+      <section class="card set-card" id="model-settings" hidden></section>
+
       <section class="card set-card">
         <div class="set-head"><span class="set-ic"><svg width="18" height="18" aria-hidden="true"><use href="#i-palette"/></svg></span><div><h2>Оформление</h2><p>Хранится в этом браузере и попадает в резервную копию</p></div></div>
         <div class="set-item"><div class="set-label"><b>Тема</b><small>«Как в системе» следует за светлой и тёмной темой устройства</small></div>
@@ -899,7 +904,7 @@
           <div class="set-ctl"><button class="btn sm primary" id="app-install" hidden>Установить</button></div></div>
         <p class="set-note" id="app-hint" hidden></p>
         <div class="set-item" id="app-ca-row" hidden><div class="set-label"><b>Сертификат HTTPS</b><small>Чтобы телефон доверял панели по HTTPS. Действует только для локальных адресов</small></div>
-          <div class="set-ctl"><a class="btn sm" href="/ca.crt"><svg width="18" height="18" aria-hidden="true"><use href="#i-dl"/></svg>Скачать</a></div></div>
+          <div class="set-ctl"><a class="btn sm" href="ca.crt"><svg width="18" height="18" aria-hidden="true"><use href="#i-dl"/></svg>Скачать</a></div></div>
       </section>
 
       <section class="card set-card">
@@ -1336,7 +1341,7 @@ async function api(path, body, opts = {}) {
     headers: opts.headers || { 'Content-Type': 'application/json' },
     body: opts.raw ? body : JSON.stringify(body),
   };
-  const r = await fetch(path, init);
+  const r = await PanelContext.fetch(path, init);
   const data = await r.json().catch(() => ({ error: r.statusText }));
   if (!r.ok) {
     const e = new Error(data.error || r.statusText);
@@ -2026,7 +2031,8 @@ async function copyText(text) {
 function termState(text, ok) { $('#term-state').textContent = text; $('#term-state').className = 'badge' + (ok ? ' ok' : ''); }
 function termInit() {
   if (term) return true;
-  if (!window.Terminal) { $('#term').innerHTML = '<div class="empty">Не загрузился xterm.js</div>'; return false; }
+  if (!window.Terminal||!window.FitAddon) { $('#term').textContent=document.readyState==='loading'?'Загрузка терминала…':'Не загрузился xterm.js'; return false; }
+  $('#term').textContent='';
   term = new Terminal({
     fontFamily: "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace", fontSize: 13, lineHeight: 1.2,
     cursorBlink: true, scrollback: 5000, allowProposedApi: false,
@@ -2062,7 +2068,7 @@ function termConnect() {
   if (!termInit() || termWs) return;
   try { termFit.fit(); } catch {}
   termState('подключение…');
-  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/term?cols=${term.cols}&rows=${term.rows}`);
+  const ws = new WebSocket(PanelContext.websocket(`/api/term?cols=${term.cols}&rows=${term.rows}`));
   ws.binaryType = 'arraybuffer';
   termWs = ws;
   ws.onopen = () => { termState('подключено', true); term.focus(); };
@@ -2082,8 +2088,8 @@ $('#term-new').onclick = () => {
 
 // ---------- вкладки ----------
 const store = {
-  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  get: k => { try { return localStorage.getItem(PanelContext.storageKey(k)); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(PanelContext.storageKey(k), v); } catch {} },
 };
 const TABS = ['overview', 'player', 'alarm', 'charts', 'boot', 'apps', 'files', 'logs', 'console', 'settings'];
 let bootLoaded = false;
@@ -2752,7 +2758,7 @@ async function fsAction(a, e) {
   if (a === 'dl') {
     toast(e.is_dir ? 'Упаковка папки…' : 'Скачивание…');
     const link = document.createElement('a');
-    link.href = '/api/fs/download?path=' + encodeURIComponent(p);
+    link.href = PanelContext.url('/api/fs/download?path=' + encodeURIComponent(p));
     link.download = ''; document.body.append(link); link.click(); link.remove();
   } else if (a === 'mv') {
     const name = prompt('Новое имя', e.name);
@@ -2983,13 +2989,13 @@ applyUI();
 let accessInfo = null, installEvt = null;
 const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 async function authPost(path, body) {
-  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const r = await PanelContext.fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || r.statusText);
   return d;
 }
 async function loadAccess() {
-  try { accessInfo = await (await fetch('/api/panel-auth')).json(); } catch { return; }
+  try { accessInfo = await (await PanelContext.fetch('/api/panel-auth')).json(); } catch { return; }
   const a = accessInfo, st = $('#pw-state');
   st.textContent = a.enabled ? 'Задан. Вход запоминается в этом браузере на 90 дней'
     : isLocalHost ? 'Не задан. Пока панель открыта только на этом компьютере, это не страшно'
@@ -3061,8 +3067,8 @@ $('#fp-reset').onclick = e => {
 const UI_KEYS = /^(ui|ov|ch|snd)\./;
 $('#bk-save').onclick = e => act(e.currentTarget, async () => {
   const ui = {};
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (UI_KEYS.test(k)) ui[k] = localStorage.getItem(k); } } catch {}
-  const r = await fetch('/api/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ui }) });
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (UI_KEYS.test(k)) ui[k] = localStorage.getItem(PanelContext.storageKey(k)); } } catch {}
+  const r = await PanelContext.fetch('/api/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ui }) });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
   const name = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '')?.[1] || 'stantsiya-backup.tar.gz';
   const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = name; a.click();
@@ -3076,7 +3082,7 @@ $('#bk-file').onchange = async e => {
   toast('Восстанавливаем… это может занять минуту');
   const r = await act($('#bk-restore'), () => api('/api/backup/restore', f, { raw: true, headers: { 'Content-Type': 'application/gzip' } }));
   if (!r) return;
-  try { for (const [k, v] of Object.entries(r.ui || {})) if (UI_KEYS.test(k)) localStorage.setItem(k, v); } catch {}
+  try { for (const [k, v] of Object.entries(r.ui || {})) if (UI_KEYS.test(k)) localStorage.setItem(PanelContext.storageKey(k), v); } catch {}
   applyUI();
   try { const saved = JSON.parse(store.get(LAYOUT_KEY)); if (saved) applyLayout(saved); } catch {}
   bootLoaded = false; alarmsData = null;
@@ -3100,7 +3106,7 @@ function renderInstall() {
   if (!isSecureContext) {
     st.textContent = 'Браузер разрешает установку только по HTTPS';
     if (httpsPort) {
-      const url = `https://${location.hostname}:${httpsPort}/`;
+      const url = `https://${location.hostname}:${httpsPort}${PanelContext.basePath}`;
       hint.innerHTML = `Откройте панель по адресу <a href="${url}">${esc(url)}</a>. Чтобы браузер ей доверял, один раз установите сертификат (строка ниже): `
         + 'на Android — «Настройки → Безопасность → Шифрование и учётные данные → Установить сертификат → Сертификат ЦС»; '
         + 'на iPhone — открыть файл, затем «Основные → Об этом устройстве → Доверие сертификатам».';
@@ -3116,7 +3122,7 @@ $('#app-install').onclick = async () => {
   await installEvt.userChoice.catch(() => null);
   installEvt = null; renderInstall();
 };
-if ('serviceWorker' in navigator && isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
+if ('serviceWorker' in navigator && isSecureContext) navigator.serviceWorker.register(PanelContext.url('/sw.js'), {scope:PanelContext.basePath}).catch(() => {});
 loadAccess();
 
 // ---------- графики ----------
@@ -3534,7 +3540,7 @@ $('#upd-go').onclick = e => {
     const until = Date.now() + 60000;
     await new Promise(r => setTimeout(r, 2500));
     while (Date.now() < until) {
-      try { const r = await fetch('/api/panel/version'); if (r.ok || r.status === 401) { location.reload(); return; } } catch {}
+      try { const r = await PanelContext.fetch('/api/panel/version'); if (r.ok || r.status === 401) { location.reload(); return; } } catch {}
       await new Promise(r => setTimeout(r, 1000));
     }
     btn.textContent = 'Обновить';
@@ -3585,7 +3591,7 @@ function renderConn() {
 async function connCheck() {
   clearTimeout(connTimer);
   try {
-    const r = await fetch('/api/conn');
+    const r = await PanelContext.fetch('/api/conn');
     connInfo = r.status === 401 ? { state: 'locked' } : await r.json();
   } catch { connInfo = { state: 'server' }; }
   if (connInfo.retry_in != null) retryDeadline = Date.now() + connInfo.retry_in * 1000;
@@ -3601,7 +3607,7 @@ $('#cs-login').onsubmit = async e => {
   const btn = $('#cs-login-btn'), err = $('#cs-login-err');
   btn.disabled = true; err.textContent = '';
   try {
-    const r = await fetch('/api/panel-auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const r = await PanelContext.fetch('/api/panel-auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                                      body: JSON.stringify({ password: $('#cs-pass').value }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || r.statusText);
@@ -3611,7 +3617,7 @@ $('#cs-login').onsubmit = async e => {
   } catch (x) { err.textContent = x.message; $('#cs-pass').select(); }
   finally { btn.disabled = false; }
 };
-$('#cs-retry').onclick = e => act(e.currentTarget, async () => { await fetch('/api/conn/retry', { method: 'POST' }); await connCheck(); });
+$('#cs-retry').onclick = e => act(e.currentTarget, async () => { await PanelContext.fetch('/api/conn/retry', { method: 'POST' }); await connCheck(); });
 
 let statusTimer;
 function onConnected() {
@@ -3632,238 +3638,13 @@ function onConnected() {
 // ---------- старт ----------
 renderConn();
 connCheck();
+// A fast local worker can connect before the vendor scripts below have loaded.
+document.addEventListener('DOMContentLoaded',()=>{if(online&&!$('#tab-console').hidden)termConnect();});
 </script>
-<script src="/static/vendor/qrcode.js"></script>
-<script src="/static/vendor/xterm/xterm.js"></script>
-<script src="/static/vendor/xterm/addon-fit.js"></script>
-<script type="importmap">{ "imports": { "three": "/static/vendor/three/three.module.js" } }</script>
-<script type="module">
-import * as THREE from 'three';
-import { STLLoader } from '/static/vendor/three/STLLoader.js';
-import { OrbitControls } from '/static/vendor/three/OrbitControls.js';
-import { toCreasedNormals } from '/static/vendor/three/BufferGeometryUtils.js';
-
-// Цвета корпусов (yandex-getcolor) — на глаз по фото.
-const BODY_COLORS = { copper: '#a8603e', black: '#2c2c31', blue: '#3e5f90', green: '#56715f', pink: '#d8a4a9', violet: '#6e5b98' };
-// Дисплей светится сквозь ткань на лицевой стороне (−Y в STL; сзади выемка под разъём).
-// В модели окна под него нет, поэтому положение задано вручную, в мм в координатах STL.
-const DISPLAY = { centerZ: -29, arcWidth: 46, radius: 45.55 };
-const MODEL_TOP = 0, MODEL_BOTTOM = -61.2, LIFT = -(MODEL_TOP + MODEL_BOTTOM) / 2;
-// В центре верха — кольцо из полупрозрачного пластика (отдельная деталь в STL, r≈3,4–5,9 мм), под ним
-// 3 RGB-светодиода. Центр внутри кольца — непрозрачный корпус. Радиусы берутся из самой модели.
-const START_ANGLE = -0.5;   // модель изначально повёрнута, чтобы был виден объём
-
-const view = document.getElementById('model-view');
-let renderer;
-try {
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-} catch {
-  view.hidden = true;   // без WebGL блок просто не показываем
-  throw new Error('no webgl');
-}
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(28, 1, 1, 2000);
-camera.position.set(0, 69, 239);   // модель ~на 10 % меньше — визуализатору больше места
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.enablePan = false;
-controls.minDistance = 130;
-controls.maxDistance = 450;
-controls.target.set(0, 0, 0);
-
-scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3a48, 1.6));
-const key = new THREE.DirectionalLight(0xffffff, 2.4);
-key.position.set(140, 220, 180);
-scene.add(key);
-const rim = new THREE.DirectionalLight(0xffeedd, 1.0);
-rim.position.set(-180, 60, -160);
-scene.add(rim);
-
-const group = new THREE.Group();
-scene.add(group);
-
-// ---- корпус ----
-const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02 });
-let bodyGeom = null, partOf = null;  // partOf[i]: 0 — корпус, 1 — пластиковый диск сверху, 2 — тёмные детали
-function paint(colorKey) {
-  if (!bodyGeom) return;
-  const body = new THREE.Color(BODY_COLORS[colorKey] || BODY_COLORS.black);
-  const plastic = body.clone().lerp(new THREE.Color('#dedad6'), 0.55);   // матовый полупрозрачный пластик
-  const dark = new THREE.Color('#1b1b1f');
-  const col = bodyGeom.attributes.color;
-  for (let i = 0; i < col.count; i++) col.setXYZ(i, ...[body, plastic, dark][partOf[i]].toArray());
-  col.needsUpdate = true;
-  // Холст показываем, когда известен настоящий цвет, — чтобы не мелькала чёрная колонка.
-  if (colorKey) renderer.domElement.style.opacity = 1;
-}
-window.modelColor = c => paint(c);
-
-new STLLoader().load('/model.stl', geom => {
-  // Группы граней по цвету из STL: самая частая — корпус, самая светлая из остальных — кнопка, прочее — разъёмы.
-  const src = geom.attributes.color;
-  const n = geom.attributes.position.count;
-  partOf = new Uint8Array(n);
-  if (src) {
-    const key = i => `${src.getX(i).toFixed(3)},${src.getY(i).toFixed(3)},${src.getZ(i).toFixed(3)}`;
-    const counts = new Map();
-    for (let i = 0; i < n; i++) counts.set(key(i), (counts.get(key(i)) || 0) + 1);
-    const sorted = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
-    const lum = k => k.split(',').reduce((s, x) => s + +x, 0);
-    const brightest = sorted.slice(1).sort((a, b) => lum(b) - lum(a))[0];
-    for (let i = 0; i < n; i++) { const k = key(i); partOf[i] = k === sorted[0] ? 0 : k === brightest ? 1 : 2; }
-  }
-  geom.rotateX(-Math.PI / 2);   // STL — Z вверх, three.js — Y вверх; лицевая сторона (−Y в STL) смотрит в камеру (+Z)
-  geom.translate(0, LIFT, 0);    // центр по высоте — в начало координат
-  // STL неиндексированный: функция пересчитывает нормали на месте, порядок вершин не меняется.
-  bodyGeom = toCreasedNormals(geom, THREE.MathUtils.degToRad(35));
-  // границы полупрозрачного кольца — по вершинам этой детали
-  let rin = Infinity, rout = 0;
-  const pos = bodyGeom.attributes.position;
-  for (let i = 0; i < n; i++) if (partOf[i] === 1) {
-    const r = Math.hypot(pos.getX(i), pos.getZ(i));
-    rin = Math.min(rin, r); rout = Math.max(rout, r);
-  }
-  if (rout > 0) buildRing(rin, rout, n);
-  if (!bodyGeom.attributes.color) bodyGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-  group.add(new THREE.Mesh(bodyGeom, bodyMat));
-  renderer.domElement.style.cssText = 'opacity:0;transition:opacity .4s';
-  view.appendChild(renderer.domElement);
-  paint(window.__deviceColor);
-  resize();
-}, undefined, () => { view.hidden = true; });
-
-// ---- дисплей ----
-const G = window.clockGeom;
-const canvas = document.createElement('canvas');
-canvas.width = 1020; canvas.height = 336;   // viewBox предпросмотра 340×112, ×3
-const ctx = canvas.getContext('2d');
-const tex = new THREE.CanvasTexture(canvas);
-tex.colorSpace = THREE.SRGBColorSpace;
-tex.anisotropy = 4;
-const arc = DISPLAY.arcWidth / DISPLAY.radius;
-const height = DISPLAY.arcWidth * canvas.height / canvas.width;
-const screen = new THREE.Mesh(
-  new THREE.CylinderGeometry(DISPLAY.radius, DISPLAY.radius, height, 48, 1, true, -arc / 2, arc),
-  new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-screen.position.y = DISPLAY.centerZ + LIFT;
-group.add(screen);
-
-function drawDisplay(v) {
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.setTransform(3, 0, 0, 3, 12, 12);   // как viewBox="-4 -4 340 112"
-  const glow = (a, draw) => {
-    if (a <= 0) return;
-    ctx.globalAlpha = Math.max(0.18, a / 255);
-    ctx.shadowColor = 'rgba(255,244,230,0.9)';
-    ctx.shadowBlur = 14;
-    ctx.fillStyle = ctx.strokeStyle = '#fff6ea';
-    draw();
-  };
-  G.DIGIT_X.forEach((x, p) => {
-    for (const [seg, d] of G.segShapes(x)) glow(v[p * 8 + G.SEGS.indexOf(seg)], () => ctx.fill(new Path2D(d)));
-    glow(v[p * 8 + 7], () => { ctx.beginPath(); ctx.arc(x + 28, 36, 4.5, 0, 7); ctx.fill(); });
-  });
-  [[G.X_DH, 30], [G.X_DL, 66]].forEach(([i, y]) =>
-    glow(v[i], () => { ctx.beginPath(); ctx.arc(146, y, 6, 0, 7); ctx.fill(); }));
-  glow(v[G.X_DM], () => ctx.fillRect(137, 45, 18, 6));   // дефис
-  glow(v[G.X_DEG], () => { ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(318, 10, 7, 0, 7); ctx.stroke(); });
-  ctx.globalAlpha = 1;
-  tex.needsUpdate = true;
-}
-let lastKey = '';
-window.modelShow = v => {
-  const k = v.join(',');
-  if (k === lastKey) return;
-  lastKey = k;
-  drawDisplay(v);
-};
-drawDisplay(new Array(36).fill(0));
-
-// ---- кольцо ----
-// Свечение сквозь пластик: заполняет ровно полупрозрачную деталь, ярче к её середине; по окружности
-// цвет плавно переходит между тремя светодиодами (под углами 90°, 210°, 330°). Не аддитивно, а
-// «подкрашиванием» через альфу: на светлом пластике сложение выжигает цвет в белый.
-// В STL пластиковая деталь лежит на −0,01 мм, а грань корпуса над всем верхом — на +0,01: они почти
-// совпадают, и видеокарта рисует то одно, то другое. Поэтому деталь (вместе с её формой — это логотип)
-// приподнимаем над корпусом, а свечение строим из её же треугольников ещё чуть выше.
-let ringGeom = null, ringIn = 0, ringOut = 0, ringLeds = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-function buildRing(inner, outer, n) {
-  ringIn = inner; ringOut = outer;
-  const pos = bodyGeom.attributes.position;
-  const pts = [];
-  for (let i = 0; i < n; i++) if (partOf[i] === 1) {
-    pos.setY(i, pos.getY(i) + 0.05);
-    pts.push(pos.getX(i), pos.getY(i) + 0.04, pos.getZ(i));
-  }
-  pos.needsUpdate = true;
-  ringGeom = new THREE.BufferGeometry();
-  ringGeom.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  ringGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(pts.length / 3 * 4), 4));
-  group.add(new THREE.Mesh(ringGeom, new THREE.MeshBasicMaterial({
-    vertexColors: true, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })));
-  paintRing(ringLeds);
-}
-const tmp = new THREE.Color();
-const LED_ANGLES = [90, 210, 330].map(a => THREE.MathUtils.degToRad(a));
-function paintRing(leds) {
-  ringLeds = leds;
-  if (!ringGeom) return;
-  const pos = ringGeom.attributes.position, col = ringGeom.attributes.color;
-  const mid = (ringIn + ringOut) / 2, half = (ringOut - ringIn) / 2;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i);
-    const ang = Math.atan2(-z, x);
-    let r = 0, g = 0, b = 0, ws = 0;
-    LED_ANGLES.forEach((a, k) => {
-      const d = Math.abs(Math.atan2(Math.sin(ang - a), Math.cos(ang - a)));
-      const w = Math.max(0, 1 - d / (2 * Math.PI / 3)) ** 1.5;
-      r += leds[k][0] * w; g += leds[k][1] * w; b += leds[k][2] * w; ws += w;
-    });
-    r /= ws || 1; g /= ws || 1; b /= ws || 1;
-    const top = Math.max(r, g, b);
-    if (top <= 0) { col.setXYZW(i, 0, 0, 0, 0); continue; }
-    // Оттенок — по наблюдениям за живой колонкой: рядом с синим красный почти не виден (#6b0fff —
-    // синий, а не фиолетовый), а зелёный, наоборот, яркий (#ffab02 — оранжевый, #ffec02 — жёлтый).
-    // Поэтому степени по каналам разные. Свет идёт сквозь белый пластик — подмешиваем белый.
-    const W = 0.22;
-    const ch = (v, p) => W + (1 - W) * (v / top) ** p;
-    tmp.setRGB(ch(r, 2), ch(g, 0.8), ch(b, 1.5), THREE.SRGBColorSpace);
-    // Яркость — через непрозрачность. Светодиоды часто горят на 10–25 %, поэтому корень, чтобы слабое
-    // свечение было видно; потолок 0,85 — пластик остаётся пластиком, а не сплошной краской.
-    const k = 0.6 + 0.4 * Math.cos(Math.min(1, Math.abs(Math.hypot(x, z) - mid) / half) * Math.PI / 2);
-    col.setXYZW(i, tmp.r, tmp.g, tmp.b, Math.min(0.85, Math.sqrt(top / 255) * k));
-  }
-  col.needsUpdate = true;
-}
-let lastRing = '';
-window.modelRing = leds => {
-  const k = JSON.stringify(leds);
-  if (k === lastRing) return;
-  lastRing = k;
-  paintRing(leds);
-};
-window.modelRing([[0, 0, 0], [0, 0, 0], [0, 0, 0]]);
-
-// ---- размер и отрисовка ----
-function resize() {
-  const w = view.clientWidth, h = view.clientHeight;
-  if (!w || !h) return;
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-}
-new ResizeObserver(resize).observe(view);
-group.rotation.y = START_ANGLE;
-renderer.setAnimationLoop(() => {
-  if (document.hidden || !view.offsetParent) return;   // вкладка не видна — не греем GPU
-  controls.update();
-  renderer.render(scene, camera);
-});
-</script>
+<script src="static/vendor/qrcode.js"></script>
+<script src="static/vendor/xterm/xterm.js"></script>
+<script src="static/vendor/xterm/addon-fit.js"></script>
+<script type="importmap">{ "imports": { "three": "./static/vendor/three/three.module.js" } }</script>
+<script type="module" src="static/model.js"></script>
 </body>
 </html>

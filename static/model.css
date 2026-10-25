@@ -1,0 +1,5 @@
+.studio-view .studio-canvas{z-index:1;outline:none}
+.studio-error,.studio-caption{position:absolute;inset:45% 12px auto;text-align:center}
+#model-settings .set-head{padding:16px}#model-settings .set-item{padding:12px 16px}
+#model-settings select{background:var(--card,#222);color:var(--text,inherit);padding:8px;border:1px solid var(--line,#8885);border-radius:8px}
+#model-settings button{cursor:pointer}
