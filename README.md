@@ -81,12 +81,19 @@
 
 ### Windows — запускать, когда нужно
 
-1. Установите [Python](https://www.python.org/downloads/) и отметьте «Add python.exe to PATH».
-2. Скачайте проект: **Code → Download ZIP** (или со страницы релизов) и распакуйте.
-3. Скачайте [platform-tools для Windows](https://dl.google.com/android/repository/platform-tools-latest-windows.zip)
-   и положите папку `platform-tools` рядом с `server.py` (или добавьте её в `PATH`).
-4. По желанию: `winget install Gyan.FFmpeg` — для mp3/ogg и своих звуков.
-5. Запустите **`start.bat`**. При первом запуске он спросит IP колонки, запомнит его и откроет панель в браузере.
+1. Скачайте со страницы [Releases](https://github.com/dimap/yandex-lite2-web/releases/latest) архив
+   `…-windows-x64.zip` (для ARM-ноутбуков — `…-windows-arm64.zip`) и распакуйте в любую папку.
+2. Дважды щёлкните **`start.bat`**.
+
+Python в архиве уже есть. Остальное `start.bat` сделает сам. Если в системе нет adb или ffmpeg, он предложит скачать их
+в папку `runtime` рядом с панелью: platform-tools с сайта Google
+(~7 МБ) и по желанию ffmpeg (~110 МБ, нужен для mp3/ogg и своих звуков). В систему ничего не устанавливается,
+права администратора не нужны; чтобы убрать всё, достаточно удалить папку. При первом запуске панель спросит
+IP колонки, запомнит его и откроет браузер.
+
+Можно и без архива из Releases: **Code → Download ZIP** — тогда `start.bat` при необходимости скачает ещё и
+портативный Python с python.org (~11 МБ). Нужна Windows 10 (1803) или новее. Уже установленные Python 3.9+, adb (в `PATH` или папка `platform-tools`
+рядом с `server.py`) и ffmpeg `start.bat` найдёт и использует.
 
 ### Linux / macOS — запускать, когда нужно
 

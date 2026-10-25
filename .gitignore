@@ -13,3 +13,5 @@ platform-tools/
 .venv/
 .idea/
 .vscode/
+runtime/
+dist/
