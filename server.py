@@ -518,6 +518,53 @@ class Connection:
 
 DISPLAY_SCRIPT = "/tmp/webpanel_display.sh"
 DISPLAY_MODE = "/tmp/webpanel_display.mode"
+DISPLAY_SNAP = "/tmp/webpanel_display.snap"        # что было на дисплее до закреплённого режима
+DISPLAY_ONCE = "/tmp/webpanel_display.once"        # … и до «показать один раз»
+
+
+def clock_restore_sh():
+    """sh-функции для колонки: snap_save ФАЙЛ — запомнить дисплей и время; clock_restore ФАЙЛ — вернуть.
+
+    Просто записать снимок мало: если прошла минута, на нём уже неверное время, а Quasar перерисует часы
+    только при следующей смене минуты. Поэтому распознаём в снимке ЧЧ:ММ по сегментам, прибавляем
+    прошедшие минуты и рисуем текущее время с той же яркостью. Часовой пояс для этого не нужен.
+    Если в снимке не часы (свой текст, анимация), возвращаем его как есть.
+    """
+    digits = " ".join(f"{segs}) d={ch};;" for ch, segs in SEGMENTS.items() if ch.isdigit())
+    draw = " ".join(f"{ch}) S={segs};;" for ch, segs in SEGMENTS.items() if ch.isdigit())
+    return "\n".join([
+        f"snap_save() {{ {{ echo \"t $(date +%s)\"; for n in {' '.join(CLOCK_LEDS)}; do "
+        f"echo \"$n $(cat {LEDS}/plum:white:clock$n/brightness)\"; done; }} > \"$1\"; }}",
+        "clock_restore() {",
+        "  [ -f \"$1\" ] || return 0",
+        f"  while read n v; do [ \"$n\" = t ] || echo $v > {LEDS}/plum:white:clock$n/brightness; done < \"$1\"",
+        "  t0=$(sed -n 's/^t //p' \"$1\"); [ -n \"$t0\" ] || return 0",
+        "  el=$(( $(date +%s) / 60 - t0 / 60 )); [ $el -gt 0 ] || return 0",
+        "  hm=''; B=0",
+        "  for p in 0 1 2 3; do",
+        "    s=''",
+        "    for g in A B C D E F G; do",
+        "      v=$(sed -n \"s/^$g$p //p\" \"$1\")",
+        "      [ \"${v:-0}\" -gt 0 ] && { s=\"$s$g\"; [ $v -gt $B ] && B=$v; }",
+        "    done",
+        f"    case \"$s\" in {digits} '') d=x;; *) return 0;; esac",
+        "    hm=\"$hm$d\"",
+        "  done",
+        "  h=${hm%??}; m=${hm#??}; lead=0",
+        "  case \"$h\" in x?) lead=1; h=${h#x};; *x*) return 0;; esac",
+        "  case \"$m\" in *x*) return 0;; esac",
+        "  h=${h#0}; m=${m#0}",
+        "  tot=$(( (${h:-0} * 60 + ${m:-0} + el) % 1440 ))",
+        "  new=$(printf '%02d%02d' $((tot / 60)) $((tot % 60)))",
+        "  [ $lead = 1 ] && [ $((tot / 60)) -lt 10 ] && new=\"x${new#0}\"",
+        "  p=0",
+        "  for c in $(echo \"$new\" | sed 's/./& /g'); do",
+        f"    case \"$c\" in {draw} *) S='';; esac",
+        f"    for g in A B C D E F G; do case \"$S\" in *$g*) v=$B;; *) v=0;; esac; echo $v > {LEDS}/plum:white:clock$g$p/brightness; done",
+        "    p=$((p + 1))",
+        "  done",
+        "}",
+    ])
 TIMER_SOUND = "/tmp/webpanel_timer.wav"   # штатный звук таймера Quasar, перекодированный для aplay
 
 
@@ -528,13 +575,14 @@ def display_script(mode, frame=None, seconds=0, bright=160):
 
     frame — свой кадр (36 значений); date — ДД.ММ; temp — температура процессора °C; timer — отсчёт мм:сс.
     """
-    snap = "/tmp/webpanel_display.snap"
     lines = [
         "#!/bin/sh",
         f"L={LEDS}/plum:white:clock",
         f"B={bright}",
-        f"for n in {' '.join(CLOCK_LEDS)}; do echo \"$n $(cat $L$n/brightness)\"; done > {snap}",
-        f"restore() {{ while read n v; do echo $v > $L$n/brightness; done < {snap}; rm -f {snap} {DISPLAY_MODE}; exit 0; }}",
+        clock_restore_sh(),
+        # если перед этим был «один раз», в его снимке — настоящие часы; иначе снимаем сейчас
+        f"if [ -f {DISPLAY_ONCE} ]; then mv {DISPLAY_ONCE} {DISPLAY_SNAP}; else snap_save {DISPLAY_SNAP}; fi",
+        f"restore() {{ clock_restore {DISPLAY_SNAP}; rm -f {DISPLAY_SNAP} {DISPLAY_MODE}; exit 0; }}",
         "trap restore TERM INT",
     ]
     if mode == "frame":
@@ -1064,12 +1112,19 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         if r.returncode == 0:
             self.adb.push(dst, TIMER_SOUND)
 
+    @staticmethod
+    def _once_snapshot():
+        """Перед «показать один раз» запоминаем дисплей (если снимка ещё нет — повторные «один раз» не затирают часы)."""
+        return f"{clock_restore_sh()}\n[ -f {DISPLAY_ONCE} ] || snap_save {DISPLAY_ONCE}\n"
+
     def display_stop(self):
         # SIGTERM — скрипт сам вернёт прежнее содержимое дисплея. Ждём, пока он завершится: иначе следующий
         # режим успеет запомнить себе «прежний» дисплей раньше, чем тот восстановлен.
         self.adb.shell("f=/tmp/webpanel_display.sd; if [ -f $f ]; then p=$(cat $f); kill $p 2>/dev/null; "
                        "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do kill -0 $p 2>/dev/null || break; "
                        "usleep 100000; done; rm -f $f; fi; true")
+        # «показать один раз» скрипта не запускает — возвращаем по его снимку
+        self.adb.shell(f"{clock_restore_sh()}\nclock_restore {DISPLAY_ONCE}; rm -f {DISPLAY_ONCE}; true")
         return {"mode": None}
 
     def clock_frames(self, name):
@@ -1109,8 +1164,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 raise AdbError(f"нужно {len(CLOCK_LEDS)} значений")
             self.stop_pattern("clock")
             self.display_stop()
-            self.adb.shell("; ".join(f"echo {val} > {LEDS}/plum:white:clock{n}/brightness"
-                                     for n, val in zip(CLOCK_LEDS, v)))
+            self.adb.shell(self._once_snapshot() + "; ".join(f"echo {val} > {LEDS}/plum:white:clock{n}/brightness"
+                                                             for n, val in zip(CLOCK_LEDS, v)))
             return {"ok": True}
         text = str(data.get("text", "")).upper()
         bright = max(0, min(255, int(data.get("brightness", 160))))
@@ -1130,7 +1185,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         for extra in ("DEGREE", "DH", "DL", "DM"):
             v = bright if data.get(extra.lower()) else 0
             cmds.append(f"echo {v} > {LEDS}/plum:white:clock{extra}/brightness")
-        self.adb.shell("; ".join(cmds))
+        self.adb.shell(self._once_snapshot() + "; ".join(cmds))
         return {"ok": True}
 
     def clock_state(self):
