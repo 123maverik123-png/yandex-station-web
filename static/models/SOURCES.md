@@ -15,6 +15,7 @@ Mini 3 has a lower 102 × 60.5 mm body and central indicator; Mini 3 Pro has a
 102 × 71 mm body and perimeter light strip. Details and colours are approximate.
 Product photographs are not bundled or used as textures. All models use lightweight
 materials with no shadows, ground plane, bump mapping or physical materials. Lite 2
-keeps the original main geometry, materials and lighting; optional controls live in Settings. Three.js and all required assets are local.
+keeps the original main geometry, materials and lighting; colour, auto-rotation and view reset live in
+«Настроить» on the «Обзор» page. Three.js and all required assets are local.
 
 The preview page uses explicit demo clock/LED data. This is not a hardware test.

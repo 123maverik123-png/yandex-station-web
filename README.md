@@ -244,6 +244,12 @@ python3 multi.py --config speakers.json --data-dir data/multi --port 8765
 - 3D-модель колонки — [«Yandex Station Lite 2 | Яндекс станция лайт 2»](https://www.thingiverse.com/thing:7349611)
   от **vanyabeat**, лицензия [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Файлы в `3d/`
   не изменены, подробнее — [3d/README.md](3d/README.md).
+- 3D-модели Станции 2, Мини 3 и Мини 3 Про — собственные приблизительные реконструкции по общедоступным фотографиям
+  производителя от **[chelaxian](https://github.com/chelaxian)** (`static/model-studio.js`), лицензия MIT, как у кода
+  панели. Это не официальные чертежи и не скачанные модели; фотографии в проект не входят —
+  [источники](static/models/SOURCES.md).
+- Поддержка других моделей, профили колонок и единая панель для нескольких колонок —
+  [PR №1](https://github.com/dimap/yandex-station-web/pull/1) от **[chelaxian](https://github.com/chelaxian)**.
 - [three.js](https://threejs.org) (MIT), [xterm.js](https://xtermjs.org) (MIT),
   [QR Code Generator](https://github.com/kazuhikoarase/qrcode-generator) Kazuhiko Arase (MIT) — в `static/vendor`.
 - Тексты песен — [LRCLIB](https://lrclib.net); пакеты — [yam / yapkg](https://github.com/nyakokitsu/yam).
