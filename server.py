@@ -869,6 +869,7 @@ class Panel:
     def status(self):
         script = r"""
 echo "hostname=$(hostname)"
+echo "hardware_model=$(cat /proc/device-tree/model 2>/dev/null | tr '\000' ' ')"
 echo "uptime=$(cut -d' ' -f1 /proc/uptime)"
 echo "load=$(cut -d' ' -f1-3 /proc/loadavg)"
 awk '/MemTotal/{print "mem_total="$2} /MemAvailable/{print "mem_avail="$2}' /proc/meminfo

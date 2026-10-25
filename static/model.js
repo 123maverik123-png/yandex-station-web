@@ -1,4 +1,5 @@
-// Choose the renderer after login. Keep the original Lite 2 mesh and hardware defaults.
+// Choose the visual model from the device; hardware capabilities remain explicit.
+import {rendererProfile} from './renderer-profile.js';
 async function loadProfile(){
   for(;;){
     const auth=await fetch('/api/panel-auth').then(r=>r.json()).catch(()=>null);
@@ -9,8 +10,27 @@ async function loadProfile(){
   }
 }
 const profile=await loadProfile();
-document.title=profile.name+' — панель';
-document.getElementById('model-name').textContent=profile.name;
+const view=document.getElementById('model-view');
+const loading=document.createElement('p');loading.className='studio-caption';loading.textContent='Ожидаю данные колонки для выбора 3D-модели…';view.append(loading);
+let status;
+for(;;){
+  try{
+    const response=await fetch('/api/status');
+    if(response.ok){const value=await response.json();if(value.hostname||value.hardware_model){status=value;break;}}
+  }catch{}
+  await new Promise(resolve=>setTimeout(resolve,2000));
+}
+const visual=rendererProfile(profile,status);
+loading.remove();
+window.__deviceColor=status.color||window.__deviceColor;
+document.title=visual.name+' — панель';
+document.getElementById('model-name').textContent=visual.name;
+view.dataset.hardwareProfile=profile.id;
+if(visual.id!==profile.id){
+  const note=document.createElement('p');note.className='hint';note.id='model-profile-note';
+  note.textContent='3D: '+visual.name+'. Профиль управления: '+profile.name+'. Для аппаратных функций выберите --model '+visual.id+' при запуске сервера.';
+  view.after(note);
+}
 const hide=element=>element?.setAttribute('data-profile-hidden','');
 if(!profile.clock)hide(document.querySelector('[data-widget="clock"]'));
 if(!profile.light)hide(document.querySelector('[data-widget="light"]'));
@@ -20,5 +40,6 @@ if(profile.id!=='lite2'){
   hide(document.getElementById('pat-play'));
   document.querySelectorAll('[data-k="clock"]').forEach(e=>{if(!profile.clock)hide(e);});
   document.querySelector('[data-widget="light"] .hint').textContent=profile.light_note;
-  const {createModel}=await import('./model-studio.js');createModel(profile);
-}else await import('./model-lite2.js');
+}
+if(visual.id==='lite2')await import('./model-lite2.js');
+else{const {createModel}=await import('./model-studio.js');createModel(visual);}
