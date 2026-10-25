@@ -2749,6 +2749,44 @@ class PanelUpdater:
                     os.chmod(dst, 0o755)
 
 
+# Платформа в device-tree (compatible «yandex,plum», модель «Yandex Plum EVT2») → профиль колонки.
+# Имя хоста тут не годится: владелец мог его переименовать.
+PLATFORM_MODELS = {"plum": "lite2", "pickle": "mini3pro", "bergamot": "mini3", "yandexmidi": "station2"}
+
+
+def detect_model(adb):
+    """(профиль, платформа) подключённой колонки или (None, None), если платформа незнакомая."""
+    out, _, _ = adb.shell("cat /proc/device-tree/compatible /proc/device-tree/model 2>/dev/null | tr '\\000' ' '; true",
+                          check=False, timeout=15)
+    text = strip_ansi(out).lower()
+    for platform, model in PLATFORM_MODELS.items():
+        if re.search(rf"(^|[^a-z0-9]){platform}([^a-z0-9]|$)", text):
+            return model, platform
+    return None, None
+
+
+def watch_model(adb, conn, active):
+    """--model auto: как только колонка на связи, узнаём её модель и запоминаем. Если запущены не с тем
+    профилем (первый запуск, другая колонка), перезапускаемся с правильным — один раз, дальше он запомнен."""
+    import profiles
+    while not conn.online:
+        time.sleep(1)
+    try:
+        model, platform = detect_model(adb)
+    except Exception as e:  # noqa: BLE001
+        print(f"Не удалось определить модель колонки: {e}")
+        return
+    if not model:
+        print(f"Модель колонки не распознана — остаётся профиль {active}. Его можно задать явно: --model")
+        return
+    settings = load_settings()
+    if settings.get("model") != model:
+        save_settings({**settings, "model": model})
+    if model != active:
+        print(f"Подключена {profiles.PROFILES[model]['name']} (платформа {platform}) — перезапуск с её профилем")
+        restart_self()
+
+
 def restart_self():
     """Перезапуск сервера тем же интерпретатором и с теми же аргументами (без --open: браузер уже открыт)."""
     args = [a for a in sys.argv if a != "--open"]
@@ -2812,9 +2850,9 @@ def main():
     ap.add_argument("--data-dir", default=env("PANEL_DATA_DIR"),
                     help="где хранить токен, пароль, сертификаты и историю (по умолчанию — рядом с server.py) [PANEL_DATA_DIR]")
     ap.add_argument("--open", action="store_true", help="открыть панель в браузере после запуска")
-    ap.add_argument("--model", choices=profiles.PROFILES, default=env("PANEL_MODEL", "lite2"), help="hardware profile [PANEL_MODEL]")
+    ap.add_argument("--model", choices=[*profiles.PROFILES, "auto"], default=env("PANEL_MODEL", "auto"),
+                    help="профиль колонки: lite2, mini3pro, mini3, station2 или auto — определить по плате [PANEL_MODEL]")
     args = ap.parse_args()
-    profiles.install(sys.modules[__name__], args.model)
     for stream in (sys.stdout, sys.stderr):   # консоль Windows: русский текст не должен ронять сервер
         try:
             stream.reconfigure(errors="replace", line_buffering=True)
@@ -2833,6 +2871,12 @@ def main():
             device = None
     if device and device != settings.get("device"):
         save_settings({**settings, "device": device})
+        settings = load_settings()
+
+    # Профиль: явный --model или auto — запомненный (до первого подключения — Лайт 2), сверка после подключения.
+    auto = args.model == "auto"
+    model = (settings.get("model") if settings.get("model") in profiles.PROFILES else "lite2") if auto else args.model
+    profiles.install(sys.modules[__name__], model, auto=auto)
 
     adb = Adb(find_adb(), device)
     panel = Panel(adb)
@@ -2845,6 +2889,9 @@ def main():
     panel.metrics = Metrics(adb, panel.conn)
     threading.Thread(target=panel.metrics.run, daemon=True, name="metrics").start()
     threading.Thread(target=panel.conn.run, daemon=True, name="adb-connection").start()
+    # в режиме нескольких колонок (multi.py) профиль задан явно: перезапуск сменил бы порт процесса
+    if auto and not os.environ.get("PANEL_GATEWAY_SECRET"):
+        threading.Thread(target=watch_model, args=(adb, panel.conn, model), daemon=True, name="model").start()
     Handler.panel = panel
     Handler.access = access.PanelAccess(PANEL_AUTH_FILE)
     Handler.updater = PanelUpdater()
@@ -2864,7 +2911,7 @@ def main():
     if ready:
         Path(ready).write_text(json.dumps({"port": args.port}), encoding="utf8")
     shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
-    print(f"Панель {VERSION}")
+    print(f"Панель {VERSION} · профиль {model}{' (авто)' if auto else ''}")
     print(f"adb: {adb.adb}  колонка: {device or 'по USB / единственное устройство adb'}  данные: {DATA_DIR}")
     print(f"Панель: http://{shown}:{args.port}/")
     if args.https_port:

@@ -54,8 +54,8 @@ def mini3pro_ring_script(rgb=None, leds='/sys/class/leds', state='/tmp/webpanel_
     return '\n'.join(lines)
 
 
-def install(s, model='lite2'):
-    profile = dict(PROFILES[model], id=model)
+def install(s, model='lite2', auto=False):
+    profile = dict(PROFILES[model], id=model, auto=auto)
     profile['light_note'] = ('Подсветка этой модели ещё не проверена.' if not profile['light'] else
                              'Анимация Алисы может заменить выбранный цвет.')
     s.GLAGOL_PLATFORM = profile['platform']
