@@ -230,6 +230,10 @@
   .wbar button:hover { background: rgba(255,255,255,.22); }
   [data-widget].dragging { opacity: .35; }
   .ov-editbar { border-color: var(--accent); }
+  .ov-opts > .set-item:first-child { border-top: 0; }
+  .ov-opts .set-label small a { color: var(--accent-ink); }
+  #model-settings { display: contents; }
+  #model-settings[hidden] { display: none; }
 
   /* ссылки на Яндекс Музыку: выглядят как обычный текст, подчёркиваются при наведении */
   a.ym { color: inherit; text-decoration: none; border-radius: 4px; }
@@ -680,11 +684,17 @@
 
     <section class="card ov-editbar" id="ov-editbar" hidden>
       <div class="card-head">
-        <h2>Раскладка «Обзора»</h2>
-        <div class="actions"><button class="btn sm" id="ov-reset">По умолчанию</button><button class="btn sm primary" id="ov-done">Готово</button></div>
+        <h2>Настройка «Обзора»</h2>
+        <div class="actions"><button class="btn sm" id="ov-reset">Виджеты по умолчанию</button><button class="btn sm primary" id="ov-done">Готово</button></div>
       </div>
-      <p class="hint">Перетаскивайте виджеты за ⠿ или двигайте стрелками. Тема, пароль, резервная копия и прочее — во вкладке <a href="#settings">«Настройки»</a>.</p>
-      <div class="chips" id="ov-hidden-list"></div>
+      <div class="ov-opts">
+        <label class="set-item"><div class="set-label"><b>Визуализатор за 3D-моделью</b><small>Спектр из символов за моделью, пока колонка играет музыку (нужен вход в Яндекс)</small></div>
+          <div class="set-ctl"><input type="checkbox" class="switch" id="set-viz"></div></label>
+        <div id="model-settings" hidden></div>
+        <div class="set-item set-top"><div class="set-label"><b>Виджеты</b><small>Перетаскивайте за ⠿ или двигайте стрелками. Убранные можно вернуть отсюда.
+          Тема, пароль, резервная копия — во вкладке <a href="#settings">«Настройки»</a></small></div>
+          <div class="set-ctl"><div class="chips" id="ov-hidden-list"></div></div></div>
+      </div>
     </section>
 
     <div class="wzone wz-top" id="wz-top">
@@ -859,7 +869,6 @@
     <header class="page-head"><div><h1>Настройки</h1><div class="sub">Оформление, доступ к панели и то, что панель хранит на колонке</div></div></header>
     <div class="settings">
 
-      <section class="card set-card" id="model-settings" hidden></section>
 
       <section class="card set-card">
         <div class="set-head"><span class="set-ic"><svg width="18" height="18" aria-hidden="true"><use href="#i-palette"/></svg></span><div><h2>Оформление</h2><p>Хранится в этом браузере и попадает в резервную копию</p></div></div>
@@ -875,12 +884,10 @@
             <button class="sw" style="--c:#E0457B" data-v="#E0457B" aria-label="Розовый"></button>
             <button class="sw" style="--c:#52525B" data-v="#52525B" aria-label="Графит"></button>
           </div></div></div>
-        <label class="set-item"><div class="set-label"><b>Визуализатор за 3D-моделью</b><small>Спектр из символов за моделью колонки на «Обзоре», пока играет музыка</small></div>
-          <div class="set-ctl"><input type="checkbox" class="switch" id="set-viz"></div></label>
-        <label class="set-item"><div class="set-label"><b>Плеер внизу страницы</b><small>Мини-плеер на всех вкладках, кроме «Плеера»</small></div>
+        <label class="set-item"><div class="set-label"><b>Плеер внизу страницы</b><small>Мини-плеер на всех вкладках, кроме «Плеера». Появляется после входа в Яндекс</small></div>
           <div class="set-ctl"><input type="checkbox" class="switch" id="set-minibar"></div></label>
-        <div class="set-item"><div class="set-label"><b>Раскладка «Обзора»</b><small>Порядок виджетов и какие из них показывать</small></div>
-          <div class="set-ctl"><button class="btn sm" id="set-layout-edit">Настроить виджеты</button><button class="btn sm" id="set-layout-reset">По умолчанию</button></div></div>
+        <div class="set-item"><div class="set-label"><b>«Обзор»</b><small>Виджеты, 3D-модель и визуализатор</small></div>
+          <div class="set-ctl"><button class="btn sm" id="set-layout-edit">Настроить «Обзор»</button><button class="btn sm" id="set-layout-reset">По умолчанию</button></div></div>
       </section>
 
       <section class="card set-card">
