@@ -147,6 +147,13 @@ def alarm_script():
     return ALARM_SRC.read_bytes().replace(b"\r\n", b"\n")
 ALARM_MODES = ("sound", "wave", "show", "music", "text")
 ALARM_DEFAULT_SOUND = "common/timer.wav"
+# Блокировка аналитики: свой /etc/hosts (копия системного + адреса аналитики на 127.0.0.1) подключается
+# поверх системного через bind mount. Системный раздел не меняется; выключить — просто отмонтировать.
+HOSTS_TARGET = "/etc/hosts"
+HOSTS_CUSTOM = f"{WEB_DIR}/hosts"
+HOSTS_MARK = "# webpanel: блокировка аналитики Яндекса"
+ANALYTICS_HOSTS = ("clck.yandex.net", "report.appmetrica.yandex.net", "appmetrica.yandex.net", "metrica.yandex.net")
+
 BOOT_HOOK_SCRIPT = (
     "#!/bin/sh\n"
     "# Веб-панель: своя заставка и звук запуска. Вызывается из rootkeeper.sh до того, как Quasar\n"
@@ -155,6 +162,7 @@ BOOT_HOOK_SCRIPT = (
     "bind() { [ -f \"$1\" ] && [ -f \"$2\" ] && ! grep -q \" $2 \" /proc/mounts && mount --bind \"$1\" \"$2\"; }\n"
     f"bind {BOOT_CUSTOM} {BOOT_TARGET}\n"
     f"bind {SOUND_CUSTOM} {SOUND_TARGET}\n"
+    f"bind {HOSTS_CUSTOM} {HOSTS_TARGET}\n"
     # yamd сам после загрузки не стартует; start-stop-daemon -b — чтобы не держать rootkeeper.sh
     f"[ -f {YAM_AUTOSTART} ] && [ -x {YAMD} ] && ! pidof yamd >/dev/null && "
     f"start-stop-daemon -S -b -m -p /tmp/webpanel_yamd.sd -x /bin/sh -- -c {shlex.quote(YAMD_CMD)}\n"
@@ -1271,7 +1279,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         # Хук нужен, пока есть хоть что-то своё; иначе возвращаем rootkeeper.sh к исходному виду.
         self.adb.shell(
             f"if [ ! -f {BOOT_CUSTOM} ] && [ ! -f {SOUND_CUSTOM} ] && [ ! -f {BOOT_ALWAYS} ] && [ ! -f {YAM_AUTOSTART} ] "
-            f"&& [ ! -f {ALARM_CONF} ]; then "
+            f"&& [ ! -f {ALARM_CONF} ] && [ ! -f {HOSTS_CUSTOM} ]; then "
             f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; rm -f {BOOT_HOOK}; fi; true")
 
     def _install_override(self, data, custom, target, orig):
@@ -1343,6 +1351,38 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     _registry = (0, None)
 
     # ---------- что панель оставила на колонке ----------
+    # ---------- блокировка аналитики ----------
+    def privacy_status(self):
+        out, _, _ = self.adb.shell(
+            f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && echo mounted; [ -f {HOSTS_CUSTOM} ] && echo custom; "
+            # проверка на деле: куда сейчас ведёт адрес аналитики
+            f"ping -c 1 -W 1 {ANALYTICS_HOSTS[0]} 2>&1 | head -n 1; true", check=False, timeout=15)
+        out = strip_ansi(out)
+        return {"enabled": "mounted" in out and "custom" in out, "hosts": list(ANALYTICS_HOSTS),
+                "blocked": f"({ANALYTICS_HOSTS[0]}" not in out and "127.0.0.1" in out}
+
+    def privacy_set(self, enabled):
+        if not enabled:
+            self.adb.shell(f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && {{ umount {HOSTS_TARGET} || umount -l {HOSTS_TARGET}; }}; "
+                           f"rm -f {HOSTS_CUSTOM}; true")
+            self._drop_hook_if_unused()
+            return self.privacy_status()
+        # основа — настоящий системный /etc/hosts (если наш уже подключён, сначала снимаем его)
+        self.adb.shell(f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && umount {HOSTS_TARGET}; true")
+        base = strip_ansi(self.adb.read_bytes(HOSTS_TARGET).decode("utf-8", "replace")).replace("\r\n", "\n")
+        lines = [ln for ln in base.splitlines() if ln.strip()]
+        text = "\n".join(lines + ["", HOSTS_MARK] + [f"127.0.0.1\t{h}" for h in ANALYTICS_HOSTS]) + "\n"
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "hosts"
+            write_unix(f, text)
+            self.adb.shell(f"mkdir -p {WEB_DIR}")
+            self.adb.push(f, HOSTS_CUSTOM)
+        self._ensure_hook()
+        _, err, rc = self.adb.shell(f"chmod 644 {HOSTS_CUSTOM}; mount --bind {HOSTS_CUSTOM} {HOSTS_TARGET}", check=False)
+        if rc:
+            raise AdbError("не удалось подключить свой /etc/hosts: " + strip_ansi(err).strip()[-200:])
+        return self.privacy_status()
+
     def footprint(self):
         """Всё постоянное, что панель ставит на колонку. Временное (/tmp) исчезает само после перезагрузки."""
         q = lambda path: f"[ -e {path} ] && echo 1 || echo 0"
@@ -1355,9 +1395,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"grep -q '{HOOK_MARK}' {ROOTKEEPER} 2>/dev/null && echo 1 || echo 0",
             f"[ -d {WEB_DIR} ] && du -sk {WEB_DIR} | cut -f1 || echo 0",
             f"[ -d {ALARM_DIR} ] && du -sk {ALARM_DIR} | cut -f1 || echo 0",
-            q(YAMD)])
+            q(YAMD),
+            f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && echo 1 || echo 0", q(HOSTS_CUSTOM)])
         v = self.adb.shell(cmd, check=False)[0].split()
-        v = (v + ["0"] * 15)[:15]
+        v = (v + ["0"] * 17)[:17]
         b = [x == "1" for x in v]
         n = lambda x: int(x) if x.isdigit() else 0
         items = [
@@ -1365,6 +1406,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             {"key": "sound", "name": "Свой звук запуска", "on": b[2] or b[3]},
             {"key": "always", "name": "Заставка при каждой загрузке", "on": b[4]},
             {"key": "yamd", "name": "Автозапуск yamd", "on": b[5]},
+            {"key": "privacy", "name": "Блокировка аналитики", "on": b[15] or b[16], "detail": "свой /etc/hosts"},
             {"key": "alarm", "name": "Будильник", "on": b[6], "detail": f"будильников: {n(v[7])}", "size_kb": n(v[13])},
             {"key": "backup", "name": "Копии оригиналов", "on": b[8] or b[9] or b[10],
              "detail": "заставка, звук запуска, rootkeeper.sh — на случай отката"},
@@ -1381,6 +1423,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"start-stop-daemon -K -p {ALARM_SD} 2>/dev/null; killall aplay 2>/dev/null; "
             f"grep -q ' {BOOT_TARGET} ' /proc/mounts && {{ umount {BOOT_TARGET} || umount -l {BOOT_TARGET}; }}; "
             f"grep -q ' {SOUND_TARGET} ' /proc/mounts && {{ umount {SOUND_TARGET} || umount -l {SOUND_TARGET}; }}; "
+            f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && {{ umount {HOSTS_TARGET} || umount -l {HOSTS_TARGET}; }}; "
             f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; true", check=False)
         # Копию rootkeeper.sh удаляем, только если без нашей строки файл совпал с ней: значит, других правок не было.
         out, _, _ = self.adb.shell(
@@ -1398,7 +1441,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     # Что берём из /data/quasar/webpanel: только своё. Копии оригиналов не берём — на другой прошивке они
     # были бы чужими; при восстановлении они снимаются заново с этой колонки. Хук и скрипт будильника — тоже
     # не берём: ставим текущую версию из панели.
-    BACKUP_FILES = re.compile(r"(boot\.binscled\.zst|boot_sound\.wav|boot_every_time|yamd_autostart|"
+    BACKUP_FILES = re.compile(r"(boot\.binscled\.zst|boot_sound\.wav|boot_every_time|yamd_autostart|hosts|"
                               r"alarm/alarms\.conf|alarm/default\.wav|alarm/[su]_[0-9a-f]{10}\.wav)")
     BACKUP_LIMIT = 200 * 1024 * 1024
 
@@ -1462,6 +1505,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         if "boot_every_time" in files:
             self.boot_always(True)
             report.append("заставка при каждой загрузке")
+        if "hosts" in files:
+            # файл из копии не ставим: в нём имя хоста той колонки — собираем заново из /etc/hosts этой
+            self.privacy_set(True)
+            report.append("блокировка аналитики")
         if "yamd_autostart" in files:
             if self.yam_status().get("installed"):
                 self.yam_autostart(True)
@@ -2534,6 +2581,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/yam/version": lambda: p.yam_version(q.get("refresh") == "1"),
             "/api/alarms": p.alarms,
             "/api/footprint": p.footprint,
+            "/api/privacy": p.privacy_status,
             "/api/panel/version": lambda: self.updater.check(q.get("refresh") == "1"),
             "/api/bt": p.bt_state,
             "/api/metrics": lambda: p.metrics.get(q.get("range", 3600)),
@@ -2640,6 +2688,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/alarms/cmd": lambda: p.alarm_cmd(d.get("action")),
             "/api/alarms/install": p.alarm_install,
             "/api/footprint/reset": p.footprint_reset,
+            "/api/privacy": lambda: p.privacy_set(bool(d.get("enabled"))),
             "/api/panel/update": lambda: self.updater.update(),
             "/api/metrics/clear": lambda: p.metrics.clear(),
             "/api/alarms/uninstall": p.alarm_uninstall,

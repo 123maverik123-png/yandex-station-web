@@ -34,6 +34,7 @@ if(visual.id!==profile.id){
 const hide=element=>element?.setAttribute('data-profile-hidden','');
 if(!profile.clock)hide(document.querySelector('[data-widget="clock"]'));
 if(!profile.light)hide(document.querySelector('[data-widget="light"]'));
+if(!profile.boot)hide(document.getElementById('privacy-row'));
 if(!profile.boot){hide(document.querySelector('a[href="#boot"]'));const tab=document.querySelector('#tab-boot');for(const child of tab.children)hide(child);tab.insertAdjacentHTML('afterbegin','<p class="card">Редактор запуска не поддерживается выбранным профилем.</p>');}
 if(!profile.alarms){hide(document.querySelector('a[href="#alarm"]'));const tab=document.querySelector('#tab-alarm');for(const child of tab.children)hide(child);tab.insertAdjacentHTML('afterbegin','<p class="card">Автозапуск будильника этой модели ещё не поддерживается. Существующие будильники не изменяются.</p>');}
 if(profile.id!=='lite2'){
