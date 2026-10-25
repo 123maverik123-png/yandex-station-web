@@ -109,16 +109,43 @@ cd yandex-lite2-web
 
 ### Docker — постоянно на сервере
 
+Готовый образ: **`ghcr.io/dimap/yandex-lite2-web`** (amd64, arm64 и armv7 — подойдёт и Raspberry Pi).
+В нём уже есть adb, ffmpeg и openssl, клонировать репозиторий не нужно.
+
+Одной командой (вместо `192.168.1.50` — IP колонки):
+
 ```sh
-git clone https://github.com/dimap/yandex-lite2-web.git
-cd yandex-lite2-web
-# в docker-compose.yml укажите IP колонки в ADB_SERIAL
-docker compose up -d
+docker run -d --name yandex-lite2-web --network host --restart unless-stopped \
+  -e ADB_SERIAL=192.168.1.50 -v "$PWD/data:/data" \
+  ghcr.io/dimap/yandex-lite2-web:latest
+```
+
+Или через Docker Compose — сохраните как `docker-compose.yml` и запустите `docker compose up -d`:
+
+```yaml
+services:
+  panel:
+    image: ghcr.io/dimap/yandex-lite2-web:latest
+    container_name: yandex-lite2-web
+    network_mode: host               # сертификат HTTPS выпишется на адрес сервера в сети
+    environment:
+      ADB_SERIAL: "192.168.1.50"     # IP колонки (порт 5555 подставится сам)
+      # PANEL_PORT: "8765"
+      # PANEL_HTTPS_PORT: "8766"     # 0 — без HTTPS
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
 ```
 
 Панель: `http://<адрес сервера>:8765/`. Всё своё (вход в Яндекс, пароль, сертификаты, история графиков,
-ключ adb) хранится в `./data`. Образ собирается для amd64, arm64 и armv7 (Raspberry Pi) и публикуется в
-`ghcr.io/dimap/yandex-lite2-web`; собрать самому — раскомментируйте `build: .` в `docker-compose.yml`.
+ключ adb) хранится в `./data` и переживает обновления.
+
+- **Обновить:** `docker compose pull && docker compose up -d` (или `docker pull` и пересоздать контейнер).
+- **Версии:** `latest` — последняя из ветки `main`, `0.1.0` и т. д. — конкретный релиз.
+- **Без `network_mode: host`** (Docker Desktop на Windows/macOS) — пробросьте порты `-p 8765:8765 -p 8766:8766`;
+  панель работает так же, только HTTPS-сертификат будет выписан на адрес контейнера.
+- **Собрать образ самому:** склонируйте репозиторий и запустите `docker compose up -d --build`
+  с `build: .` вместо `image:` в `docker-compose.yml` из репозитория.
 
 > В Docker панель открыта для всей локальной сети — **задайте пароль** во вкладке «Настройки» → «Доступ».
 
