@@ -1158,6 +1158,11 @@
         </div>
       </div>
       <p class="hint" id="yam-off" hidden>Демон не работает — без него устанавливать и запускать пакеты нельзя.</p>
+      <div class="set-item" id="yam-ver-row">
+        <div class="set-label"><b>Версия</b><small id="yam-ver">проверяем…</small></div>
+        <div class="set-ctl"><a class="btn sm" id="yam-notes" target="_blank" rel="noopener" hidden>Что нового ↗</a>
+          <button class="btn sm primary" id="yam-update" hidden>Обновить yamd</button></div>
+      </div>
       <label class="toggle"><span>Запускать yamd при загрузке колонки</span>
         <input type="checkbox" id="yam-autostart"></label>
     </section>
@@ -2511,6 +2516,7 @@ async function loadYam() {
   $('#yam-on').hidden = !st.running;
   $('#yam-web').hidden = !(st.running && st.web_url);
   if (st.web_url) $('#yam-web').href = st.web_url;
+  loadYamVersion();          // GitHub может отвечать долго — версию дорисуем отдельно
   if (!st.running) return;
   const [plugins, reg, settings] = await Promise.all([
     api('/api/yam/plugins').catch(e => (toast(e.message, true), [])),
@@ -2522,16 +2528,47 @@ async function loadYam() {
   renderYam();
 }
 const yamCall = (btn, body, msg) => act(btn, async () => { await api('/api/yam/action', body); await loadYam(); }, msg);
+// Сравнение версий вида 1.2.10 (и v-префикса): «1.2.10» новее «1.2.9», «1.0.0-beta» старше «1.0.0».
+function vcmp(a, b) {
+  const [ma, pa = ''] = String(a || '').replace(/^v/, '').split('-'), [mb, pb = ''] = String(b || '').replace(/^v/, '').split('-');
+  const xa = ma.split('.'), xb = mb.split('.');
+  for (let i = 0; i < Math.max(xa.length, xb.length); i++) {
+    const d = (+xa[i] || 0) - (+xb[i] || 0);
+    if (d) return Math.sign(d);
+  }
+  if (pa === pb) return 0;
+  return !pa ? 1 : !pb ? -1 : Math.sign(pa.localeCompare(pb));   // финальная версия новее предварительной
+}
+// Самая новая версия каждого пакета в реестре
+const yamLatest = () => yam.registry.reduce((m, p) => (!m[p.id] || vcmp(p.version, m[p.id].version) > 0 ? { ...m, [p.id]: p } : m), {});
+async function loadYamVersion(refresh) {
+  $('#yam-ver').textContent = 'проверяем…';
+  $('#yam-update').hidden = $('#yam-notes').hidden = true;
+  let v;
+  try { v = await api('/api/yam/version' + (refresh ? '?refresh=1' : '')); } catch (e) { $('#yam-ver').textContent = e.message; return; }
+  const date = d => d ? ' от ' + new Date(d).toLocaleDateString('ru-RU') : '';
+  $('#yam-ver').textContent = v.error ? v.error
+    : !v.installed ? `сборка не из релизов yam (sha256 ${v.sha}…), последний релиз — ${v.latest || '—'}`
+    : v.update ? `установлена ${v.installed}${date(v.installed_date)}, доступна ${v.latest}${date(v.latest_date)}`
+    : `${v.installed} — последняя`;
+  $('#yam-ver').classList.toggle('warn', !!v.update);
+  $('#yam-update').hidden = !v.update;
+  if (v.latest_url) { $('#yam-notes').href = v.latest_url; $('#yam-notes').hidden = false; }
+}
 function renderYam() {
   const inst = Object.fromEntries(yam.plugins.map(p => [p.manifest.id, p]));
-  $('#yam-count').textContent = yam.plugins.length ? `${yam.plugins.length} шт.` : '';
+  const latest = yamLatest();
+  const newer = m => latest[m.id] && vcmp(latest[m.id].version, m.version) > 0 ? latest[m.id] : null;
+  const updates = yam.plugins.filter(p => newer(p.manifest)).length;
+  $('#yam-count').textContent = yam.plugins.length ? `${yam.plugins.length} шт.` + (updates ? ` · обновлений: ${updates}` : '') : '';
   $('#yam-installed').innerHTML = yam.plugins.length ? yam.plugins.map(p => {
     const m = p.manifest, kind = `${m.launch?.kind || 'lua'} · ${m.launch?.mode || 'oneshot'}`;
     return `<div class="inst" data-id="${esc(m.id)}">
-      <div class="who"><b>${esc(m.name || m.id)} <span class="mono meta">${esc(m.version)}</span></b>
+      <div class="who"><b>${esc(m.name || m.id)} <span class="mono meta">${esc(m.version)}</span>${newer(m) ? ` <span class="badge" style="background:var(--accent-soft);color:var(--accent-ink)">доступна ${esc(newer(m).version)}</span>` : ''}</b>
         <span class="meta">${esc(kind)}${p.compatible ? '' : ' · <span style="color:var(--danger)">' + esc(p.incompatibility || 'несовместим') + '</span>'}</span></div>
       <span class="badge${p.running ? ' ok' : ''}">${p.running ? 'работает' : p.enabled ? 'включён' : 'выключен'}</span>
       <div class="row" style="gap:6px">
+        ${newer(m) ? `<button class="btn sm primary" data-a="update" data-v="${esc(newer(m).version)}">Обновить</button>` : ''}
         <button class="btn sm" data-a="toggle">${p.enabled ? 'Выключить' : 'Включить'}</button>
         ${p.running ? '<button class="btn sm" data-a="stop">Стоп</button>' : `<button class="btn sm" data-a="run" ${p.enabled ? '' : 'disabled title="Сначала включите"'}>Запустить</button>`}
         <button class="btn sm" data-a="logs">Лог</button>
@@ -2546,6 +2583,10 @@ function renderYam() {
   $$('#yam-installed .inst button').forEach(b => b.onclick = async () => {
     const id = b.closest('.inst').dataset.id, a = b.dataset.a;
     if (a === 'logs') return showLog(b, id);
+    if (a === 'update') {
+      return act(b, async () => { b.textContent = 'Скачиваю…'; await api('/api/yam/install', { id, version: b.dataset.v }); await loadYam(); },
+                 `Обновлён: ${id} → ${b.dataset.v}`);
+    }
     if (a === 'remove' && !confirm(`Удалить пакет ${id}?`)) return;
     await yamCall(b, { action: a, id }, { toggle: 'Готово', run: 'Запущен: ' + id, stop: 'Остановлен: ' + id, remove: 'Удалён: ' + id }[a]);
     // разовые пакеты (fastfetch и т. п.) выводят результат в лог — показываем его сразу
@@ -2560,7 +2601,7 @@ function renderYam() {
   const list = yam.registry.filter(p => !f || (p.id + ' ' + p.name + ' ' + p.description).toLowerCase().includes(f));
   $('#yam-catalog').innerHTML = list.length ? list.map(p => {
     const have = inst[p.id];
-    const action = !have ? 'Установить' : have.manifest.version === p.version ? '' : `Обновить с ${esc(have.manifest.version)}`;
+    const action = !have ? 'Установить' : vcmp(p.version, have.manifest.version) > 0 ? `Обновить с ${esc(have.manifest.version)}` : '';
     return `<div class="app${have ? ' installed' : ''}">
       <div class="app-top"><b>${esc(p.name)}</b><span class="mono">${esc(p.version)}</span></div>
       <p>${esc(p.description)}</p>
@@ -2574,7 +2615,7 @@ function renderYam() {
   }, 'Установлен: ' + b.dataset.id));
 }
 $('#yam-filter').oninput = renderYam;
-$('#yam-refresh').onclick = e => act(e.currentTarget, async () => { await api('/api/yam/registry?refresh=1'); await loadYam(); });
+$('#yam-refresh').onclick = e => act(e.currentTarget, async () => { await api('/api/yam/registry?refresh=1'); await loadYam(); loadYamVersion(true); });
 $('#yam-autostart').onchange = e => act(e.target, async () => {
   const st = await api('/api/yam/autostart', { enabled: e.target.checked });
   e.target.checked = st.autostart;
@@ -2585,6 +2626,16 @@ $('#yam-install').onclick = e => {
     btn.textContent = 'Скачиваю и устанавливаю…';
     try { const r = await api('/api/yam/install-daemon', {}); toast('yam ' + (r.version || '') + ' установлен и запущен'); }
     finally { btn.textContent = 'Установить yam'; }
+    await loadYam();
+  });
+};
+$('#yam-update').onclick = e => {
+  if (!confirm('Обновить yamd до последней версии? Демон перезапустится, запущенные пакеты на это время остановятся. Пакеты и настройки сохранятся.')) return;
+  const btn = e.currentTarget;
+  act(btn, async () => {
+    btn.textContent = 'Скачиваю…';
+    try { const r = await api('/api/yam/install-daemon', {}); toast('yamd обновлён до ' + (r.version || 'последней версии')); }
+    finally { btn.textContent = 'Обновить yamd'; }
     await loadYam();
   });
 };

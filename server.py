@@ -1621,6 +1621,62 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         out, _, _ = self.adb.shell(f"tail -5 {YAM_DIR}/yamd.log", check=False)
         raise AdbError("yamd не поднял порт 8099. Лог: " + out.strip()[-400:])
 
+    # ---------- версия yamd ----------
+    # Своей версии yamd не сообщает (нет ни --version, ни API), поэтому узнаём её по sha256 бинарника:
+    # ищем эту сумму в SHA256SUMS релизов yam на GitHub. Список релизов кэшируется на час, суммы — навсегда.
+    _yam_releases = (0, [])
+    _yam_sums = {}
+    YAM_ASSET = "yamd-aarch64-linux-musl"
+
+    def _yam_release_list(self, refresh=False):
+        at, rels = self._yam_releases
+        if refresh or not rels or time.time() - at > 3600:
+            req = urllib.request.Request("https://api.github.com/repos/nyakokitsu/yam/releases?per_page=30",
+                                         headers={"User-Agent": "webpanel", "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                rels = [x for x in json.load(r) if not x.get("draft") and not x.get("prerelease")]
+            self._yam_releases = (time.time(), rels)
+        return rels
+
+    def _yam_release_sha(self, rel):
+        tag = rel.get("tag_name")
+        if tag not in self._yam_sums:
+            url = next((a["browser_download_url"] for a in rel.get("assets", []) if a["name"] == "SHA256SUMS"), None)
+            sha = None
+            if url:
+                with urllib.request.urlopen(url, timeout=20) as r:
+                    sha = next((ln.split()[0] for ln in r.read().decode().splitlines()
+                                if ln.split()[-1:] == [self.YAM_ASSET]), None)
+            self._yam_sums[tag] = sha
+        return self._yam_sums[tag]
+
+    def yam_version(self, refresh=False):
+        out, _, _ = self.adb.shell(f"[ -f {YAMD} ] && sha256sum {YAMD}; true", check=False, timeout=30)
+        sha = (strip_ansi(out).split() or [None])[0]
+        if not sha:
+            return {"installed": None, "sha": None}
+        try:
+            rels = self._yam_release_list(refresh)
+        except (OSError, ValueError) as e:
+            return {"sha": sha, "installed": None, "latest": None, "error": f"GitHub недоступен: {e}"}
+        if not rels:
+            return {"sha": sha, "installed": None, "latest": None}
+        latest = rels[0]
+        installed = None
+        for rel in rels[:15]:                  # дальше в историю не ищем — это уже очень старая сборка
+            try:
+                if self._yam_release_sha(rel) == sha:
+                    installed = rel
+                    break
+            except OSError:
+                break
+        return {"sha": sha[:12], "installed": installed and installed["tag_name"],
+                "installed_date": installed and (installed.get("published_at") or "")[:10],
+                "latest": latest["tag_name"], "latest_date": (latest.get("published_at") or "")[:10],
+                "latest_url": latest.get("html_url"),
+                # сборка не нашлась среди релизов — не предлагаем «обновить», вдруг это своя сборка
+                "update": bool(installed) and installed["tag_name"] != latest["tag_name"]}
+
     def yam_install_daemon(self):
         """Как install.sh из репозитория yam: последний релиз, проверка SHA256SUMS, yamd на колонку, запуск."""
         api = "https://api.github.com/repos/nyakokitsu/yam/releases/latest"
@@ -2400,6 +2456,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/yam/plugins": p.yam_plugins,
             "/api/yam/logs": lambda: p.yam_logs(q.get("id", "")),
             "/api/yam/settings": p.yam_settings,
+            "/api/yam/version": lambda: p.yam_version(q.get("refresh") == "1"),
             "/api/alarms": p.alarms,
             "/api/footprint": p.footprint,
             "/api/bt": p.bt_state,
