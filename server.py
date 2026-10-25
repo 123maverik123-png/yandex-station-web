@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Веб-панель для Яндекс Станции Лайт 2 (Buildroot + Quasar) через adb.
+"""Веб-панель для Яндекс Станций (Лайт 2, Мини 3, Мини 3 Про, Станция 2) с root-доступом по adb.
 
 Запуск:  python3 server.py [--device 192.168.1.50] [--host 127.0.0.1] [--port 8765] [--open]
 Зависимости: Python 3.9+ (только стандартная библиотека) и adb; ffmpeg и openssl — по желанию.
@@ -91,7 +91,7 @@ try:
     VERSION = (Path(__file__).resolve().parent / "VERSION").read_text().strip()
 except OSError:
     VERSION = "0.0.0"
-REPO = "dimap/yandex-lite2-web"
+REPO = "dimap/yandex-station-web"
 LED_PREFIX = "plum"
 GLAGOL_PLATFORM = "plum"   # так Лайт 2 называет себя в запросах check_updates
 # Где панель хранит своё (токен Яндекса, пароль, сертификаты, история графиков). По умолчанию — рядом с server.py;
@@ -2682,7 +2682,7 @@ class PanelUpdater:
         if refresh or rel is None or time.time() - at > 6 * 3600:
             try:
                 req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/latest",
-                                             headers={"User-Agent": f"yandex-lite2-web/{VERSION}",
+                                             headers={"User-Agent": f"yandex-station-web/{VERSION}",
                                                       "Accept": "application/vnd.github+json"})
                 with urllib.request.urlopen(req, timeout=15) as r:
                     rel = json.load(r)
@@ -2839,7 +2839,7 @@ def save_settings(d):
 def main():
     env = os.environ.get
     import profiles
-    ap = argparse.ArgumentParser(description="Веб-панель для Яндекс Станции Лайт 2")
+    ap = argparse.ArgumentParser(description="Веб-панель для Яндекс Станций")
     ap.add_argument("--device", default=env("ADB_SERIAL"),
                     help="IP колонки (порт 5555 по умолчанию), host:port или серийник USB; запоминается [ADB_SERIAL]")
     ap.add_argument("--host", default=env("PANEL_HOST", "127.0.0.1"),

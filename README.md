@@ -1,6 +1,7 @@
-# Веб-панель для Яндекс Станции Лайт 2
+# Веб-панель для Яндекс Станций
 
-Локальная веб-панель для **Яндекс Станции Лайт 2 с root-доступом по adb**: музыка и плеер, будильник, который
+Локальная веб-панель для **Яндекс Станций с root-доступом по adb** — Лайт 2, а также Мини 3 Про, Станции 2
+и Мини 3 (см. [Другие модели](#другие-модели-и-несколько-колонок)): музыка и плеер, будильник, который
 работает без интернета, своя заставка и звук запуска, подсветка и дисплей часов, Bluetooth, графики, файлы,
 логи и интерактивная root-консоль. Всё работает в локальной сети, через adb и локальный протокол колонки.
 Отдельно ставить на колонку ничего не нужно.
@@ -82,7 +83,7 @@
 
 ### Windows — запускать, когда нужно
 
-1. Скачайте со страницы [Releases](https://github.com/dimap/yandex-lite2-web/releases/latest) архив
+1. Скачайте со страницы [Releases](https://github.com/dimap/yandex-station-web/releases/latest) архив
    `…-windows-x64.zip` (для ARM-ноутбуков — `…-windows-arm64.zip`) и распакуйте в любую папку.
 2. Дважды щёлкните **`start.bat`**.
 
@@ -101,8 +102,8 @@ IP колонки, запомнит его и откроет браузер.
 ```sh
 # Debian/Ubuntu: sudo apt install python3 adb ffmpeg zstd      Fedora: sudo dnf install python3 android-tools ffmpeg zstd
 # macOS:        brew install python android-platform-tools ffmpeg zstd
-git clone https://github.com/dimap/yandex-lite2-web.git
-cd yandex-lite2-web
+git clone https://github.com/dimap/yandex-station-web.git
+cd yandex-station-web
 ./start.sh 192.168.1.50     # IP колонки; дальше можно просто ./start.sh
 ```
 
@@ -110,15 +111,16 @@ cd yandex-lite2-web
 
 ### Docker — постоянно на сервере
 
-Готовый образ: **`ghcr.io/dimap/yandex-lite2-web`** (amd64, arm64 и armv7 — подойдёт и Raspberry Pi).
+Готовый образ: **`ghcr.io/dimap/yandex-station-web`** (amd64, arm64 и armv7 — подойдёт и Raspberry Pi).
+Раньше он назывался `ghcr.io/dimap/yandex-lite2-web` — под старым именем образ пока тоже обновляется.
 В нём уже есть adb, ffmpeg и openssl, клонировать репозиторий не нужно.
 
 Одной командой (вместо `192.168.1.50` — IP колонки):
 
 ```sh
-docker run -d --name yandex-lite2-web --network host --restart unless-stopped \
+docker run -d --name yandex-station-web --network host --restart unless-stopped \
   -e ADB_SERIAL=192.168.1.50 -v "$PWD/data:/data" \
-  ghcr.io/dimap/yandex-lite2-web:latest
+  ghcr.io/dimap/yandex-station-web:latest
 ```
 
 Или через Docker Compose — сохраните как `docker-compose.yml` и запустите `docker compose up -d`:
@@ -126,8 +128,8 @@ docker run -d --name yandex-lite2-web --network host --restart unless-stopped \
 ```yaml
 services:
   panel:
-    image: ghcr.io/dimap/yandex-lite2-web:latest
-    container_name: yandex-lite2-web
+    image: ghcr.io/dimap/yandex-station-web:latest
+    container_name: yandex-station-web
     network_mode: host               # сертификат HTTPS выпишется на адрес сервера в сети
     environment:
       ADB_SERIAL: "192.168.1.50"     # IP колонки (порт 5555 подставится сам)

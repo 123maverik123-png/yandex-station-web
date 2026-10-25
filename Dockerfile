@@ -1,4 +1,4 @@
-# Панель для Яндекс Станции Лайт 2: Python (только стандартная библиотека) + adb + ffmpeg + openssl.
+# Веб-панель для Яндекс Станций: Python (только стандартная библиотека) + adb + ffmpeg + openssl.
 FROM python:3.14-slim
 
 RUN apt-get update \
