@@ -14,24 +14,24 @@
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/player.png" alt="Плеер"></td>
-    <td><img src="docs/screenshots/alarm.png" alt="Будильник"></td>
+    <td width="50%"><img src="docs/screenshots/player.png" alt="Плеер"></td>
+    <td width="50%"><img src="docs/screenshots/alarm.png" alt="Будильник"></td>
   </tr>
   <tr>
     <td align="center">Плеер: текст песни, очередь, похожие треки</td>
     <td align="center">Локальный будильник</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/charts.png" alt="Графики"></td>
-    <td><img src="docs/screenshots/console.png" alt="Консоль"></td>
+    <td width="50%"><img src="docs/screenshots/charts.png" alt="Графики"></td>
+    <td width="50%"><img src="docs/screenshots/console.png" alt="Консоль"></td>
   </tr>
   <tr>
     <td align="center">Графики за сутки</td>
     <td align="center">Интерактивная root-консоль</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/boot.png" alt="Запуск"></td>
-    <td><img src="docs/screenshots/overview-dark.png" alt="Тёмная тема"></td>
+    <td width="50%"><img src="docs/screenshots/boot.png" alt="Запуск"></td>
+    <td width="50%"><img src="docs/screenshots/overview-dark.png" alt="Тёмная тема"></td>
   </tr>
   <tr>
     <td align="center">Редактор заставки и звук запуска</td>
