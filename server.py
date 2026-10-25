@@ -25,6 +25,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import zipfile
 import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -84,6 +85,12 @@ YAM_FIX_EXEC = (f"for t in {YAM_PLUGINS}/*/plugin.toml; do [ -f \"$t\" ] || cont
 YAM_PATH = (f"for d in {YAM_PLUGINS}/*/*/; do [ -d \"$d\" ] && PATH=\"$PATH:${{d%/}}\"; done; export PATH; ")
 YAM_PORT = 8099
 YAM_REGISTRY = "https://raw.githubusercontent.com/nyakokitsu/yapkg/registry/index.json"
+# Версия панели — в файле VERSION; сборка релиза проверяет, что метка vX.Y.Z с ним совпадает.
+try:
+    VERSION = (Path(__file__).resolve().parent / "VERSION").read_text().strip()
+except OSError:
+    VERSION = "0.0.0"
+REPO = "dimap/yandex-lite2-web"
 GLAGOL_PLATFORM = "plum"   # так Лайт 2 называет себя в запросах check_updates
 # Где панель хранит своё (токен Яндекса, пароль, сертификаты, история графиков). По умолчанию — рядом с server.py;
 # --data-dir / PANEL_DATA_DIR меняет это (в Docker — том /data). Пути пересчитываются в set_data_dir().
@@ -2256,6 +2263,7 @@ class Terminal:
 class Handler(BaseHTTPRequestHandler):
     panel: Panel = None
     access = None            # access.PanelAccess
+    updater = None           # PanelUpdater
     ports = {}          # {"http": 8765, "https": 8766} — для подсказок в интерфейсе
 
     def log_message(self, fmt, *args):
@@ -2459,6 +2467,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/yam/version": lambda: p.yam_version(q.get("refresh") == "1"),
             "/api/alarms": p.alarms,
             "/api/footprint": p.footprint,
+            "/api/panel/version": lambda: self.updater.check(q.get("refresh") == "1"),
             "/api/bt": p.bt_state,
             "/api/metrics": lambda: p.metrics.get(q.get("range", 3600)),
         }
@@ -2564,12 +2573,124 @@ class Handler(BaseHTTPRequestHandler):
             "/api/alarms/cmd": lambda: p.alarm_cmd(d.get("action")),
             "/api/alarms/install": p.alarm_install,
             "/api/footprint/reset": p.footprint_reset,
+            "/api/panel/update": lambda: self.updater.update(),
             "/api/metrics/clear": lambda: p.metrics.clear(),
             "/api/alarms/uninstall": p.alarm_uninstall,
         }
         if u.path in routes:
             return self._handle(routes[u.path])
         self._send(404, {"error": "not found"})
+
+
+class PanelUpdater:
+    """Проверка новых релизов панели на GitHub и обновление — в зависимости от того, как панель установлена:
+    zip (Windows-сборка, Download ZIP) — скачать релиз и заменить файлы панели; git — git pull --ff-only;
+    docker — только подсказать команду (образ изнутри не обновить)."""
+    FILES = ("server.py", "access.py", "glagol.py", "VERSION", "LICENSE", "README.md", "start.bat", "start.sh",
+             "Dockerfile", "docker-compose.yml")
+    DIRS = ("static", "device", "3d", "tools", "docs")
+
+    def __init__(self):
+        self.cache = (0, None)
+        self.lock = threading.Lock()
+
+    @staticmethod
+    def kind():
+        if os.environ.get("PANEL_INSTALL") == "docker" or Path("/.dockerenv").exists():
+            return "docker"
+        return "git" if (ROOT / ".git").exists() else "zip"
+
+    @staticmethod
+    def _newer(a, b):
+        """a новее b? «0.1.10» > «0.1.9»; «1.0.0-rc1» < «1.0.0»."""
+        def key(v):
+            main, _, pre = v.lstrip("v").partition("-")
+            return [int(x) if x.isdigit() else 0 for x in main.split(".")] + [0] * 3, (pre == "", pre)
+        ka, kb = key(a), key(b)
+        return (ka[0][:4], ka[1]) > (kb[0][:4], kb[1])
+
+    def check(self, refresh=False):
+        at, rel = self.cache
+        err = None
+        if refresh or rel is None or time.time() - at > 6 * 3600:
+            try:
+                req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/latest",
+                                             headers={"User-Agent": f"yandex-lite2-web/{VERSION}",
+                                                      "Accept": "application/vnd.github+json"})
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    rel = json.load(r)
+                self.cache = (time.time(), rel)
+            except urllib.error.HTTPError as e:
+                err = "релизов пока нет или репозиторий закрыт" if e.code == 404 else f"GitHub ответил {e.code}"
+            except (OSError, ValueError) as e:
+                err = f"GitHub недоступен: {e}"
+        res = {"version": VERSION, "install": self.kind(), "repo": f"https://github.com/{REPO}", "checked": self.cache[0] or None}
+        if err and rel is None:
+            return {**res, "error": err}
+        latest = rel.get("tag_name", "").lstrip("v")
+        return {**res, "latest": latest, "latest_date": (rel.get("published_at") or "")[:10],
+                "url": rel.get("html_url"), "update": bool(latest) and self._newer(latest, VERSION),
+                **({"error": err} if err else {})}
+
+    def update(self):
+        if not self.lock.acquire(blocking=False):
+            raise AdbError("обновление уже идёт")
+        try:
+            info = self.check(refresh=True)
+            if info.get("error") and not info.get("latest"):
+                raise AdbError(info["error"])
+            if not info.get("update"):
+                raise AdbError("уже установлена последняя версия")
+            kind = info["install"]
+            if kind == "docker":
+                raise AdbError("в Docker обновите образ: docker compose pull && docker compose up -d")
+            if kind == "git":
+                r = subprocess.run(["git", "-C", str(ROOT), "pull", "--ff-only"], capture_output=True, text=True, timeout=120)
+                if r.returncode:
+                    raise AdbError("git pull не удался: " + (r.stderr or r.stdout).strip()[-300:])
+            else:
+                self._from_zip(info["latest"])
+            threading.Timer(1.0, restart_self).start()
+            return {"ok": True, "version": info["latest"], "install": kind}
+        finally:
+            self.lock.release()
+
+    def _from_zip(self, version):
+        """Исходники релиза с GitHub → поверх файлов панели. Данные (.yandex_auth.json и пр.), runtime и
+        platform-tools не трогаем — их в архиве нет, а заменяем только файлы самой панели."""
+        url = f"https://github.com/{REPO}/archive/refs/tags/v{version}.zip"
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "webpanel"}), timeout=120) as r:
+            blob = r.read()
+        with zipfile.ZipFile(io.BytesIO(blob)) as z:
+            names = [n for n in z.namelist() if not n.endswith("/")]
+            prefix = names[0].split("/", 1)[0] + "/" if names else ""
+            if not any(n == prefix + "server.py" for n in names):
+                raise AdbError("в архиве релиза нет server.py")
+            for n in names:
+                rel = n[len(prefix):]
+                top = rel.split("/", 1)[0]
+                if rel not in self.FILES and top not in self.DIRS:
+                    continue
+                if ".." in Path(rel).parts:
+                    continue
+                dst = ROOT / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                tmp = dst.with_name(dst.name + ".upd")
+                tmp.write_bytes(z.read(n))
+                os.replace(tmp, dst)
+                if rel == "start.sh":
+                    os.chmod(dst, 0o755)
+
+
+def restart_self():
+    """Перезапуск сервера тем же интерпретатором и с теми же аргументами (без --open: браузер уже открыт)."""
+    args = [a for a in sys.argv if a != "--open"]
+    try:
+        Handler.panel.metrics._save()
+    except Exception:  # noqa: BLE001
+        pass
+    sys.stdout.flush()
+    os.execv(sys.executable, [sys.executable] + args)
 
 
 class TLSServer(ThreadingHTTPServer):
@@ -2656,9 +2777,19 @@ def main():
     threading.Thread(target=panel.conn.run, daemon=True, name="adb-connection").start()
     Handler.panel = panel
     Handler.access = access.PanelAccess(PANEL_AUTH_FILE)
+    Handler.updater = PanelUpdater()
     Handler.ports = {"http": args.port}
-    srv = ThreadingHTTPServer((args.host, args.port), Handler)
+    # после перезапуска (обновление) старый процесс может ещё держать порт — подождём
+    for attempt in range(20):
+        try:
+            srv = ThreadingHTTPServer((args.host, args.port), Handler)
+            break
+        except OSError:
+            if attempt == 19:
+                raise
+            time.sleep(0.5)
     shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
+    print(f"Панель {VERSION}")
     print(f"adb: {adb.adb}  колонка: {device or 'по USB / единственное устройство adb'}  данные: {DATA_DIR}")
     print(f"Панель: http://{shown}:{args.port}/")
     if args.https_port:
@@ -2667,7 +2798,14 @@ def main():
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ctx.minimum_version = ssl.TLSVersion.TLSv1_2
             ctx.load_cert_chain(crt, key)
-            tls = TLSServer((args.host, args.https_port), Handler, ctx)
+            for attempt in range(20):        # после перезапуска порт может быть ещё занят
+                try:
+                    tls = TLSServer((args.host, args.https_port), Handler, ctx)
+                    break
+                except OSError:
+                    if attempt == 19:
+                        raise
+                    time.sleep(0.5)
             threading.Thread(target=tls.serve_forever, daemon=True, name="https").start()
             Handler.ports["https"] = args.https_port
             print(f"        https://{shown}:{args.https_port}/  (сертификат CA: /ca.crt)")

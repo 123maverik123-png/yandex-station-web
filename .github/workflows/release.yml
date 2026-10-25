@@ -15,6 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Метка совпадает с VERSION
+        if: github.ref_type == 'tag'
+        run: |
+          test "${GITHUB_REF_NAME#v}" = "$(cat VERSION)" || { echo "метка $GITHUB_REF_NAME, а в VERSION $(cat VERSION)"; exit 1; }
       - name: Сборка
         run: |
           VER="${GITHUB_REF_NAME#v}"

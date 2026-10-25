@@ -6,7 +6,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY server.py access.py glagol.py ./
+COPY server.py access.py glagol.py VERSION ./
 COPY static ./static
 COPY device ./device
 COPY 3d ./3d
@@ -15,6 +15,7 @@ COPY LICENSE ./
 # /data — токен Яндекса, пароль панели, сертификаты, история графиков и ключ adb (HOME).
 # Свой порт adb-сервера, чтобы при network_mode: host не мешать adb на самой машине.
 ENV PANEL_HOST=0.0.0.0 \
+    PANEL_INSTALL=docker \
     PANEL_DATA_DIR=/data \
     HOME=/data \
     ANDROID_ADB_SERVER_PORT=5038 \
