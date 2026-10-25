@@ -1,5 +1,6 @@
 """Explicit hardware profiles. Lite 2 keeps its original implementation by default."""
 import os
+import json
 import shlex
 import tempfile
 import threading
@@ -15,6 +16,44 @@ PROFILES = {
 }
 
 
+def mini3pro_ring_script(rgb=None, leds='/sys/class/leds', state='/tmp/webpanel_ring.state'):
+    """Snapshot brightness AND triggers; reset repairs the old detached `none` state.
+
+    Pickle RGB outputs use ledfb-ring. Separate pickle:ring:sync[01] LEDs use
+    ledfb-ring-sync and are deliberately never written here.
+    """
+    names = [f'pickle:{color}:ring{i}' for i in range(16) for color in ('red','green','blue')]
+    lines = ['set -e', 'D='+shlex.quote(leds), 'S='+shlex.quote(state), 'N='+shlex.quote(' '.join(names)),
+             'for n in $N; do test -r "$D/$n/brightness"; '
+             'case " $(cat "$D/$n/trigger") " in *" ledfb-ring "*|*" [ledfb-ring] "*) ;; *) exit 1;; esac; done']
+    if rgb is not None:
+        lines += ['if [ ! -s "$S" ]; then', 'T="$S.$$"; trap \'rm -f "$T"\' 0',
+                  'for n in $N; do v=$(cat "$D/$n/brightness"); '
+                  't=$(sed -n \'s/.*\\[\\([^]]*\\)\\].*/\\1/p\' "$D/$n/trigger"); '
+                  'test -n "$t"; printf "%s %s %s\\n" "$n" "$v" "$t"; done > "$T"',
+                  '[ "$(wc -l < "$T")" -eq 48 ]; mv "$T" "$S"', 'fi']
+        for i in range(16):
+            for color,value in zip(('red','green','blue'),rgb):
+                lines.append(f'echo {max(0,min(255,int(value)))} > "$D/pickle:{color}:ring{i}/brightness"')
+    else:
+        lines += ['if [ -s "$S" ]; then [ "$(wc -l < "$S")" -eq 48 ];',
+                  '  for n in $N; do row=$(awk -v name="$n" \'$1 == name {print $2, $3}\' "$S"); '
+                  'set -- $row; [ "$#" -eq 2 ]; case "$1" in \'\'|*[!0-9]*) exit 1;; esac; [ "$1" -le 255 ]; '
+                  't=$2; [ "$t" != none ] || t=ledfb-ring; '
+                  'case " $(cat "$D/$n/trigger") " in *" $t "*|*" [$t] "*) ;; *) exit 1;; esac; done; fi',
+                  'for n in $N; do',
+                  '  t=ledfb-ring',
+                  '  if [ -s "$S" ]; then',
+                  '    row=$(awk -v name="$n" \'$1 == name {print $2, $3}\' "$S"); set -- $row; [ "$#" -eq 2 ]',
+                  '    v=$1; t=$2; case "$v" in \'\'|*[!0-9]*) exit 1;; esac; [ "$v" -le 255 ]',
+                  '    echo "$v" > "$D/$n/brightness"',
+                  '    case "$t" in none) t=ledfb-ring;; esac',
+                  '  fi',
+                  '  echo "$t" > "$D/$n/trigger"',
+                  'done', 'rm -f "$S"']
+    return '\n'.join(lines)
+
+
 def install(s, model='lite2'):
     profile = dict(PROFILES[model], id=model)
     profile['light_note'] = ('Подсветка этой модели ещё не проверена.' if not profile['light'] else
@@ -24,6 +63,12 @@ def install(s, model='lite2'):
     original_get, original_post = s.Handler.do_GET, s.Handler.do_POST
 
     def do_get(self):
+        if model != 'lite2' and self.path.split('?')[0] == '/manifest.webmanifest':
+            if not self._guard('/manifest.webmanifest'):
+                manifest = json.loads((s.STATIC/'manifest.webmanifest').read_text(encoding='utf8'))
+                manifest.update(name=profile['name'], short_name=profile['name'], description='Панель управления: '+profile['name'])
+                self._send(200, json.dumps(manifest,ensure_ascii=False).encode('utf8'), s.MIME['.webmanifest'])
+            return
         if self.path.split('?')[0] == '/api/profile':
             if not self._guard('/api/profile'):
                 self._send(200, profile)
@@ -164,11 +209,7 @@ def install(s, model='lite2'):
             return unsupported()
         rgb = [max(0, min(255, int(data.get(color, 0)))) for color in ('red', 'green', 'blue')]
         if model == 'mini3pro':
-            indices = ' '.join(map(str, range(16)))
-            snapshot = f'for i in {indices}; do for c in red green blue; do cat /sys/class/leds/pickle:$c:ring$i/brightness; done; done'
-            writes = '; '.join(f'echo {value} > /sys/class/leds/pickle:{color}:ring$i/brightness'
-                               for color, value in zip(('red', 'green', 'blue'), rgb))
-            self.adb.shell(f'if [ ! -f /tmp/webpanel_ring.before ]; then {{ {snapshot}; }} > /tmp/webpanel_ring.before; fi; for i in {indices}; do {writes}; done')
+            self.adb.shell(mini3pro_ring_script(rgb))
         else:
             self.adb.shell('test "$(cat /sys/class/graphics/fb0/virtual_size)" = "89,1" && '
                            'test "$(cat /sys/class/graphics/fb0/bits_per_pixel)" = 32 || exit 1; '
@@ -185,14 +226,11 @@ def install(s, model='lite2'):
         if model == 'mini3':
             return {'ok': True}
         if model == 'mini3pro':
-            command = ('if [ -s /tmp/webpanel_ring.before ]; then exec 3< /tmp/webpanel_ring.before; '
-                       'for i in ' + ' '.join(map(str, range(16))) + '; do for c in red green blue; do '
-                       'read v <&3; echo "$v" > /sys/class/leds/pickle:$c:ring$i/brightness; done; done; '
-                       'exec 3<&-; rm -f /tmp/webpanel_ring.before; fi')
+            command = mini3pro_ring_script()
         else:
             command = 'if [ -s /tmp/webpanel_ring.before ]; then cat /tmp/webpanel_ring.before > /dev/fb0; rm -f /tmp/webpanel_ring.before; fi'
         self.adb.shell(command)
-        return {'ok': True, 'leds': [[0, 0, 0]] * 3}
+        return {'ok': True, 'leds': self.clock_state()['ring']}
     P.ring_reset = reset_ring
     original_stop = P.stop_pattern
     def stop(self, kind=None):

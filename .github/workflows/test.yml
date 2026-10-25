@@ -25,3 +25,4 @@ jobs:
       - run: python server.py --help
       - run: python multi.py --help
       - run: node tests/test_renderer.mjs
+      - run: node tests/test_paths.mjs

@@ -1,13 +1,5 @@
-.studio-view{height:370px;isolation:isolate;overflow:hidden;border-radius:24px;background:radial-gradient(ellipse at 50% 58%,rgba(128,127,151,.075),transparent 65%)}
 .studio-view .studio-canvas{z-index:1;outline:none}
-.studio-view #model-viz{z-index:0;opacity:.34}
-.studio-tools{position:absolute;z-index:3;top:12px;right:12px;display:flex;gap:5px;align-items:center;cursor:default}
-.studio-tools button,.studio-tools select{height:30px;min-width:30px;border:1px solid var(--border,#8883);border-radius:9px;background:var(--card,#8881);color:var(--text,inherit);font-size:15px;cursor:pointer;backdrop-filter:blur(12px)}
-.studio-tools select{font-size:11px;max-width:105px;padding:0 7px}
-.studio-tools button[aria-pressed=true]{color:var(--accent);border-color:var(--accent)}
-.studio-caption{position:absolute;z-index:2;bottom:13px;left:0;right:0;pointer-events:none;text-align:center;font-size:11px;opacity:.5;letter-spacing:.02em;transition:opacity .5s}
-.studio-used .studio-caption{opacity:.2}
-.studio-source{position:absolute;bottom:12px;right:12px;font-size:10px;z-index:3;color:inherit;opacity:.4;text-decoration:none}
-.studio-source:hover{opacity:1}
-.studio-error{position:absolute;inset:40% 20px auto;text-align:center}
-@media(max-width:600px){.studio-view{height:320px}.studio-tools{top:8px;right:8px}}
+.studio-error,.studio-caption{position:absolute;inset:45% 12px auto;text-align:center}
+#model-settings .set-head{padding:16px}#model-settings .set-item{padding:12px 16px}
+#model-settings select{background:var(--card,#222);color:var(--text,inherit);padding:8px;border:1px solid var(--line,#8885);border-radius:8px}
+#model-settings button{cursor:pointer}

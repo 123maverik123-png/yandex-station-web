@@ -59,16 +59,23 @@ class GatewayTests(unittest.TestCase):
                 self.assertEqual(status,200);value=json.loads(data);self.assertEqual(value['model'],model);self.assertEqual(value['path'],'/api/shell');self.assertEqual(value['body'],'read-only-test')
     def test_csrf_denied(self):
         self.assertEqual(self.request('/speaker/mini3pro/api/shell','POST',origin='https://untrusted.example',body='test')[0],403)
-    def test_html_module_api_and_websocket_prefixes(self):
+    def test_proxy_preserves_page_bytes_instead_of_rewriting_source(self):
         for model in gateway.DEVICES:
             status,data,_=self.request('/speaker/'+model+'/');self.assertEqual(status,200)
-            text=data.decode();self.assertIn('/speaker/'+model+'/api/status',text);self.assertIn('${location.host}/speaker/'+model+'/api/term',text);self.assertIn('/speaker/'+model+'/static/speaker-selector.js',text)
+            self.assertEqual(data,b'<head></head><script>fetch("/api/status");new WebSocket(`ws://${location.host}/api/term`)</script>')
     def test_invalid_and_implicit_routes_cannot_write(self):
         for path in ['/speaker/unknown/api/shell','/api/shell','/speaker/station2','https://example.com/speaker/station2/api/shell']:
             self.assertEqual(self.request(path,'POST',body='test')[0],409)
     def test_one_auth_session_for_both_devices(self):
         for model in gateway.DEVICES:
             status,data,_=self.request('/speaker/'+model+'/api/panel-auth');self.assertEqual(status,200);self.assertTrue(json.loads(data)['authed'])
+    def test_manifest_uses_device_name_and_relative_scope(self):
+        for model in gateway.DEVICES:
+            status,data,_=self.request('/speaker/'+model+'/manifest.webmanifest')
+            self.assertEqual(status,200);manifest=json.loads(data)
+            self.assertEqual(manifest['name'],gateway.DEVICES[model]['name'])
+            self.assertEqual(manifest['scope'],'./')
+            self.assertTrue(all(icon['src'].startswith('./static/')for icon in manifest['icons']))
     def test_websocket_origin_and_login_are_checked(self):
         for cookie,origin,expected in [(False,'http://'+self.host,401),(True,'https://untrusted.example',403)]:
             connection=http.client.HTTPConnection('127.0.0.1',self.gateway.server_port,timeout=5)

@@ -2,9 +2,9 @@
 import {rendererProfile} from './renderer-profile.js';
 async function loadProfile(){
   for(;;){
-    const auth=await fetch('/api/panel-auth').then(r=>r.json()).catch(()=>null);
+    const auth=await PanelContext.fetch('/api/panel-auth').then(r=>r.json()).catch(()=>null);
     if(auth&&(!auth.enabled||auth.authed)){
-      const response=await fetch('/api/profile');if(response.ok)return response.json();
+      const response=await PanelContext.fetch('/api/profile');if(response.ok)return response.json();
     }
     await new Promise(resolve=>setTimeout(resolve,2000));
   }
@@ -15,7 +15,7 @@ const loading=document.createElement('p');loading.className='studio-caption';loa
 let status;
 for(;;){
   try{
-    const response=await fetch('/api/status');
+    const response=await PanelContext.fetch('/api/status');
     if(response.ok){const value=await response.json();if(value.hostname||value.hardware_model){status=value;break;}}
   }catch{}
   await new Promise(resolve=>setTimeout(resolve,2000));

@@ -36,12 +36,6 @@ def route(path):
     model=parts[2]
     return model,'/'+parts[3]+('?' + parsed.query if parsed.query else '')
 
-def rewrite(text,model):
-    prefix='/speaker/'+model
-    for path in ('/api/','/static/','/model.stl','/manifest.webmanifest','/ca.crt','/sw.js'):
-        text=text.replace(path,prefix+path)
-    return text
-
 class Gateway(server.Handler):
     secret=''
     ports = {}
@@ -80,6 +74,10 @@ class Gateway(server.Handler):
                 return self._panel_auth_post(clean,self._json())
             if clean=='/api/speakers' and self.command=='GET':
                 return self._send(200,{'selected':model,'devices':[{'id':key,'name':value['name']}for key,value in DEVICES.items()]})
+            if clean=='/manifest.webmanifest' and self.command=='GET':
+                manifest=json.loads((server.STATIC/'manifest.webmanifest').read_text(encoding='utf8'))
+                manifest.update(name=DEVICES[model]['name'],short_name=DEVICES[model]['name'])
+                return self._send(200,json.dumps(manifest,ensure_ascii=False).encode('utf8'),server.MIME['.webmanifest'])
             if clean == '/api/panel/update' and self.command == 'POST':
                 return self._send(400, {'error':'Обновите исходники и перезапустите multi.py целиком; обновление отдельного worker отключено.'})
             if clean == '/ca.crt':
@@ -104,37 +102,11 @@ class Gateway(server.Handler):
         try:
             conn.request(self.command,path,body=body,headers=self.request_headers())
             response=conn.getresponse()
-            kind=response.getheader('Content-Type','application/octet-stream')
-            clean=urlsplit(path).path
-            transform=clean in ('/','/index.html','/static/model.js','/static/model-lite2.js','/static/model-studio.js','/sw.js','/manifest.webmanifest') and response.status==200
-            if transform:
-                data=response.read().decode('utf8')
-                if clean=='/manifest.webmanifest':
-                    manifest=json.loads(data);manifest.update(name='Яндекс Станции',short_name='Станции',description='Единая панель управления колонками',id='/',start_url='/',scope='/')
-                    data=json.dumps(manifest,ensure_ascii=False)
-                elif clean=='/sw.js':
-                    # Cache keys and navigation shell stay inside this device's scope.
-                    data=data.replace("'panel-v1'",repr('panel-unified-'+model+'-v1')).replace("'/'",repr('/speaker/'+model+'/'))
-                    data=data.replace('ks.filter(k => k !== CACHE)',"ks.filter(k => k.startsWith('panel-unified-"+model+"-') && k !== CACHE)")
-                data=rewrite(data,model)
-                if clean in ('/','/index.html'):
-                    # Device directories and sound folders must not leak between the two views.
-                    old="const store = {\n  get: k => { try { return localStorage.getItem(k); } catch { return null; } },\n  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },"
-                    new="const deviceStoreKey = k => /^(fs|snd)\\./.test(k) ? 'speaker."+model+".' + k : k;\nconst store = {\n  get: k => { try { return localStorage.getItem(deviceStoreKey(k)); } catch { return null; } },\n  set: (k, v) => { try { localStorage.setItem(deviceStoreKey(k), v); } catch {} },"
-                    data=data.replace(old,new)
-                    catalog = [{'id':key,'name':value['name']} for key,value in DEVICES.items()]
-                    metadata = json.dumps(catalog,ensure_ascii=False).replace('<','\\u003c')
-                    prefix = '/speaker/'+model
-                    data=data.replace('</head>', '<script>window.PANEL_SPEAKERS='+metadata+';</script>'+
-                                      '<script defer src="'+prefix+'/static/speaker-selector.js"></script>'+
-                                      '<link rel="stylesheet" href="'+prefix+'/static/speaker-selector.css"></head>')
-                payload=data.encode('utf8')
-                headers=[]
-                if clean in ('/','/index.html'):headers.append(('Set-Cookie',f'panel_device={model}; Path=/; SameSite=Strict; Max-Age=31536000'))
-                return self._send(response.status,payload,kind,headers)
             self.send_response(response.status)
             for key,value in response.getheaders():
                 if key.lower() not in HOP:self.send_header(key,value)
+            if urlsplit(path).path in ('/','/index.html'):
+                self.send_header('Set-Cookie',f'panel_device={model}; Path=/; SameSite=Strict; Max-Age=31536000')
             size=response.getheader('Content-Length')
             if size is not None:self.send_header('Content-Length',size)
             self.send_header('Connection','close');self.end_headers();self.close_connection=True

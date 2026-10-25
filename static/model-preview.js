@@ -5,7 +5,7 @@ const id=Object.prototype.hasOwnProperty.call(catalog,requested)?requested:'lite
 const picker=document.getElementById('preview-model');picker.value=id;
 picker.addEventListener('change',()=>{const url=new URL(location.href);url.searchParams.set('model',picker.value);location.assign(url);});
 window.clockGeom=geometry;window.__deviceColor=id==='lite2'?'copper':'black';
-document.getElementById('model-description').textContent=id==='lite2'?'Авторская STL vanyabeat, CC BY-SA 4.0. Геометрия сохранена, добавлены ткань и студийный свет.':'Приблизительная визуальная реконструкция по официальным ракурсам. Это не официальный CAD-файл.';
+document.getElementById('model-description').textContent=id==='lite2'?'Авторская STL vanyabeat, CC BY-SA 4.0. Геометрия, материалы и свет исходного рендера сохранены.':'Приблизительная визуальная реконструкция по официальным ракурсам. Лёгкие материалы без теней. Это не официальный CAD-файл.';
 const demo=()=>{window.modelShow?.(geometry.textToFrame('12:34',190));window.modelRing?.(Array.from({length:id==='mini3pro'?16:3},(_,i)=>[90+i*3,45,170+i*4]));};
 document.getElementById('model-view').addEventListener('modelready',demo,{once:true});
 if(id==='lite2')await import('./model-lite2.js');

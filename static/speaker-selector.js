@@ -1,18 +1,20 @@
-// A full navigation drops old polling, terminal sockets and unsaved in-memory state.
-(() => {
-  const match=location.pathname.match(/^\/speaker\/([a-z0-9_-]+)\//);
-  if(!match)return;
-  const selected=match[1],names=Object.fromEntries((window.PANEL_SPEAKERS||[]).map(s=>[s.id,s.name]));
+// Full navigation closes old polling and terminal sockets.
+(async()=>{
+  const selected=PanelContext.deviceId;if(!selected)return;
+  let devices;
+  for(;;){
+    try{const response=await PanelContext.fetch('/api/speakers');if(response.ok){devices=(await response.json()).devices;break;}}catch{}
+    await new Promise(resolve=>setTimeout(resolve,2000));
+  }
   const nav=document.querySelector('nav.side');if(!nav)return;
   const wrap=document.createElement('div');wrap.className='speaker-picker';
   const label=document.createElement('label');label.htmlFor='speaker-select';label.textContent='Выбор колонки';
   const select=document.createElement('select');select.id='speaker-select';select.setAttribute('aria-label','Выбор колонки');
-  for(const[id,name]of Object.entries(names))select.add(new Option(name,id,id===selected,id===selected));
+  for(const device of devices)select.add(new Option(device.name,device.id,device.id===selected,device.id===selected));
   wrap.append(label,select);nav.prepend(wrap);
   select.addEventListener('change',()=>{
-    if(!Object.prototype.hasOwnProperty.call(names,select.value))return;
-    const next='/speaker/'+select.value+'/'+(location.hash||'#overview');
-    select.disabled=true;location.assign(next);
+    if(!devices.some(device=>device.id===select.value))return;
+    select.disabled=true;location.assign('/speaker/'+encodeURIComponent(select.value)+'/'+(location.hash||'#overview'));
   });
   document.documentElement.dataset.speaker=selected;
 })();

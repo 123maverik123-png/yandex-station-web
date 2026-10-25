@@ -1,13 +1,16 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="static/panel-context.js"></script>
+<script defer src="static/speaker-selector.js"></script>
+<link rel="stylesheet" href="static/speaker-selector.css">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Станция Лайт 2</title>
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="stylesheet" href="/static/vendor/xterm/xterm.css">
-<link rel="icon" type="image/png" href="/static/icons/favicon-64.png">
-<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="static/vendor/xterm/xterm.css">
+<link rel="icon" type="image/png" href="static/icons/favicon-64.png">
+<link rel="apple-touch-icon" href="static/icons/apple-touch-icon.png">
 <meta name="theme-color" content="#F6F6F8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111116" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -573,7 +576,7 @@
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
   #toast.err { background: var(--danger); color: #fff; }
 </style>
-<link rel="stylesheet" href="/static/model.css"><style>[data-profile-hidden]{display:none!important}</style></head>
+<link rel="stylesheet" href="static/model.css"><style>[data-profile-hidden]{display:none!important}</style></head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
@@ -856,6 +859,8 @@
     <header class="page-head"><div><h1>Настройки</h1><div class="sub">Оформление, доступ к панели и то, что панель хранит на колонке</div></div></header>
     <div class="settings">
 
+      <section class="card set-card" id="model-settings" hidden></section>
+
       <section class="card set-card">
         <div class="set-head"><span class="set-ic"><svg width="18" height="18" aria-hidden="true"><use href="#i-palette"/></svg></span><div><h2>Оформление</h2><p>Хранится в этом браузере и попадает в резервную копию</p></div></div>
         <div class="set-item"><div class="set-label"><b>Тема</b><small>«Как в системе» следует за светлой и тёмной темой устройства</small></div>
@@ -899,7 +904,7 @@
           <div class="set-ctl"><button class="btn sm primary" id="app-install" hidden>Установить</button></div></div>
         <p class="set-note" id="app-hint" hidden></p>
         <div class="set-item" id="app-ca-row" hidden><div class="set-label"><b>Сертификат HTTPS</b><small>Чтобы телефон доверял панели по HTTPS. Действует только для локальных адресов</small></div>
-          <div class="set-ctl"><a class="btn sm" href="/ca.crt"><svg width="18" height="18" aria-hidden="true"><use href="#i-dl"/></svg>Скачать</a></div></div>
+          <div class="set-ctl"><a class="btn sm" href="ca.crt"><svg width="18" height="18" aria-hidden="true"><use href="#i-dl"/></svg>Скачать</a></div></div>
       </section>
 
       <section class="card set-card">
@@ -1336,7 +1341,7 @@ async function api(path, body, opts = {}) {
     headers: opts.headers || { 'Content-Type': 'application/json' },
     body: opts.raw ? body : JSON.stringify(body),
   };
-  const r = await fetch(path, init);
+  const r = await PanelContext.fetch(path, init);
   const data = await r.json().catch(() => ({ error: r.statusText }));
   if (!r.ok) {
     const e = new Error(data.error || r.statusText);
@@ -2026,7 +2031,8 @@ async function copyText(text) {
 function termState(text, ok) { $('#term-state').textContent = text; $('#term-state').className = 'badge' + (ok ? ' ok' : ''); }
 function termInit() {
   if (term) return true;
-  if (!window.Terminal) { $('#term').innerHTML = '<div class="empty">Не загрузился xterm.js</div>'; return false; }
+  if (!window.Terminal||!window.FitAddon) { $('#term').textContent=document.readyState==='loading'?'Загрузка терминала…':'Не загрузился xterm.js'; return false; }
+  $('#term').textContent='';
   term = new Terminal({
     fontFamily: "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace", fontSize: 13, lineHeight: 1.2,
     cursorBlink: true, scrollback: 5000, allowProposedApi: false,
@@ -2062,7 +2068,7 @@ function termConnect() {
   if (!termInit() || termWs) return;
   try { termFit.fit(); } catch {}
   termState('подключение…');
-  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/term?cols=${term.cols}&rows=${term.rows}`);
+  const ws = new WebSocket(PanelContext.websocket(`/api/term?cols=${term.cols}&rows=${term.rows}`));
   ws.binaryType = 'arraybuffer';
   termWs = ws;
   ws.onopen = () => { termState('подключено', true); term.focus(); };
@@ -2082,8 +2088,8 @@ $('#term-new').onclick = () => {
 
 // ---------- вкладки ----------
 const store = {
-  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  get: k => { try { return localStorage.getItem(PanelContext.storageKey(k)); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(PanelContext.storageKey(k), v); } catch {} },
 };
 const TABS = ['overview', 'player', 'alarm', 'charts', 'boot', 'apps', 'files', 'logs', 'console', 'settings'];
 let bootLoaded = false;
@@ -2752,7 +2758,7 @@ async function fsAction(a, e) {
   if (a === 'dl') {
     toast(e.is_dir ? 'Упаковка папки…' : 'Скачивание…');
     const link = document.createElement('a');
-    link.href = '/api/fs/download?path=' + encodeURIComponent(p);
+    link.href = PanelContext.url('/api/fs/download?path=' + encodeURIComponent(p));
     link.download = ''; document.body.append(link); link.click(); link.remove();
   } else if (a === 'mv') {
     const name = prompt('Новое имя', e.name);
@@ -2983,13 +2989,13 @@ applyUI();
 let accessInfo = null, installEvt = null;
 const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 async function authPost(path, body) {
-  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const r = await PanelContext.fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || r.statusText);
   return d;
 }
 async function loadAccess() {
-  try { accessInfo = await (await fetch('/api/panel-auth')).json(); } catch { return; }
+  try { accessInfo = await (await PanelContext.fetch('/api/panel-auth')).json(); } catch { return; }
   const a = accessInfo, st = $('#pw-state');
   st.textContent = a.enabled ? 'Задан. Вход запоминается в этом браузере на 90 дней'
     : isLocalHost ? 'Не задан. Пока панель открыта только на этом компьютере, это не страшно'
@@ -3061,8 +3067,8 @@ $('#fp-reset').onclick = e => {
 const UI_KEYS = /^(ui|ov|ch|snd)\./;
 $('#bk-save').onclick = e => act(e.currentTarget, async () => {
   const ui = {};
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (UI_KEYS.test(k)) ui[k] = localStorage.getItem(k); } } catch {}
-  const r = await fetch('/api/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ui }) });
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (UI_KEYS.test(k)) ui[k] = localStorage.getItem(PanelContext.storageKey(k)); } } catch {}
+  const r = await PanelContext.fetch('/api/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ui }) });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
   const name = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '')?.[1] || 'stantsiya-backup.tar.gz';
   const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = name; a.click();
@@ -3076,7 +3082,7 @@ $('#bk-file').onchange = async e => {
   toast('Восстанавливаем… это может занять минуту');
   const r = await act($('#bk-restore'), () => api('/api/backup/restore', f, { raw: true, headers: { 'Content-Type': 'application/gzip' } }));
   if (!r) return;
-  try { for (const [k, v] of Object.entries(r.ui || {})) if (UI_KEYS.test(k)) localStorage.setItem(k, v); } catch {}
+  try { for (const [k, v] of Object.entries(r.ui || {})) if (UI_KEYS.test(k)) localStorage.setItem(PanelContext.storageKey(k), v); } catch {}
   applyUI();
   try { const saved = JSON.parse(store.get(LAYOUT_KEY)); if (saved) applyLayout(saved); } catch {}
   bootLoaded = false; alarmsData = null;
@@ -3100,7 +3106,7 @@ function renderInstall() {
   if (!isSecureContext) {
     st.textContent = 'Браузер разрешает установку только по HTTPS';
     if (httpsPort) {
-      const url = `https://${location.hostname}:${httpsPort}/`;
+      const url = `https://${location.hostname}:${httpsPort}${PanelContext.basePath}`;
       hint.innerHTML = `Откройте панель по адресу <a href="${url}">${esc(url)}</a>. Чтобы браузер ей доверял, один раз установите сертификат (строка ниже): `
         + 'на Android — «Настройки → Безопасность → Шифрование и учётные данные → Установить сертификат → Сертификат ЦС»; '
         + 'на iPhone — открыть файл, затем «Основные → Об этом устройстве → Доверие сертификатам».';
@@ -3116,7 +3122,7 @@ $('#app-install').onclick = async () => {
   await installEvt.userChoice.catch(() => null);
   installEvt = null; renderInstall();
 };
-if ('serviceWorker' in navigator && isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
+if ('serviceWorker' in navigator && isSecureContext) navigator.serviceWorker.register(PanelContext.url('/sw.js'), {scope:PanelContext.basePath}).catch(() => {});
 loadAccess();
 
 // ---------- графики ----------
@@ -3534,7 +3540,7 @@ $('#upd-go').onclick = e => {
     const until = Date.now() + 60000;
     await new Promise(r => setTimeout(r, 2500));
     while (Date.now() < until) {
-      try { const r = await fetch('/api/panel/version'); if (r.ok || r.status === 401) { location.reload(); return; } } catch {}
+      try { const r = await PanelContext.fetch('/api/panel/version'); if (r.ok || r.status === 401) { location.reload(); return; } } catch {}
       await new Promise(r => setTimeout(r, 1000));
     }
     btn.textContent = 'Обновить';
@@ -3585,7 +3591,7 @@ function renderConn() {
 async function connCheck() {
   clearTimeout(connTimer);
   try {
-    const r = await fetch('/api/conn');
+    const r = await PanelContext.fetch('/api/conn');
     connInfo = r.status === 401 ? { state: 'locked' } : await r.json();
   } catch { connInfo = { state: 'server' }; }
   if (connInfo.retry_in != null) retryDeadline = Date.now() + connInfo.retry_in * 1000;
@@ -3601,7 +3607,7 @@ $('#cs-login').onsubmit = async e => {
   const btn = $('#cs-login-btn'), err = $('#cs-login-err');
   btn.disabled = true; err.textContent = '';
   try {
-    const r = await fetch('/api/panel-auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const r = await PanelContext.fetch('/api/panel-auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                                      body: JSON.stringify({ password: $('#cs-pass').value }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || r.statusText);
@@ -3611,7 +3617,7 @@ $('#cs-login').onsubmit = async e => {
   } catch (x) { err.textContent = x.message; $('#cs-pass').select(); }
   finally { btn.disabled = false; }
 };
-$('#cs-retry').onclick = e => act(e.currentTarget, async () => { await fetch('/api/conn/retry', { method: 'POST' }); await connCheck(); });
+$('#cs-retry').onclick = e => act(e.currentTarget, async () => { await PanelContext.fetch('/api/conn/retry', { method: 'POST' }); await connCheck(); });
 
 let statusTimer;
 function onConnected() {
@@ -3632,11 +3638,13 @@ function onConnected() {
 // ---------- старт ----------
 renderConn();
 connCheck();
+// A fast local worker can connect before the vendor scripts below have loaded.
+document.addEventListener('DOMContentLoaded',()=>{if(online&&!$('#tab-console').hidden)termConnect();});
 </script>
-<script src="/static/vendor/qrcode.js"></script>
-<script src="/static/vendor/xterm/xterm.js"></script>
-<script src="/static/vendor/xterm/addon-fit.js"></script>
-<script type="importmap">{ "imports": { "three": "/static/vendor/three/three.module.js" } }</script>
-<script type="module" src="/static/model.js"></script>
+<script src="static/vendor/qrcode.js"></script>
+<script src="static/vendor/xterm/xterm.js"></script>
+<script src="static/vendor/xterm/addon-fit.js"></script>
+<script type="importmap">{ "imports": { "three": "./static/vendor/three/three.module.js" } }</script>
+<script type="module" src="static/model.js"></script>
 </body>
 </html>

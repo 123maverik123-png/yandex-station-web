@@ -1,9 +1,8 @@
-
 import * as THREE from 'three';
 import { STLLoader } from './vendor/three/STLLoader.js';
 import { OrbitControls } from './vendor/three/OrbitControls.js';
+import {modelSettings} from './model-settings.js';
 import { toCreasedNormals } from './vendor/three/BufferGeometryUtils.js';
-import { makeWeave } from './model-fabric.js';
 
 // Цвета корпусов (yandex-getcolor) — на глаз по фото.
 const BODY_COLORS = { copper: '#a8603e', black: '#2c2c31', blue: '#3e5f90', green: '#56715f', pink: '#d8a4a9', violet: '#6e5b98' };
@@ -16,17 +15,6 @@ const MODEL_TOP = 0, MODEL_BOTTOM = -61.2, LIFT = -(MODEL_TOP + MODEL_BOTTOM) / 
 const START_ANGLE = -0.5;   // модель изначально повёрнута, чтобы был виден объём
 
 const view = document.getElementById('model-view');
-view.classList.add('studio-view');
-view.setAttribute('role','group');
-view.setAttribute('aria-label','3D-модель: вращайте мышью или пальцем');
-view.insertAdjacentHTML('beforeend','<div class="studio-tools"><button id="studio-home" type="button" aria-label="Исходный ракурс">↺</button><button id="studio-spin" type="button" aria-label="Автовращение" aria-pressed="false">⟳</button><select id="studio-color" aria-label="Цвет корпуса"></select></div><div class="studio-caption">Вращайте · приближайте</div><a class="studio-source" href="' + new URL('./models/SOURCES.md',import.meta.url).href + '" target="_blank">О модели</a>');
-let manualColor=localStorage.getItem('model-color-lite2');
-let deviceColor=window.__deviceColor||'copper';
-const picker=document.getElementById('studio-color');
-picker.add(new Option('Как у колонки','auto'));
-for(const [key,label]of Object.entries({copper:'Оранжевый',black:'Чёрный',blue:'Синий',green:'Зелёный',pink:'Розовый',violet:'Фиолетовый'}))picker.add(new Option(label,key));
-picker.value=manualColor||'auto';
-picker.addEventListener('change',()=>{manualColor=picker.value==='auto'?null:picker.value;if(manualColor)localStorage.setItem('model-color-lite2',manualColor);else localStorage.removeItem('model-color-lite2');paint(manualColor||deviceColor);});
 let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -37,9 +25,6 @@ try {
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.shadowMap.enabled=true;
-renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-renderer.domElement.className='studio-canvas';
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(28, 1, 1, 2000);
@@ -50,17 +35,11 @@ controls.enablePan = false;
 controls.minDistance = 130;
 controls.maxDistance = 450;
 controls.target.set(0, 0, 0);
-document.getElementById('studio-home').addEventListener('click',()=>{camera.position.set(0,69,239);controls.target.set(0,0,0);controls.update();});
-document.getElementById('studio-spin').addEventListener('click',e=>{controls.autoRotate=!controls.autoRotate;e.currentTarget.setAttribute('aria-pressed',String(controls.autoRotate));});
-controls.autoRotateSpeed=.7;
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3a48, 1.6));
 const key = new THREE.DirectionalLight(0xffffff, 2.4);
 key.position.set(140, 220, 180);
 scene.add(key);
-key.castShadow=true;key.shadow.mapSize.set(1024,1024);
-Object.assign(key.shadow.camera,{left:-90,right:90,top:90,bottom:-90,near:1,far:650});
-key.shadow.normalBias=.12;
 const rim = new THREE.DirectionalLight(0xffeedd, 1.0);
 rim.position.set(-180, 60, -160);
 scene.add(rim);
@@ -69,15 +48,7 @@ const group = new THREE.Group();
 scene.add(group);
 
 // ---- корпус ----
-const weave=makeWeave(THREE);
-weave.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
-const bodyMat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02, bumpMap:weave,bumpScale:.17,sheen:.35,sheenRoughness:.9 });
-// Only the fabric part gets yarn colour/normal variation; top plastic remains smooth.
-bodyMat.onBeforeCompile=shader=>{
-  shader.uniforms.fabricWeave={value:weave};
-  shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nattribute float fabricMask;varying float vFabric;').replace('#include <begin_vertex>','#include <begin_vertex>\nvFabric=fabricMask;');
-  shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nuniform sampler2D fabricWeave;varying float vFabric;').replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.rgb*=mix(1.0,.7+.3*texture2D(fabricWeave,vBumpMapUv).r,vFabric);').replace('#include <normal_fragment_maps>','vec3 untexturedNormal=normal;\n#include <normal_fragment_maps>\nnormal=normalize(mix(untexturedNormal,normal,vFabric));');
-};
+const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02 });
 let bodyGeom = null, partOf = null;  // partOf[i]: 0 — корпус, 1 — пластиковый диск сверху, 2 — тёмные детали
 function paint(colorKey) {
   if (!bodyGeom) return;
@@ -90,7 +61,7 @@ function paint(colorKey) {
   // Холст показываем, когда известен настоящий цвет, — чтобы не мелькала чёрная колонка.
   if (colorKey) renderer.domElement.style.opacity = 1;
 }
-window.modelColor = c => {deviceColor=c;if(!manualColor)paint(c);};
+window.modelColor = c => {if(!manualColor)paint(c);};
 
 new STLLoader().load(new URL('../model.stl',import.meta.url).href, geom => {
   // Группы граней по цвету из STL: самая частая — корпус, самая светлая из остальных — кнопка, прочее — разъёмы.
@@ -110,10 +81,6 @@ new STLLoader().load(new URL('../model.stl',import.meta.url).href, geom => {
   geom.translate(0, LIFT, 0);    // центр по высоте — в начало координат
   // STL неиндексированный: функция пересчитывает нормали на месте, порядок вершин не меняется.
   bodyGeom = toCreasedNormals(geom, THREE.MathUtils.degToRad(35));
-  const positions=bodyGeom.attributes.position,uv=new Float32Array(n*2),mask=new Float32Array(n);
-  for(let i=0;i<n;i++){uv[i*2]=Math.atan2(positions.getX(i),positions.getZ(i))/(Math.PI*2)+.5;uv[i*2+1]=(positions.getY(i)+LIFT)/61.2;mask[i]=partOf[i]===0?1:0;}
-  bodyGeom.setAttribute('uv',new THREE.BufferAttribute(uv,2));
-  bodyGeom.setAttribute('fabricMask',new THREE.BufferAttribute(mask,1));
   // границы полупрозрачного кольца — по вершинам этой детали
   let rin = Infinity, rout = 0;
   const pos = bodyGeom.attributes.position;
@@ -123,12 +90,11 @@ new STLLoader().load(new URL('../model.stl',import.meta.url).href, geom => {
   }
   if (rout > 0) buildRing(rin, rout, n);
   if (!bodyGeom.attributes.color) bodyGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-  const body=new THREE.Mesh(bodyGeom, bodyMat);body.castShadow=body.receiveShadow=true;group.add(body);
+  group.add(new THREE.Mesh(bodyGeom, bodyMat));
   renderer.domElement.style.cssText = 'opacity:0;transition:opacity .4s';
   view.appendChild(renderer.domElement);
-  paint(manualColor||deviceColor);
-  view.dataset.model='lite2';view.dataset.renderer='webgl';
-  view.dispatchEvent(new Event('modelready'));
+  paint(manualColor||window.__deviceColor);
+  view.dataset.model='lite2';view.dataset.renderer='webgl';view.dispatchEvent(new Event('modelready'));
   resize();
 }, undefined, () => { view.hidden = true; });
 
@@ -255,12 +221,15 @@ function resize() {
 }
 new ResizeObserver(resize).observe(view);
 group.rotation.y = START_ANGLE;
-const floor=new THREE.Mesh(new THREE.PlaneGeometry(220,220),new THREE.ShadowMaterial({color:'#101018',opacity:.18}));
-floor.rotation.x=-Math.PI/2;floor.position.y=-LIFT-.2;floor.receiveShadow=true;scene.add(floor);
-let previous=0;
-renderer.setAnimationLoop(now => {
+renderer.setAnimationLoop(() => {
   if (document.hidden || !view.offsetParent) return;   // вкладка не видна — не греем GPU
-  if(now-previous<33)return;previous=now;
   controls.update();
   renderer.render(scene, camera);
+});
+
+let manualColor=null;
+modelSettings('lite2',Object.fromEntries(Object.entries(BODY_COLORS).map(([key,color])=>[key,[{copper:'Оранжевый',black:'Чёрный',blue:'Синий',green:'Зелёный',pink:'Розовый',violet:'Фиолетовый'}[key],color]])),{
+  color:key=>{manualColor=key;paint(key||window.__deviceColor);},
+  spin:value=>{controls.autoRotate=value;},
+  home:()=>{camera.position.set(0,69,239);controls.target.set(0,0,0);group.rotation.y=START_ANGLE;controls.update();},
 });
