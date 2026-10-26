@@ -32,26 +32,25 @@ function roundedBox(w,h,d,r,b=1){const geo=new T.ExtrudeGeometry(roundedShape(w-
 const ledMaterials=[];
 function ledMaterial(){const m=new T.MeshStandardMaterial({color:'#181820',emissive:'#000000',emissiveIntensity:0,roughness:.28,metalness:.05});ledMaterials.push(m);return m;}
 function port(y,z){mesh(roundedBox(10,4,1.5,1.9,.3),rubber,0,y,z);mesh(roundedBox(6,1.5,1.8,.7,.2),new T.MeshStandardMaterial({color:'#727078',metalness:.7,roughness:.5}),0,y,z-.15);}
-let topY,baseY,clockSegments=[],topShell=null;
+let topY,baseY,clockSegments=[];
 if(lite){
-  // Шайба 88 × 48 мм: мягкий цветной корпус на чёрном рифлёном основании, сверху перфорация, кнопки и кольцо света.
-  const points=[[0,-14],[43.2,-14],[43.8,-12],[44,-6],[44,19],[43.6,21.6],[42.4,23.4],[40.6,24],[0,24]].map(p=>new T.Vector2(...p));
-  mesh(new T.LatheGeometry(points,160),fabric);
-  const ribs=canvasTexture(512,(c,n)=>{c.fillStyle='#3a3b41';c.fillRect(0,0,n,n);c.strokeStyle='#060607';c.lineWidth=9;for(let x=-n;x<2*n;x+=22){c.beginPath();c.moveTo(x,n*.1);c.lineTo(x+n*.22,n*.9);c.stroke();}});
-  ribs.wrapS=T.RepeatWrapping;ribs.repeat.set(5,1);
-  mesh(new T.CylinderGeometry(42.6,40,10,128,1,true),new T.MeshStandardMaterial({color:'#ffffff',map:ribs,roughness:.8,side:T.DoubleSide}),0,-19);
-  mesh(new T.CylinderGeometry(40,38.5,1.4,96),rubber,0,-24.3);
-  topShell=new T.MeshStandardMaterial({color:'#7b55f0',roughness:.6,metalness:.02});
-  const lid=mesh(new T.CircleGeometry(40.7,128),topShell,0,24.02);lid.rotation.x=-Math.PI/2;
-  // кольцо света по краю крышки: выключенное не видно, включённое светится сквозь перфорацию
-  for(let i=0;i<12;i++){const m=new T.MeshBasicMaterial({color:'#000000',transparent:true,opacity:0,depthWrite:false,toneMapped:false});ledMaterials.push(m);
-    const ring=mesh(new T.RingGeometry(35.5,40.4,8,1,i*Math.PI/6,Math.PI/6+.004),m,0,24.12);ring.rotation.x=-Math.PI/2;}
-  // кожаный язычок с «Я» сбоку, на стыке корпуса и основания
-  const side=.62,tagGroup=new T.Group();tagGroup.position.set(44.25*Math.sin(side),-12,44.25*Math.cos(side));tagGroup.rotation.y=side;group.add(tagGroup);
-  mesh(roundedBox(9,13,1.6,1.6,.5),new T.MeshStandardMaterial({color:'#1d1e22',roughness:.75}),0,0,0,tagGroup);
-  const tagTex=canvasTexture(128,(c,n)=>{c.fillStyle='#4a4b51';c.font='600 64px sans-serif';c.textAlign='center';c.textBaseline='middle';c.translate(n/2,n/2+4);c.scale(.8,1.7);c.fillText('Я',0,0);});
-  mesh(new T.PlaneGeometry(6,8),new T.MeshBasicMaterial({map:tagTex,transparent:true,depthWrite:false}),0,1.6,.82,tagGroup);
-  topY=24.1;baseY=-25;port(-19,-41.6);
+  // По фото: прямой цилиндр 88 мм с острым верхним краем (корпус ~44 мм) на чёрном основании ~12 мм,
+  // которое сужается книзу и изрезано наклонными канавками.
+  mesh(new T.LatheGeometry([[0,-16],[43.7,-16],[44,-15.7],[44,27.6],[43.6,28],[0,28]].map(p=>new T.Vector2(...p)),160),fabric);
+  const ribs=canvasTexture(512,(c,n)=>{c.fillStyle='#3b3c42';c.fillRect(0,0,n,n);c.strokeStyle='#060607';c.lineWidth=11;
+    for(let x=-n;x<2*n;x+=24){c.beginPath();c.moveTo(x,n*.06);c.lineTo(x+n*.2,n*.94);c.stroke();}});
+  ribs.wrapS=T.RepeatWrapping;ribs.repeat.set(3,1);
+  mesh(new T.LatheGeometry([[0,-28],[38.6,-28],[40.2,-27.3],[42,-25],[43.3,-20.5],[43.7,-16]].map(p=>new T.Vector2(...p)),160),
+    new T.MeshStandardMaterial({color:'#ffffff',map:ribs,roughness:.8}));
+  // кольцо света: под прорезями по краю крышки, выключенное не видно
+  for(let i=0;i<12;i++){const m=new T.MeshBasicMaterial({color:'#000000',transparent:true,opacity:0,depthWrite:false,toneMapped:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});ledMaterials.push(m);
+    const ring=mesh(new T.RingGeometry(37.4,41.6,8,1,i*Math.PI/6,Math.PI/6+.004),m,0,28);ring.rotation.x=-Math.PI/2;}
+  // плоская чёрная пластина с вдавленной «Я» на стыке корпуса и основания
+  const side=.62,tagGroup=new T.Group();tagGroup.position.set(44.45*Math.sin(side),-9.5,44.45*Math.cos(side));tagGroup.rotation.y=side;group.add(tagGroup);
+  const tagTex=canvasTexture(256,(c,n)=>{c.fillStyle='#1d1e22';c.fillRect(0,0,n,n);c.font='300 120px Georgia, serif';c.textAlign='center';c.textBaseline='middle';
+    c.translate(n/2,n/2+6);c.scale(1.05,1.75);c.lineJoin='round';c.strokeStyle='#5a5b62';c.lineWidth=1.6;c.strokeText('Я',1,.7);c.fillStyle='#08080a';c.fillText('Я',0,0);});
+  mesh(new T.BoxGeometry(10.5,15,.9),[0,0,0,0,1,0].map(i=>new T.MeshStandardMaterial(i?{color:'#ffffff',map:tagTex,roughness:.75}:{color:'#1d1e22',roughness:.75})),0,0,0,tagGroup);
+  topY=28;baseY=-28;port(-11,-44.1);
 }else if(mini){
   const points=[[0,-35],[43,-35],[47,-34],[49.4,-31],[50.4,-26],[51,-18],[51,20],[50.8,28],[49.6,31],[0,31]].map(p=>new T.Vector2(...p));
   const shell=new T.LatheGeometry(points,192),shellUV=shell.attributes.uv,shellPosition=shell.attributes.position;
@@ -88,7 +87,7 @@ const liteTex=lite&&canvasTexture(1024,(c,n)=>{const R=n/2;c.translate(R,R);
   const t=60,pts=[[0,-t],[t*.9,t*.62],[-t*.9,t*.62]];c.beginPath();c.moveTo(t*.45,-t*.19);
   for(let i=0;i<3;i++){const p=pts[(i+1)%3],q=pts[(i+2)%3];c.arcTo(p[0],p[1],q[0],q[1],t*.42);}c.closePath();
   const g=c.createRadialGradient(0,10,4,0,10,t);g.addColorStop(0,'#ffffff');g.addColorStop(1,'#e9e6f1');c.fillStyle=g;c.fill();});        // Алиса
-const topMarks=mesh(lite?new T.CircleGeometry(40.7,128):new T.PlaneGeometry(mini?98:117,mini?98:93),lite?new T.MeshBasicMaterial({map:liteTex,transparent:true,depthWrite:false}):new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.castShadow=false;
+const topMarks=mesh(lite?new T.CircleGeometry(43.5,128):new T.PlaneGeometry(mini?98:117,mini?98:93),lite?new T.MeshBasicMaterial({map:liteTex,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}):new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.castShadow=false;
 if(mini&&!lite){
   const white=new T.MeshStandardMaterial({color:'#fff9e8',emissive:'#fff2d6',emissiveIntensity:2,roughness:.8,toneMapped:false});
   function horizontal(){const s=new T.Shape();s.moveTo(-3.5,0);s.lineTo(-2.5,1);s.lineTo(2.5,1);s.lineTo(3.5,0);s.lineTo(2.5,-1);s.lineTo(-2.5,-1);s.closePath();return new T.ShapeGeometry(s);}
@@ -101,7 +100,7 @@ window.modelShow=values=>{clockSegments.forEach((s,i)=>{s.visible=Number(values?
 window.modelRing=leds=>{if(!leds?.length)return;ledMaterials.forEach((m,i)=>{const rgb=leds[Math.floor(i*leds.length/ledMaterials.length)]||[0,0,0],color=new T.Color().setRGB(...rgb.map(v=>Math.max(0,Math.min(255,v))/255),T.SRGBColorSpace);m.color.copy(color);
   if(m.isMeshBasicMaterial){m.opacity=Math.min(.9,Math.max(...rgb)/255*1.2);return;}   // свечение Лайт: прозрачное, пока выключено
   m.emissive.copy(color);m.emissiveIntensity=.55;});dirty=true;};
-function paint(key){key=palette[key]?key:fallback;fabric.color.set(palette[key][1]);plastic.color.copy(fabric.color).multiplyScalar(.65);topShell?.color.copy(fabric.color).offsetHSL(0,0,.04);dirty=true;}
+function paint(key){key=palette[key]?key:fallback;fabric.color.set(palette[key][1]);plastic.color.copy(fabric.color).multiplyScalar(.65);dirty=true;}
 let preference=null;
 window.modelColor=key=>{if(!preference)paint(key);};
 paint(window.__deviceColor||fallback);
