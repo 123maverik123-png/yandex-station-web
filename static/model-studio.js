@@ -46,11 +46,14 @@ if(lite){
   ribs.wrapS=T.RepeatWrapping;ribs.repeat.set(3,1);
   mesh(new T.LatheGeometry([[0,-28],[38.6,-28],[40.2,-27.3],[42,-25],[43.3,-20.5],[43.7,-16]].map(p=>new T.Vector2(...p)),160),
     new T.MeshStandardMaterial({color:'#ffffff',map:ribs,roughness:.8}));
-  // кольцо света светится сквозь прорези: маска — те же прорези, что на рисунке крышки; выключенное не видно
-  const slotMask=canvasTexture(512,(c,n)=>{c.fillStyle='#000';c.fillRect(0,0,n,n);c.fillStyle='#fff';liteSlots(c,n/2);});
-  for(let i=0;i<12;i++){const m=new T.MeshBasicMaterial({color:'#000000',alphaMap:slotMask,transparent:true,opacity:0,depthWrite:false,toneMapped:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});ledMaterials.push(m);
-    // внешний радиус = радиусу рисунка крышки: тогда UV кольца и круга совпадают
-    const ring=mesh(new T.RingGeometry(36,43.5,8,1,i*Math.PI/6,Math.PI/6+.004),m,0,28);ring.rotation.x=-Math.PI/2;ring.renderOrder=2;}
+  // Светится только логотип Алисы в центре крышки (прорези декоративные, часов нет): в покое белый,
+  // при подсветке — её цвет.
+  const logoTex=canvasTexture(256,(c,n)=>{c.translate(n/2,n/2+8);const t=104,pts=[[0,-t],[t*.9,t*.62],[-t*.9,t*.62]];
+    c.beginPath();c.moveTo(t*.45,-t*.19);for(let i=0;i<3;i++){const p=pts[(i+1)%3],q=pts[(i+2)%3];c.arcTo(p[0],p[1],q[0],q[1],t*.42);}c.closePath();
+    const g=c.createRadialGradient(0,10,6,0,10,t);g.addColorStop(0,'#ffffff');g.addColorStop(1,'#dcd8e6');c.fillStyle=g;c.fill();});
+  const logo=new T.MeshBasicMaterial({map:logoTex,transparent:true,depthWrite:false,toneMapped:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
+  logo.userData.logo=true;ledMaterials.push(logo);
+  const logoMesh=mesh(new T.PlaneGeometry(15,15),logo,0,28);logoMesh.rotation.x=-Math.PI/2;logoMesh.renderOrder=2;
   // плоская чёрная пластина с вдавленной «Я» на стыке корпуса и основания
   const side=.62,tagGroup=new T.Group();tagGroup.position.set(44.45*Math.sin(side),-9.5,44.45*Math.cos(side));tagGroup.rotation.y=side;group.add(tagGroup);
   const tagTex=canvasTexture(256,(c,n)=>{c.fillStyle='#1d1e22';c.fillRect(0,0,n,n);c.font='300 120px "Helvetica Neue", Arial, sans-serif';c.textAlign='center';c.textBaseline='middle';
@@ -83,7 +86,7 @@ if(lite){
 }
 const controlsTex=canvasTexture(512,(c,n)=>{c.strokeStyle='#d6d6dc';c.fillStyle='#d6d6dc';c.lineWidth=2;c.lineCap='round';for(const x of[100,412]){c.beginPath();c.moveTo(x-10,256);c.lineTo(x+10,256);if(x>256){c.moveTo(x,246);c.lineTo(x,266);}c.stroke();}c.beginPath();c.ellipse(256,256,25,19,0,0,Math.PI*2);c.stroke();c.beginPath();c.moveTo(242,262);c.quadraticCurveTo(256,225,270,262);c.closePath();c.fill();c.fillStyle='#090a0c';for(const[x,y]of[[162,128],[350,128],[162,384],[350,384]]){c.beginPath();c.arc(x,y,2,0,Math.PI*2);c.fill();}});
 // Крышка Лайт по фото сверху: по краю кольцо наклонных прорезей, по диагоналям микрофоны,
-// слева «−», справа «+», сверху зачёркнутый микрофон, снизу пауза, в центре треугольник Алисы.
+// слева «−», справа «+», сверху зачёркнутый микрофон, снизу пауза (логотип Алисы — отдельной деталью).
 const liteTex=lite&&canvasTexture(1024,(c,n)=>{const R=n/2;c.translate(R,R);
   const ink='rgba(20,10,40,.34)';c.strokeStyle=ink;c.fillStyle=ink;c.lineCap='round';c.lineJoin='round';
   c.translate(-R,-R);liteSlots(c,R);c.translate(R,R);
@@ -93,10 +96,7 @@ const liteTex=lite&&canvasTexture(1024,(c,n)=>{const R=n/2;c.translate(R,R);
   c.beginPath();c.moveTo(-14,k-34);c.lineTo(-14,k+34);c.moveTo(14,k-34);c.lineTo(14,k+34);c.stroke();                                // пауза
   c.save();c.translate(0,-k);c.scale(1.5,1.5);c.lineWidth=4.6;c.beginPath();c.roundRect(-11,-34,22,38,11);c.moveTo(-19,-8);c.quadraticCurveTo(-19,16,0,16);c.quadraticCurveTo(19,16,19,-8);
   c.moveTo(0,16);c.lineTo(0,28);c.moveTo(-13,28);c.lineTo(13,28);c.moveTo(-22,12);c.lineTo(22,-30);c.stroke();c.restore();            // микрофон выключен
-  // треугольник Алисы со скруглёнными углами, как медиатор
-  const t=60,pts=[[0,-t],[t*.9,t*.62],[-t*.9,t*.62]];c.beginPath();c.moveTo(t*.45,-t*.19);
-  for(let i=0;i<3;i++){const p=pts[(i+1)%3],q=pts[(i+2)%3];c.arcTo(p[0],p[1],q[0],q[1],t*.42);}c.closePath();
-  const g=c.createRadialGradient(0,10,4,0,10,t);g.addColorStop(0,'#ffffff');g.addColorStop(1,'#e9e6f1');c.fillStyle=g;c.fill();});        // Алиса
+});
 const topMarks=mesh(lite?new T.CircleGeometry(43.5,128):new T.PlaneGeometry(mini?98:117,mini?98:93),lite?new T.MeshBasicMaterial({map:liteTex,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}):new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.renderOrder=1;   // прозрачные слои крышки — всегда в одном порядке, иначе мерцают при вращении
 topMarks.castShadow=false;
 if(mini&&!lite){
@@ -109,7 +109,7 @@ if(mini&&!lite){
 let dirty=true;
 window.modelShow=values=>{clockSegments.forEach((s,i)=>{s.visible=Number(values?.[i])>0;});dirty=true;};
 window.modelRing=leds=>{if(!leds?.length)return;ledMaterials.forEach((m,i)=>{const rgb=leds[Math.floor(i*leds.length/ledMaterials.length)]||[0,0,0],color=new T.Color().setRGB(...rgb.map(v=>Math.max(0,Math.min(255,v))/255),T.SRGBColorSpace);m.color.copy(color);
-  if(m.isMeshBasicMaterial){m.opacity=Math.min(.9,Math.max(...rgb)/255*1.2);return;}   // свечение Лайт: прозрачное, пока выключено
+  if(m.userData.logo){if(Math.max(...rgb)<12)m.color.set('#ffffff');else m.color.copy(color).lerp(new T.Color('#ffffff'),.15);return;}   // логотип Лайт: без подсветки белый
   m.emissive.copy(color);m.emissiveIntensity=.55;});dirty=true;};
 function paint(key){key=palette[key]?key:fallback;fabric.color.set(palette[key][1]);plastic.color.copy(fabric.color).multiplyScalar(.65);dirty=true;}
 let preference=null;

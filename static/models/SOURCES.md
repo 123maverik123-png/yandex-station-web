@@ -13,8 +13,8 @@ References:
 - https://alice.yandex.ru/station-lite
 
 Mini 3 has a lower 102 × 60.5 mm body and central indicator; Mini 3 Pro has a
-102 × 71 mm body and perimeter light strip. Station Lite is an 88 × 48 mm puck on a
-ribbed black base, with a light ring under the perforated edge of the lid. Details and colours are approximate.
+102 × 71 mm body and perimeter light strip. Station Lite is an 88 mm puck on a ribbed
+black base; the edge slots are decorative, only the Alice logo in the centre lights up (no clock). Details and colours are approximate.
 Product photographs are not bundled or used as textures. All models use lightweight
 materials with no shadows, ground plane, bump mapping or physical materials. Lite 2
 keeps the original main geometry, materials and lighting; colour, auto-rotation and view reset live in
