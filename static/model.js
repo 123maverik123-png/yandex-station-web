@@ -11,7 +11,7 @@ async function loadProfile(){
 }
 const profile=await loadProfile();
 const view=document.getElementById('model-view');
-const loading=document.createElement('p');loading.className='studio-caption';loading.textContent='Ожидаю данные колонки для выбора 3D-модели…';view.append(loading);
+const loading=document.createElement('p');loading.className='studio-caption';loading.textContent='Ожидаю данные колонки…';view.append(loading);
 let status;
 for(;;){
   try{
@@ -28,7 +28,9 @@ document.getElementById('model-name').textContent=visual.name;
 view.dataset.hardwareProfile=profile.id;
 if(visual.id!==profile.id){
   const note=document.createElement('p');note.className='hint';note.id='model-profile-note';
-  note.textContent='3D: '+visual.name+'. Профиль управления: '+profile.name+'. Для аппаратных функций выберите --model '+visual.id+' при запуске сервера.';
+  note.textContent=visual.id==='lite'
+    ? 'Станция Лайт первого поколения. Для управления пока используется профиль «'+profile.name+'»; совместимость аппаратных функций не подтверждена.'
+    : '3D: '+visual.name+'. Профиль управления: '+profile.name+'. Для аппаратных функций выберите --model '+visual.id+' при запуске сервера.';
   view.after(note);
 }
 const hide=element=>element?.setAttribute('data-profile-hidden','');
@@ -41,5 +43,21 @@ if(profile.id!=='lite2'){
   document.querySelectorAll('[data-k="clock"]').forEach(e=>{if(!profile.clock)hide(e);});
   document.querySelector('[data-widget="light"] .hint').textContent=profile.light_note;
 }
-if(visual.id==='lite2')await import('./model-lite2.js');
+if(visual.id==='lite'){
+  view.classList.add('model-photo');
+  view.dataset.title='Изображение колонки';
+  view.setAttribute('role','group');
+  view.setAttribute('aria-label','Станция Лайт первого поколения');
+  const image=document.createElement('img');
+  image.className='model-photo-image';
+  image.src=new URL('./models/station-lite.png',import.meta.url).href;
+  image.alt='Яндекс Станция Лайт первого поколения, фиолетовый корпус';
+  image.width=540;image.height=541;image.draggable=false;
+  const source=document.createElement('a');
+  source.className='model-photo-source';
+  source.href='https://alice.yandex.ru/support/ru/station/meet/light-ring';
+  source.target='_blank';source.rel='noopener noreferrer';
+  source.textContent='Изображение: Яндекс';
+  view.append(image,source);
+}else if(visual.id==='lite2')await import('./model-lite2.js');
 else{const {createModel}=await import('./model-studio.js');createModel(visual);}

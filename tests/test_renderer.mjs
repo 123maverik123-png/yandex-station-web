@@ -12,6 +12,11 @@ const cases=[
   [{hostname:'Yandex-Station-gen2'},'station2'],
   [{hardware_model:'Yandex Bergamot EVT1',hostname:'renamed'},'mini3'],
   [{hardware_model:'Yandex Pickle EVT1',hostname:'Yandex-Mini3-6CAK'},'mini3pro'],
+  [{hardware_model:'Yandex Station Micro',hostname:'yandex-station-lite'},'lite'],
+  [{hardware_model:'Yandex Station Micro v1.2',hostname:'renamed'},'lite'],
+  [{hardware_model:'yandex,station-micro',hostname:'renamed'},'lite'],
+  [{hostname:'yandex-station-lite'},'lite'],
+  [{hardware_model:'Yandex Plum EVT2',hostname:'yandex-station-lite'},'lite2'],
   [{hostname:'Yandex-Mini2-1234'},'lite2'],
 ];
 for(const [identity,expected]of cases){
@@ -21,4 +26,4 @@ for(const [identity,expected]of cases){
 }
 assert.equal(rendererProfile({id:'station2',name:'Station 2'},{hostname:'renamed'}).id,'station2');
 assert.deepEqual(original,{id:'lite2',name:'Lite 2',clock:true,boot:true});
-console.log('10 renderer identity cases passed; hardware profile unchanged');
+console.log(`${cases.length+1} renderer identity cases passed; hardware profile unchanged`);
