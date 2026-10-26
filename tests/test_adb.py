@@ -44,3 +44,15 @@ class AdbDiscoveryTests(unittest.TestCase):
         explicit = self.executable(self.home / "chosen tools/adb")
         with patch.object(server.sys, "platform", "darwin"), patch.dict(os.environ, {"ADB": explicit}):
             self.assertEqual(server.find_adb(), explicit)
+
+
+class TransferTests(unittest.TestCase):
+    def test_slow_reply_during_file_transfer_is_not_a_disconnect(self):
+        adb = server.Adb("adb", "192.0.2.1:5555")
+        conn = server.Connection(adb)
+        with patch.object(server.subprocess, "run", side_effect=server.subprocess.TimeoutExpired("adb", 4)) as run:
+            with adb._transfer():
+                self.assertTrue(conn._alive())
+            run.assert_not_called()
+            self.assertFalse(conn._alive())
+        self.assertEqual(adb.transfers, 0)

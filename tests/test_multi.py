@@ -48,6 +48,7 @@ class GatewayTests(unittest.TestCase):
         connection=http.client.HTTPConnection('127.0.0.1',self.gateway.server_port,timeout=5)
         headers={'Cookie':self.cookie}if cookie else {}
         if origin:headers['Origin']=origin
+        if body is not None:headers['Content-Type']='application/octet-stream'
         connection.request(method,path,body=body,headers=headers);response=connection.getresponse();data=response.read();status=response.status;head=dict(response.getheaders());connection.close();return status,data,head
     def test_unauthenticated_cannot_read_or_write_either_device(self):
         for model in gateway.DEVICES:
@@ -62,6 +63,7 @@ class GatewayTests(unittest.TestCase):
         TestGateway.updater.check.assert_called_once_with(True)
         self.assertEqual(self.request('/speaker/station2/api/panel/update','POST',cookie=False)[0],401)
         self.assertEqual(self.request('/speaker/station2/api/panel/update','POST',origin='https://untrusted.example')[0],403)
+        self.assertEqual(self.request('/speaker/station2/api/panel/update','POST',origin='null')[0],403)
         TestGateway.updater.update.assert_not_called()
         self.assertEqual(self.request('/speaker/mini3pro/api/panel/update','POST')[0],200)
         TestGateway.updater.update.assert_called_once_with()

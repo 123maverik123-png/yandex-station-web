@@ -9,6 +9,7 @@ import ipaddress
 import argparse
 import base64
 import collections
+import contextlib
 import hashlib
 import io
 import json
@@ -341,10 +342,22 @@ ADB_LOST = ("error: closed", "device offline", "not found", "no devices", "unaut
 
 class Adb:
     def __init__(self, adb_path, serial):
+        self.transfers = 0      # идёт push/pull: старый adbd в это время медлит с ответами на shell
+        self._transfers_lock = threading.Lock()
         self.adb = adb_path
         self.serial = serial
         self.lock = threading.Lock()
         self.conn = None  # Connection; сообщаем ему, когда связь пропала посреди команды
+
+    @contextlib.contextmanager
+    def _transfer(self):
+        with self._transfers_lock:
+            self.transfers += 1
+        try:
+            yield
+        finally:
+            with self._transfers_lock:
+                self.transfers -= 1
 
     def _base(self):
         return [self.adb] + (["-s", self.serial] if self.serial else [])
@@ -371,7 +384,8 @@ class Adb:
     def pull(self, remote, local, timeout=300):
         # exec-out этот adbd не поддерживает ("error: closed"), а shell идёт через pty
         # и портит бинарные данные, поэтому файлы забираем только через pull.
-        p = subprocess.run(self._base() + ["pull", "-a", remote, str(local)], capture_output=True, timeout=timeout)
+        with self._transfer():
+            p = subprocess.run(self._base() + ["pull", "-a", remote, str(local)], capture_output=True, timeout=timeout)
         if p.returncode != 0:
             raise AdbError((p.stderr or p.stdout).decode("utf-8", "replace").strip())
 
@@ -395,7 +409,8 @@ class Adb:
         return res
 
     def push(self, local, remote, timeout=120):
-        p = subprocess.run(self._base() + ["push", str(local), remote], capture_output=True, timeout=timeout)
+        with self._transfer():
+            p = subprocess.run(self._base() + ["push", str(local), remote], capture_output=True, timeout=timeout)
         if p.returncode != 0:
             raise AdbError(p.stderr.decode("utf-8", "replace").strip())
 
@@ -474,6 +489,8 @@ class Connection:
     def _alive(self):
         """adb get-state верит в старое TCP-соединение: после резкого выключения колонки он ещё долго
         отвечает «device». Поэтому проверяем по-настоящему — короткой командой на колонке."""
+        if self.adb.transfers:      # пока идёт передача файла, медленный ответ — не обрыв
+            return True
         try:
             p = subprocess.run(self.adb._base() + ["shell", "echo ok"], capture_output=True, timeout=4)
             return p.stdout.strip() == b"ok"
@@ -2469,8 +2486,15 @@ class Handler(BaseHTTPRequestHandler):
             return True
         if self.command == "POST":
             origin = self.headers.get("Origin")
-            if origin and origin != "null" and urlparse(origin).netloc != self.headers.get("Host"):
+            # «null» шлют изолированные iframe и т. п. — с панели такого не бывает, а чужая страница так обошла бы проверку
+            if origin and (origin == "null" or urlparse(origin).netloc != self.headers.get("Host")):
                 self._send(403, {"error": "запрос с чужого сайта"})
+                return True
+            # Панель шлёт тело только как JSON или файл. «Простые» типы (форма, text/plain) браузер отправит
+            # с чужого сайта без предварительного запроса — их не принимаем, даже если Origin не пришёл.
+            ctype = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            if int(self.headers.get("Content-Length") or 0) and ctype not in ("application/json", "application/octet-stream"):
+                self._send(415, {"error": "тело запроса — только JSON или файл"})
                 return True
         if path in PUBLIC_PATHS or path.startswith("/static/") or self.access.session_ok(self._token()):
             return False
