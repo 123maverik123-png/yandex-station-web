@@ -873,6 +873,11 @@ def find_adb():
     exe = "adb.exe" if os.name == "nt" else "adb"
     cands = [os.environ.get("ADB"), shutil.which("adb"), str(ROOT / "platform-tools" / exe),
              str(Path.home() / "Android/Sdk/platform-tools" / exe)]
+    for name in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
+        if os.environ.get(name):
+            cands.append(str(Path(os.environ[name]) / "platform-tools" / exe))
+    if sys.platform == "darwin":
+        cands.append(str(Path.home() / "Library/Android/sdk/platform-tools/adb"))
     if os.name == "nt":
         cands.append(str(Path(os.environ.get("LOCALAPPDATA", "")) / "Android/Sdk/platform-tools/adb.exe"))
     for cand in cands:
@@ -2653,7 +2658,7 @@ class PanelUpdater:
     """Проверка новых релизов панели на GitHub и обновление — в зависимости от того, как панель установлена:
     zip (Windows-сборка, Download ZIP) — скачать релиз и заменить файлы панели; git — git pull --ff-only;
     docker — только подсказать команду (образ изнутри не обновить)."""
-    FILES = ("server.py", "access.py", "glagol.py", "profiles.py", "multi.py", "speakers.example.json", "VERSION", "LICENSE", "README.md", "CONTRIBUTION.md", "start.bat", "start.sh",
+    FILES = ("server.py", "access.py", "glagol.py", "profiles.py", "multi.py", "speakers.example.json", "VERSION", "LICENSE", "README.md", "CONTRIBUTION.md", "start.bat", "start.sh", "start.command",
              "Dockerfile", "docker-compose.yml")
     DIRS = ("static", "device", "3d", "tools", "docs")
 
@@ -2745,7 +2750,7 @@ class PanelUpdater:
                 tmp = dst.with_name(dst.name + ".upd")
                 tmp.write_bytes(z.read(n))
                 os.replace(tmp, dst)
-                if rel == "start.sh":
+                if rel in ("start.sh", "start.command"):
                     os.chmod(dst, 0o755)
 
 

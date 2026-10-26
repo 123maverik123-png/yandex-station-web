@@ -97,11 +97,49 @@ IP колонки, запомнит его и откроет браузер.
 портативный Python с python.org (~11 МБ). Нужна Windows 10 (1803) или новее. Уже установленные Python 3.14+, adb (в `PATH` или папка `platform-tools`
 рядом с `server.py`) и ffmpeg `start.bat` найдёт и использует.
 
-### Linux / macOS — запускать, когда нужно
+### macOS — запускать, когда нужно
+
+1. Установите [Homebrew](https://brew.sh), если его ещё нет, затем зависимости в Терминале:
+
+   ```sh
+   brew install python ffmpeg zstd
+   brew install --cask android-platform-tools
+   ```
+
+   Python и adb нужны для запуска; ffmpeg — для mp3/ogg и своих звуков, zstd — для анимаций
+   при Python ниже 3.14. [Android platform-tools](https://formulae.brew.sh/cask/android-platform-tools)
+   можно не ставить повторно, если adb уже установлен через Android Studio.
+
+2. Скачайте **Code → Download ZIP** и распакуйте архив или склонируйте репозиторий:
+
+   ```sh
+   git clone https://github.com/dimap/yandex-station-web.git
+   cd yandex-station-web
+   ```
+
+3. Дважды щёлкните **`start.command`** в Finder. Откроется Терминал: введите IP колонки
+   (Enter — подключение по USB), затем панель сама откроется в браузере. Адрес запоминается.
+   Если macOS блокирует открытие скачанного скрипта, запустите его из Терминала в папке проекта:
+
+   ```sh
+   sh start.command
+   ```
+
+Можно сразу передать адрес и параметры:
+
+```sh
+./start.sh 192.168.1.50     # дальше достаточно ./start.sh или start.command
+```
+
+Скрипт находит Homebrew в `/opt/homebrew` на Apple Silicon и `/usr/local` на Intel.
+adb также ищется в `~/Library/Android/sdk/platform-tools`, `ANDROID_HOME` и `ANDROID_SDK_ROOT`.
+HTTPS использует доступный `openssl`; свой путь можно задать через `PANEL_OPENSSL`.
+Панель: `http://127.0.0.1:8765/`. Остановить — Ctrl+C в окне Терминала.
+
+### Linux — запускать, когда нужно
 
 ```sh
 # Debian/Ubuntu: sudo apt install python3 adb ffmpeg zstd      Fedora: sudo dnf install python3 android-tools ffmpeg zstd
-# macOS:        brew install python android-platform-tools ffmpeg zstd
 git clone https://github.com/dimap/yandex-station-web.git
 cd yandex-station-web
 ./start.sh 192.168.1.50     # IP колонки; дальше можно просто ./start.sh
