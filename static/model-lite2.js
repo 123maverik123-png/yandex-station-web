@@ -63,7 +63,7 @@ function paint(colorKey) {
 }
 window.modelColor = c => {if(!manualColor)paint(c);};
 
-new STLLoader().load(new URL('../model.stl',import.meta.url).href, geom => {
+new STLLoader().load(new URL('models/lite2.stl',import.meta.url).href, geom => {
   // Группы граней по цвету из STL: самая частая — корпус, самая светлая из остальных — кнопка, прочее — разъёмы.
   const src = geom.attributes.color;
   const n = geom.attributes.position.count;

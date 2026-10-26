@@ -41,7 +41,6 @@ import glagol
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
-MODEL_DIR = ROOT / "3d"
 MIME = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".html": "text/html; charset=utf-8",
         ".stl": "model/stl", ".png": "image/png", ".svg": "image/svg+xml",
         ".webmanifest": "application/manifest+json"}
@@ -113,7 +112,7 @@ def set_data_dir(path):
 
 set_data_dir(ROOT)
 # Без пароля доступны только оболочка страницы и вход; всё остальное — после входа.
-PUBLIC_PATHS = {"/", "/index.html", "/model.stl", "/manifest.webmanifest", "/sw.js", "/ca.crt", "/api/panel-auth",
+PUBLIC_PATHS = {"/", "/index.html", "/manifest.webmanifest", "/sw.js", "/ca.crt", "/api/panel-auth",
                 "/api/panel-auth/login"}
 # Команды Glagol, которые можно отправить из панели, и разрешённые для них поля.
 # Громкость: у Quasar своя шкала 0–20; колонка показывает её ×5 (0–100 с шагом 5), Glagol — /20 (0–1).
@@ -2663,11 +2662,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._download(q.get("path", ""))
         if u.path in ("/", "/index.html"):
             return self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
-        if u.path == "/model.stl":
-            models = sorted(MODEL_DIR.glob("*.stl"))
-            if not models:
-                return self._send(404, {"error": "нет STL-модели в папке 3d"})
-            return self._send(200, models[0].read_bytes(), MIME[".stl"])
         if u.path.startswith("/static/"):
             f = (STATIC / unquote(u.path[len("/static/"):])).resolve()
             if f.is_file() and STATIC in f.parents:
@@ -2776,7 +2770,8 @@ class PanelUpdater:
     docker — только подсказать команду (образ изнутри не обновить)."""
     FILES = ("server.py", "access.py", "glagol.py", "profiles.py", "managed_yam.py", "multi.py", "speakers.example.json", "VERSION", "LICENSE", "README.md", "CONTRIBUTION.md", "start.bat", "start.sh", "start.command",
              "Dockerfile", "docker-compose.yml")
-    DIRS = ("static", "device", "3d", "tools", "docs")
+    DIRS = ("static", "device")
+    OBSOLETE = ("3d", "tools", "docs")  # папки прежних версий: модель переехала в static/models, остальное не нужно
 
     def __init__(self, restart=None):
         self.restart = restart or restart_self
@@ -2881,6 +2876,8 @@ class PanelUpdater:
                 os.replace(tmp, dst)
                 if rel in ("start.sh", "start.command"):
                     os.chmod(dst, 0o755)
+        for name in self.OBSOLETE:
+            shutil.rmtree(ROOT / name, ignore_errors=True)
 
 
 # Платформа в device-tree (compatible «yandex,plum», модель «Yandex Plum EVT2») → профиль колонки.

@@ -5,4 +5,7 @@ device/* text eol=lf
 *.bat text eol=crlf
 *.png binary
 *.stl binary
-*.step binary
+# В архивы GitHub (Download ZIP, исходники релиза, обновление панели из архива) — только то, что нужно для запуска
+/tests export-ignore
+/docs export-ignore
+/.github export-ignore

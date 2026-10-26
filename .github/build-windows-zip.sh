@@ -1,7 +1,7 @@
 #!/bin/sh
 # Готовый ZIP для Windows: панель + портативный Python (python.org, embeddable).
 # adb и по желанию ffmpeg start.bat скачает сам при первом запуске (platform-tools Google распространять нельзя).
-#   tools/build-windows-zip.sh <версия> [amd64|arm64] [папка для результата]
+#   .github/build-windows-zip.sh <версия> [amd64|arm64] [папка для результата]
 set -eu
 VER="${1:?версия, например 1.0.0}"
 ARCH="${2:-amd64}"
@@ -14,7 +14,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 mkdir -p "$WORK/$NAME/runtime/python" "$OUT"
 cd "$ROOT"
-cp -r server.py access.py glagol.py profiles.py managed_yam.py multi.py speakers.example.json VERSION static device 3d start.bat LICENSE README.md CONTRIBUTION.md "$WORK/$NAME/"
+cp -r server.py access.py glagol.py profiles.py managed_yam.py multi.py speakers.example.json VERSION static device start.bat LICENSE README.md CONTRIBUTION.md "$WORK/$NAME/"
 curl -fsSL -o "$WORK/python.zip" "https://www.python.org/ftp/python/$PYVER/python-$PYVER-embed-$ARCH.zip"
 unzip -q "$WORK/python.zip" -d "$WORK/$NAME/runtime/python"
 # портативный Python не видит папку скрипта — добавляем корень панели (путь относительно ._pth)

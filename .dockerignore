@@ -9,7 +9,6 @@ __pycache__
 .tls
 data
 docs
-3d/*.step
 /README.md
 start.bat
 start.sh

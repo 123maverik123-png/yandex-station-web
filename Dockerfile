@@ -9,7 +9,6 @@ WORKDIR /app
 COPY server.py access.py glagol.py profiles.py managed_yam.py multi.py speakers.example.json VERSION ./
 COPY static ./static
 COPY device ./device
-COPY 3d ./3d
 COPY LICENSE ./
 
 # /data — токен Яндекса, пароль панели, сертификаты, история графиков и ключ adb (HOME).

@@ -230,7 +230,8 @@ python3 multi.py --config speakers.json --data-dir data/multi --port 8765
 Обновление yamd на Станции 2 и Мини 3 Про работает с уже установленным `/data/local/yam/service.sh`: перед заменой
 демона делается резервная копия, при ошибке — откат.
 
-3D-модели без колонки: «Настройки» → «Оформление» → «Галерея 3D-моделей» или `python3 tools/preview-models.py`. Добавить новую модель: [CONTRIBUTION.md](CONTRIBUTION.md).
+3D-модели без колонки: «Настройки» → «Оформление» → «Галерея 3D-моделей» или без панели: `python3 -m http.server 8870 -d static` и http://127.0.0.1:8870/model-preview.html.
+Добавить новую модель или проверить, что ещё умеет ваша колонка: [CONTRIBUTION.md](CONTRIBUTION.md).
 
 ## Параметры
 
@@ -291,8 +292,8 @@ python3 multi.py --config speakers.json --data-dir data/multi --port 8765
 Код панели — [MIT](LICENSE).
 
 - 3D-модель колонки — [«Yandex Station Lite 2 | Яндекс станция лайт 2»](https://www.thingiverse.com/thing:7349611)
-  от **vanyabeat**, лицензия [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Файлы в `3d/`
-  не изменены, подробнее — [3d/README.md](3d/README.md).
+  от **vanyabeat**, лицензия [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). STL
+  не изменён (`static/models/lite2.stl`), подробнее — [static/models/SOURCES.md](static/models/SOURCES.md).
 - 3D-модели Станции 2, Мини 3 и Мини 3 Про — собственные приблизительные реконструкции по общедоступным фотографиям
   производителя от **[chelaxian](https://github.com/chelaxian)** (`static/model-studio.js`), лицензия MIT, как у кода
   панели. Это не официальные чертежи и не скачанные модели; фотографии в проект не входят —

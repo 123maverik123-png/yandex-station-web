@@ -1,7 +1,10 @@
 # 3D sources and licenses
 
-- Lite 2: the original, unchanged STL by vanyabeat,
-  https://www.thingiverse.com/thing:7349611 , CC BY-SA 4.0. See also 3d/README.md.
+- Lite 2: `lite2.stl` is the original, unchanged STL «Yandex Station Lite 2 | Яндекс станция лайт 2»
+  by **vanyabeat**, https://www.thingiverse.com/thing:7349611 , licensed under
+  [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The panel only loads and colours it in the
+  browser (`model-lite2.js`). The MIT license of the panel code does not apply to this file. The STEP source
+  is available on the Thingiverse page.
 - Station 2, Mini 3 Pro, Mini 3 and Station Lite (1st gen): original approximate visual reconstructions in
   model-studio.js (MIT), based on the manufacturer's public product photographs.
   They are not official CAD, downloaded commercial meshes, or manufacturing drawings.

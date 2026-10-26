@@ -26,6 +26,6 @@ for(const path of ['/','/speaker/room-a/','/speaker/room-b/']){
   const handlers={};
   const sw={URL,self:{location:{href:'https://panel.test'+path+'sw.js'},addEventListener:(name,fn)=>handlers[name]=fn}};
   vm.runInNewContext(await readFile(new URL('../static/sw.js',import.meta.url),'utf8'),sw);
-  for(const leaf of ['api/status','api/clock','model.stl','ca.crt'])handlers.fetch({request:{method:'GET',url:'https://panel.test'+path+leaf},respondWith:()=>assert.fail('must not cache '+leaf)});
+  for(const leaf of ['api/status','api/clock','static/models/lite2.stl','ca.crt'])handlers.fetch({request:{method:'GET',url:'https://panel.test'+path+leaf},respondWith:()=>assert.fail('must not cache '+leaf)});
 }
 console.log('Page context, scoped storage, WebSocket, manifest and uncached API cases passed');

@@ -15,7 +15,7 @@ self.addEventListener('fetch',event=>{
   if(request.method!=='GET'||url.origin!==BASE.origin||!url.pathname.startsWith(BASE.pathname))return;
   const path=url.pathname.slice(BASE.pathname.length);
   if(BASE.pathname==='/'&&path.startsWith('speaker/'))return; // Child scopes own their caches.
-  if(path.startsWith('api/')||path==='model.stl'||path==='ca.crt')return;
+  if(path.startsWith('api/')||path.endsWith('.stl')||path==='ca.crt')return;
   const key=request.mode==='navigate'?BASE.href:request;
   event.respondWith(fetch(request).then(response=>{
     if(response.ok){const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(key,copy));}
