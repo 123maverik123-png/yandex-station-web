@@ -12,6 +12,22 @@ const MINI2=pal(['white','Белый','#dcdcdc'],['black','Чёрный','#34353
 function clock(kit,text='12:35',color='#fff4e4'){
   return kit.canvasTexture(512,(c,n)=>{c.fillStyle=color;c.shadowColor=color;c.shadowBlur=18;c.font='500 170px system-ui,sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(text,n/2,n/2);});
 }
+// LED displays as on the photos: Max and Station 3 use a dot matrix, Midi and Mini 2 seven-segment digits.
+const FONT={'1':'010110010010111','2':'111001111100111','3':'111001111001111','5':'111100111001111',':':'000010000010000'};
+function dotClock(kit,cols,rows,text='12:35',color='#fff4e4'){
+  const lit=new Set(),glyphs=[...text].map(ch=>FONT[ch]),width=glyphs.reduce((w,g,i)=>w+(i?1:0)+(g===FONT[':']?1:3),0);
+  let x=Math.floor((cols-width)/2);const y=Math.floor((rows-5)/2);
+  for(const g of glyphs){const w=g===FONT[':']?1:3;for(let r=0;r<5;r++)for(let c=0;c<w;c++)if(g[r*3+(w===1?1:c)]==='1')lit.add((y+r)*cols+x+c);x+=w+1;}
+  return kit.canvasTexture(512,(c,n)=>{const p=n/cols,ry=(n-p*rows)/2;for(let r=0;r<rows;r++)for(let k=0;k<cols;k++){const on=lit.has(r*cols+k);
+    c.fillStyle=on?color:'rgba(255,255,255,.035)';c.shadowColor=color;c.shadowBlur=on?p*.6:0;c.beginPath();c.arc((k+.5)*p,ry+(r+.5)*p,p*.32,0,7);c.fill();}});
+}
+const SEGS={'1':'0110000','2':'1101101','3':'1111001','5':'1011011'};
+function segClock(kit,text='12:35',color='#fff4e4'){
+  return kit.canvasTexture(512,(c,n)=>{c.fillStyle=color;c.shadowColor=color;c.shadowBlur=14;const w=70,h=150,t=14,top=(n-h)/2;let x=40;
+    for(const ch of text){if(ch===':'){c.fillRect(x+4,top+42,t,t);c.fillRect(x+4,top+h-56,t,t);x+=34;continue;}
+      const on=SEGS[ch],bars=[[t,0,w-2*t,t],[w-t,t,t,h/2-t],[w-t,h/2,t,h/2-t],[t,h-t,w-2*t,t],[0,h/2,t,h/2-t],[0,t,t,h/2-t],[t,h/2-t/2,w-2*t,t]];
+      bars.forEach(([bx,by,bw,bh],i)=>{if(on[i]==='1')c.fillRect(x+bx,top+by,bw,bh);});x+=w+26;}});
+}
 function face(kit,map,w,h,x,y,z,parent){
   const m=kit.mesh(new kit.T.PlaneGeometry(w,h),new kit.T.MeshBasicMaterial({map,transparent:true,depthWrite:false,toneMapped:false}),x,y,z,parent);m.renderOrder=2;return m;
 }
@@ -23,7 +39,7 @@ function screenTexture(kit,text){
 function cyl(kit,r,h,mat,y,open=false){return kit.mesh(new kit.T.CylinderGeometry(r,r,h,128,1,open),mat,0,y);}
 function ring(kit,r1,r2,y){const m=kit.mesh(new kit.T.RingGeometry(r1,r2,64),kit.ledMaterial(),0,y);m.rotation.x=-Math.PI/2;return m;}
 function curvedClock(kit,r,y){
-  const arc=50/r,m=kit.mesh(new kit.T.CylinderGeometry(r,r,25,48,1,true,-arc/2,arc),new kit.T.MeshBasicMaterial({map:clock(kit),transparent:true,depthWrite:false,toneMapped:false}),0,y);m.renderOrder=2;
+  const arc=50/r,m=kit.mesh(new kit.T.CylinderGeometry(r,r,25,48,1,true,-arc/2,arc),new kit.T.MeshBasicMaterial({map:segClock(kit),transparent:true,depthWrite:false,toneMapped:false}),0,y);m.renderOrder=2;
 }
 // Square towers. H is the full published height; the body is what remains after the top and the base.
 // top: 'knob' — volume ring and light ring (Station, Max); 'plate' — glass plate over a contour light (Station 3, Midi).
@@ -34,7 +50,7 @@ function square(kit,{w,H,r,top='plate',display,glow=12,foot=0}){
   const t=y0+h/2;
   if(top==='knob'){mesh(roundedBox(w,8,w,r,2),plastic,0,t+4);cyl(kit,w*.33,3,ledMaterial(),t+9.5);cyl(kit,w*.31,8,plastic,t+15);ring(kit,4,6,t+19.1);}
   else{mesh(roundedBox(w-1,3,w-1,r,1),ledMaterial(),0,t+1.5);mesh(roundedBox(w,4,w,r,1),glass,0,t+5);ring(kit,glow*.75,glow,t+7.1);}
-  if(display)face(kit,clock(kit),display,display/2,0,y0+h*.12,w/2+.6);
+  if(display){const d=typeof display==='number'?{w:display,h:display/2,map:clock(kit)}:display(kit);face(kit,d.map,d.w,d.h,0,y0+h*.12,w/2+.6);}
   return {topY:H/2,baseY:-H/2,t};
 }
 function puck(kit,{r,H,display}){
@@ -60,13 +76,13 @@ function tv(kit,{W,H,D,Hs,Ds,front,back,bezel=10}){
 
 export const CONCEPTS={
   // 141 × 141 × 231 mm; pixel LED display 25 × 16 behind the fabric, volume ring on top.
-  max:{name:'Яндекс Станция Макс',colors:MAX,build:kit=>square(kit,{w:141,H:231,r:10,top:'knob',display:80})},
+  max:{name:'Яндекс Станция Макс',colors:MAX,build:kit=>square(kit,{w:141,H:231,r:10,top:'knob',display:kit=>({w:84,h:84,map:dotClock(kit,25,16)})})},
   // 132 × 132 × 201 mm; LED display 21 × 12, light under the top glass, ambient light on the back, raised on a foot.
   station3:{name:'Яндекс Станция 3',colors:STATION,build:kit=>{
-    const s=square(kit,{w:132,H:201,r:30,glow:34,display:58,foot:10}),{mesh,roundedBox,ledMaterial}=kit;
+    const s=square(kit,{w:132,H:201,r:30,glow:34,display:kit=>({w:60,h:60,map:dotClock(kit,21,12)}),foot:10}),{mesh,roundedBox,ledMaterial}=kit;
     mesh(roundedBox(84,5,2,2,.8),ledMaterial(),0,-201/2+28,-132/2-.6);return s;}},
   // 96 × 96 × 110 mm; 45-segment display, contour light around the top glass.
-  midi:{name:'Яндекс Станция Миди',colors:MIDI,build:kit=>square(kit,{w:96,H:110,r:20,glow:6,display:52})},
+  midi:{name:'Яндекс Станция Миди',colors:MIDI,build:kit=>square(kit,{w:96,H:110,r:20,glow:6,display:kit=>({w:54,h:54,map:segClock(kit)})})},
   // 83 mm × 202 mm; usually lies on its side, the studio turns it after building. Button strip with the Alice button, strap loop.
   street:{name:'Яндекс Станция Стрит',lying:true,colors:pal(['black','Чёрный','#2c2d31'],['green','Зелёный','#a8a46a'],['orange','Оранжевый','#d9792f'],['purple','Фиолетовый','#6a55b8'],['grey','Серый','#b9bbbe']),build:kit=>{
     const {mesh,roundedBox,rubber,plastic,ledMaterial,T}=kit,R=41.5;cyl(kit,R,182,kit.fabric,0);cyl(kit,R+.4,10,rubber,-96);cyl(kit,R+.4,10,rubber,96);
@@ -77,8 +93,10 @@ export const CONCEPTS={
     return {topY:101,baseY:-101};}},
   // 256 × 118 × 240 mm; 10.5″ 1920 × 1200 touch screen on a tilting hinge in front of the speaker base.
   duomax:{name:'Яндекс Станция Дуо Макс',colors:pal(['black','Чёрный','#2f3036'],['bordo','Бордо','#5e2731'],['beige','Бежевый','#cbbfad'],['green','Зелёный','#2f5a4b']),build:kit=>{
-    const {mesh,roundedBox,glass,rubber,T}=kit;mesh(roundedBox(150,124,100,22,3),kit.fabric,40,64,-9);mesh(roundedBox(142,4,92,20,1),rubber,40,2,-9);
-    const screen=new T.Group();screen.position.set(0,150,46);screen.rotation.x=-.2;kit.group.add(screen);mesh(roundedBox(256,168,10,9,2),glass,0,0,0,screen);
+    // The speaker sits centred under the screen; the screen hangs on a hinge at the top front and leans back (official photos).
+    const {mesh,roundedBox,glass,rubber,plastic,T}=kit;mesh(roundedBox(136,132,104,16,3),kit.fabric,0,68,-7);mesh(roundedBox(128,4,96,14,1),rubber,0,2,-7);
+    mesh(roundedBox(130,6,98,15,2),plastic,0,137,-7);mesh(roundedBox(60,22,26,6,2),plastic,0,132,30);
+    const screen=new T.Group();screen.position.set(0,152,40);screen.rotation.x=-.34;kit.group.add(screen);mesh(roundedBox(256,168,10,9,2),glass,0,0,0,screen);
     mesh(new T.PlaneGeometry(232,145),new T.MeshBasicMaterial({map:screenTexture(kit,'12:35'),toneMapped:false}),0,0,5.2,screen);return {topY:240,baseY:0};}},
   // 141 × 141 × 231 mm (2018); same body as the first Max, without the display.
   station:{name:'Яндекс Станция',colors:STATION,build:kit=>square(kit,{w:141,H:231,r:10,top:'knob'})},
