@@ -13,16 +13,58 @@ export function refreshCommand(form) {
 }
 
 // Browser transcription reuses the existing text command form; no audio is stored by the panel.
-export function bindVoiceInput(root, { httpsPort = () => null, send = form => form.requestSubmit(), pauseMs = () => 1500 } = {}) {
+export function bindVoiceInput(root, { httpsPort = () => null, send = form => form.requestSubmit(), pauseMs = () => 1500, ready = () => true, getGlagol = () => null, store = null } = {}) {
   const win = root.defaultView, Recognition = win.SpeechRecognition || win.webkitSpeechRecognition;
-  let active = null, loop = null;
+  let active = null, loop = null, available = ready();
   const forms = Array.from(root.querySelectorAll('.mu-ask-form'));
-  function showMode() {
+  const voiceForms = forms.filter(form => form.querySelector('.voice-mic'));
+  let blocked = false;
+  try { blocked = (store ? store.get('ui.voice.unavailable') : win.localStorage?.getItem('ui.voice.unavailable')) === '1'; } catch {}
+  function support() {
+    voiceForms.forEach(form => {
+      form.querySelector('.voice-mic').hidden = form.querySelector('.voice-auto').hidden = !Recognition || blocked;
+      form.querySelector('.voice-support').hidden = !!Recognition && !blocked;
+      form.querySelector('.voice-retry').hidden = !Recognition;
+    });
+  }
+  function remember(value) {
+    blocked = value;
+    try {
+      if (store) store.set('ui.voice.unavailable', value ? '1' : '0');
+      else win.localStorage?.setItem('ui.voice.unavailable', value ? '1' : '0');
+    } catch {}
+    support();
+  }
+  function update(connected = ready()) {
+    available = connected;
     forms.forEach(form => {
+      form.elements.text.disabled = !available;
+      form.querySelector('button[type=submit], button:not([type])').disabled = !available;
+    });
+    showMode();
+    if (!available) { cancel('Подключитесь к Яндексу и дождитесь связи с колонкой.'); return; }
+    if (!loop) return;
+    const g = getGlagol(), idle = g?.state?.aliceState === 'IDLE';
+    loop.lastPoll = Date.now();
+    if (!idle) {
+      win.clearTimeout(loop.timer);loop.timer = null;
+      if (active?.source === 'auto') close(active, 'Жду, пока Алиса закончит отвечать…', true);
+    }
+    if (active || loop.sending || loop.timer || !idle || !(g.updated > (loop.after ?? -Infinity))) return;
+    const mode = loop;
+    mode.timer = win.setTimeout(() => {
+      mode.timer = null;
+      if (loop === mode && ready() && Date.now() - mode.lastPoll < 2500 && getGlagol()?.state?.aliceState === 'IDLE')
+        start(mode.form.querySelector('.voice-mic'), mode.form, 'auto');
+    }, 1500);
+  }
+  function showMode() {
+    voiceForms.forEach(form => {
       const button = form.querySelector('.voice-auto');
       button.setAttribute('aria-pressed', String(!!loop));
       button.textContent = loop ? 'Стоп' : 'Авто';
-      form.querySelector('.voice-mic').disabled = !!loop;
+      form.querySelector('.voice-mic').disabled = !available || !!loop;
+      button.disabled = !available;
     });
   }
   function cancel(message = 'Голосовая команда отменена.') {
@@ -34,7 +76,7 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
   function again(mode, delay = 500) {
     if (loop !== mode) return;
     mode.timer = win.setTimeout(() => {
-      if (loop === mode) start(mode.form.querySelector('.voice-mic'), mode.form, 'auto');
+      if (loop === mode) { mode.timer = null; if (ready() && getGlagol()?.state?.aliceState === 'IDLE') start(mode.form.querySelector('.voice-mic'), mode.form, 'auto'); else update(); }
     }, delay);
   }
 
@@ -62,13 +104,13 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
       else s.status.textContent = 'Команда длиннее 1024 символов. Сократите текст и отправьте вручную.';
       return;
     }
-    if (mode) s.status.textContent = 'Отправляю команду…';
+    if (mode) { mode.sending = true; mode.after = getGlagol()?.updated ?? Infinity; s.status.textContent = 'Отправляю команду…'; }
     const failed = () => { if (mode && loop === mode) cancel('Ошибка отправки. Автопрослушивание выключено; текст сохранён.'); };
     try {
       Promise.resolve(send(s.form)).then(ok => {
         if (mode && loop === mode) {
           if (ok === false) cancel('Команда не отправлена. Автопрослушивание выключено; текст сохранён.');
-          else { s.status.textContent = 'Команда отправлена. Продолжаю слушать…'; again(mode, 1000); }
+          else { mode.sending = false; s.status.textContent = 'Команда отправлена. Жду, пока Алиса закончит отвечать…'; update(); }
         }
       }, failed);
     } catch { failed(); }
@@ -89,7 +131,7 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
     try { s.recognition.stop(); } catch {}
   }
   function start(button, form, source) {
-    if (active) return;
+    if (active || !available || !ready() || blocked) return;
     const status = form.querySelector('.voice-status');
     if (!win.isSecureContext) {
       status.textContent = 'Микрофону нужен HTTPS. ';
@@ -99,7 +141,8 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
       } else status.append('Откройте HTTPS-адрес из настроек панели.');
       return;
     }
-    if (!Recognition) { status.textContent = 'Браузер не поддерживает диктовку. Попробуйте Chrome или Safari; текст можно отправить вручную.'; return; }
+    if (!Recognition) { support(); return; }
+    if (source === 'auto' && getGlagol()?.state?.aliceState !== 'IDLE') { status.textContent = 'Жду, пока Алиса закончит отвечать…'; return; }
     const recognition = new Recognition(), input = form.elements.text;
     const s = active = { button, form, status, input, recognition, source, previous: input.value, readOnly: input.readOnly, final: '', released: false, ended: false };
     recognition.lang = 'ru-RU'; recognition.continuous = true; recognition.interimResults = true;
@@ -129,7 +172,12 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
     recognition.onerror = event => {
       if (active !== s) return;
       if (source === 'auto' && event.error === 'no-speech') return;
-      const messages = { 'not-allowed': 'Разрешите браузеру доступ к микрофону и распознаванию речи.', 'service-not-allowed': 'Распознавание речи недоступно в настройках браузера.', 'audio-capture': 'Микрофон недоступен.', 'network': 'Сервис распознавания недоступен. Проверьте интернет.', 'no-speech': 'Речь не услышана. Попробуйте ещё раз.' };
+      if (['network', 'service-not-allowed'].includes(event.error)) {
+        if (loop) cancel('Распознавание речи в этом браузере недоступно.');
+        else close(s, 'Распознавание речи в этом браузере недоступно.', true);
+        remember(true); return;
+      }
+      const messages = { 'not-allowed': 'Разрешите браузеру доступ к микрофону и распознаванию речи.', 'audio-capture': 'Микрофон недоступен.', 'no-speech': 'Речь не услышана. Попробуйте ещё раз.' };
       const message = messages[event.error] || 'Не удалось распознать речь. Попробуйте ещё раз.';
       if (source === 'auto' && loop) cancel(message + ' Автопрослушивание выключено.');
       else close(s, message, true);
@@ -159,25 +207,30 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
     });
     refreshCommand(form);
     const button = form.querySelector('.voice-mic');
+    if (!button) return;
+    form.querySelector('.voice-retry').addEventListener('click', () => { remember(false); form.querySelector('.voice-status').textContent = ''; });
     form.querySelector('.voice-auto').addEventListener('click', () => {
       if (loop || active) { cancel('Микрофон выключен.'); return; }
       loop = { form }; showMode(); start(button, form, 'auto');
-      if (!active && loop) { loop = null; showMode(); }
+      if (!active && loop) { if (!Recognition || blocked || !ready() || !win.isSecureContext) { loop = null; showMode(); } else update(); }
     });
     button.addEventListener('pointerdown', e => {
       if (e.button !== 0 || loop) return;
-      e.preventDefault(); start(button, form, e.pointerId);
+      e.preventDefault(); button.focus({preventScroll:true}); start(button, form, e.pointerId);
       if (active?.button === button) { try { button.setPointerCapture(e.pointerId); } catch {} }
     });
     button.addEventListener('lostpointercapture', () => { if (active?.button === button && !active.released) release(true); });
     button.addEventListener('contextmenu', e => e.preventDefault());
     button.addEventListener('keydown', e => {
-      if (![' ', 'Enter'].includes(e.key) || loop) return;
-      e.preventDefault(); if (!e.repeat) start(button, form, e.key);
+      const key = e.code === 'Space' || [' ', 'Spacebar'].includes(e.key) ? 'Space' : e.key === 'Enter' ? 'Enter' : null;
+      if (!key || loop) return;
+      e.preventDefault(); if (!e.repeat) start(button, form, key);
     });
-    button.addEventListener('keyup', e => { if (active?.button === button && active.source === e.key) { e.preventDefault(); release(); } });
-    button.addEventListener('blur', () => { if (active?.button === button && [' ', 'Enter'].includes(active.source)) release(true); });
+    button.addEventListener('keyup', e => { const key = e.code === 'Space' || [' ', 'Spacebar'].includes(e.key) ? 'Space' : e.key; if (active?.button === button && active.source === key) { e.preventDefault(); release(); } });
+    button.addEventListener('blur', () => { if (active?.button === button && ['Space', 'Enter'].includes(active.source)) release(true); });
   });
+  support();
+  update();
   root.addEventListener('pointerup', e => { if (active?.source === e.pointerId) release(); });
   root.addEventListener('pointercancel', e => { if (active?.source === e.pointerId) release(true); });
   root.addEventListener('keydown', e => { if (e.key === 'Escape') cancel(); });
@@ -186,4 +239,5 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
   win.addEventListener('pagehide', () => cancel());
   win.addEventListener('hashchange', () => cancel());
   root.addEventListener('visibilitychange', () => { if (root.hidden) cancel(); });
+  return { update };
 }

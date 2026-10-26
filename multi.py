@@ -232,12 +232,23 @@ def main():
         httpd=ThreadingHTTPServer((args.host,args.port),Gateway);httpd.daemon_threads=True
         Gateway.ports={'http':httpd.server_port}
         if args.https_port:
-            certificate,key=access.ensure_certs(data_dir/'.tls')
-            context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.minimum_version=ssl.TLSVersion.TLSv1_2
-            context.load_cert_chain(certificate,key)
-            tls=server.TLSServer((args.host,args.https_port),Gateway,context);tls.daemon_threads=True
-            Gateway.ports['https']=tls.server_port
-            threading.Thread(target=tls.serve_forever,daemon=True).start()
+            try:
+                certificate,key=access.ensure_certs(data_dir/'.tls')
+                context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.minimum_version=ssl.TLSVersion.TLSv1_2
+                context.load_cert_chain(certificate,key)
+                for attempt in range(20):
+                    try:
+                        tls=server.TLSServer((args.host,args.https_port),Gateway,context)
+                        break
+                    except OSError:
+                        if attempt == 19: raise
+                        time.sleep(0.5)
+                tls.daemon_threads=True
+                threading.Thread(target=tls.serve_forever,daemon=True).start()
+                Gateway.ports['https']=tls.server_port
+            except (OSError,access.AccessError,ssl.SSLError) as error:
+                if tls: tls.server_close();tls=None
+                print(f'HTTPS не запущен ({error}) — панель работает по HTTP',flush=True)
         print('Unified panel: http://'+args.host+':'+str(httpd.server_port),flush=True)
         if not Gateway.access.enabled:print('Set a shared panel password in Settings before exposing it to your LAN.',flush=True)
         httpd.serve_forever()
