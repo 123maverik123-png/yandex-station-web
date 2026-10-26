@@ -65,7 +65,7 @@ def install(s):
                 raise s.AdbError('Проверка yamd на колонке не прошла')
             stopped = True
             self.adb.shell(service + ' stop', timeout=30)
-            self.adb.shell(f'mv {stage} {s.YAMD}; {service} start', timeout=30)
+            self.adb.shell(f'set -e; mv {stage} {s.YAMD}; {service} start', timeout=30)
             self._yam_port = None
             deadline = time.monotonic() + 30
             def selected(plugins):
@@ -81,6 +81,8 @@ def install(s):
             settings = self._yam('GET', '/api/settings')
             if settings.get('updates', {}).get('enabled') != before_settings.get('updates', {}).get('enabled'):
                 raise s.AdbError('Изменилась настройка автообновления YAM')
+            if self.adb.shell(f'sha256sum {s.YAMD}')[0].split()[0] != expected:
+                raise s.AdbError('Версия установленного бинарника не совпала с релизом')
             record_text = self.adb.shell(f'cat {base}/installed-release.json 2>/dev/null; true')[0]
             record = json.loads(record_text) if record_text.strip() else {}
             record.setdefault('cli_version', record.get('version', 'unknown'))
@@ -95,7 +97,7 @@ def install(s):
             if stopped:
                 try:
                     self.adb.shell(f'set -e; {service} stop; cp -p {backup}/bin/yamd {s.YAMD}; '
-                                   f'mv {base}/data {backup}/failed-data; cp -a {backup}/data {base}/data; '
+                                   f'mv {base}/data {backup}/failed-data; mv {backup}/data {base}/data; '
                                    f'if [ -f {backup}/installed-release.json ]; then cp -p {backup}/installed-release.json {base}/installed-release.json; fi; '
                                    f'{service} start', timeout=60)
                 except Exception as rollback:
