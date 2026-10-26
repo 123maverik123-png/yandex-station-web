@@ -690,6 +690,9 @@
       <div class="ov-opts">
         <label class="set-item"><div class="set-label"><b>Визуализатор за 3D-моделью</b><small>Спектр из символов за моделью, пока колонка играет музыку (нужен вход в Яндекс)</small></div>
           <div class="set-ctl"><input type="checkbox" class="switch" id="set-viz"></div></label>
+        <label class="set-item"><div class="set-label"><b>Приватный режим</b><small>Серийный номер, Wi‑Fi, логин Яндекса, адреса и имена устройств — точками,
+          в «Логах» скрыты Device ID, аккаунт и токены. Чтобы случайный скриншот ничего не выдал; одно значение можно открыть нажатием</small></div>
+          <div class="set-ctl"><input type="checkbox" class="switch" id="set-private"></div></label>
         <div id="model-settings" hidden></div>
         <div class="set-item set-top"><div class="set-label"><b>Виджеты</b><small>Перетаскивайте за ⠿ или двигайте стрелками. Убранные можно вернуть отсюда.
           Тема, пароль, резервная копия — во вкладке <a href="#settings">«Настройки»</a></small></div>
@@ -1374,11 +1377,22 @@ async function act(btn, fn, okMsg) {
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // Скрытые значения (Device ID, IP, Wi‑Fi, логин): точки, по нажатию — значение, по повторному — снова точки.
+// Приватный режим (по умолчанию включён) — защита для тех, кто скриншотит панель не глядя; выключается в «Настроить».
 const revealed = new Set();
+let privateOff = false;
 const DOTS = '••••••••';
-const secret = (key, v, dots = DOTS) => v
-  ? `<button class="secret${revealed.has(key) ? ' shown' : ''}" data-key="${key}" data-v="${esc(v)}" data-dots="${dots}" title="Показать / скрыть">${revealed.has(key) ? esc(v) : dots}</button>`
-  : '—';
+const secret = (key, v, dots = DOTS) => {
+  if (!v) return '—';
+  const on = privateOff || revealed.has(key);
+  return `<button class="secret${on ? ' shown' : ''}" data-key="${key}" data-v="${esc(v)}" data-dots="${dots}" title="Показать / скрыть">${on ? esc(v) : dots}</button>`;
+};
+function applyPrivate() {
+  $$('.secret').forEach(x => {
+    const on = privateOff || revealed.has(x.dataset.key);
+    x.textContent = on ? x.dataset.v : x.dataset.dots || DOTS;
+    x.classList.toggle('shown', on);
+  });
+}
 // Имя хоста и Bluetooth-имя колонки кончаются куском серийного номера (Yandex-Lite-gen2-NJ0C) — его и прячем.
 const hostHtml = h => {
   const m = /^(.*[-_])([A-Za-z0-9]{4,})$/.exec(h || '');
@@ -1387,9 +1401,9 @@ const hostHtml = h => {
 document.addEventListener('click', e => {
   const b = e.target.closest('.secret');
   if (!b) return;
-  const on = !revealed.has(b.dataset.key);
-  on ? revealed.add(b.dataset.key) : revealed.delete(b.dataset.key);
-  $$(`.secret[data-key="${b.dataset.key}"]`).forEach(x => { x.textContent = on ? x.dataset.v : x.dataset.dots || DOTS; x.classList.toggle('shown', on); });
+  if (privateOff) return;
+  revealed.has(b.dataset.key) ? revealed.delete(b.dataset.key) : revealed.add(b.dataset.key);
+  applyPrivate();
 });
 const pctNum = v => Math.round(v / 255 * 100);
 const pct = v => pctNum(v) + '%';
@@ -3010,6 +3024,11 @@ function applyUI() {
   $$('#set-theme button').forEach(b => b.classList.toggle('active', b.dataset.v === theme));
   $$('#set-accent .sw').forEach(b => b.classList.toggle('sel', b.dataset.v === accent));
   $('#set-viz').checked = !window.__vizOff;
+  privateOff = store.get('ui.private') === '0';
+  $('#set-private').checked = !privateOff;
+  $('#log-mask').checked = !privateOff;
+  applyPrivate();
+  if (logText) renderLog();
   $('#set-minibar').checked = minibarOn();
   updateMinibar();
   window.dispatchEvent(new Event('themechange'));
@@ -3017,6 +3036,7 @@ function applyUI() {
 $$('#set-theme button').forEach(b => b.onclick = () => { store.set('ui.theme', b.dataset.v); applyUI(); });
 $$('#set-accent .sw').forEach(b => b.onclick = () => { store.set('ui.accent', b.dataset.v); applyUI(); });
 $('#set-viz').onchange = e => { store.set('ui.viz', e.target.checked ? '1' : '0'); applyUI(); };
+$('#set-private').onchange = e => { store.set('ui.private', e.target.checked ? '1' : '0'); applyUI(); };
 $('#set-minibar').onchange = e => { store.set('ui.minibar', e.target.checked ? '1' : '0'); applyUI(); loadMusic(); };
 applyUI();
 
