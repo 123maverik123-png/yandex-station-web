@@ -153,6 +153,12 @@ HOSTS_TARGET = "/etc/hosts"
 HOSTS_CUSTOM = f"{WEB_DIR}/hosts"
 HOSTS_MARK = "# webpanel: блокировка аналитики Яндекса"
 ANALYTICS_HOSTS = ("clck.yandex.net", "report.appmetrica.yandex.net", "appmetrica.yandex.net", "metrica.yandex.net")
+# Неотправленные события телеметрия копит здесь (до 1 МБ) и отправит, как только адреса откроются. Телеметрия
+# читает файл при старте и дописывает его при выходе, поэтому сначала kill -9, потом удаление; launcher
+# перезапускает её через секунду уже с пустой очередью. Остальное (fluent-bit, teleme3d) лежит в /tmp.
+METRICA_BATCH = "/data/quasar/appmetrica/persistedBatch"
+ANALYTICS_PURGE = ("p=$(ps | grep '[m]aind --telemetry' | awk '{print $1}'); "
+                   f"[ -n \"$p\" ] && kill -9 $p; rm -f {METRICA_BATCH}")
 
 BOOT_HOOK_SCRIPT = (
     "#!/bin/sh\n"
@@ -163,6 +169,9 @@ BOOT_HOOK_SCRIPT = (
     f"bind {BOOT_CUSTOM} {BOOT_TARGET}\n"
     f"bind {SOUND_CUSTOM} {SOUND_TARGET}\n"
     f"bind {HOSTS_CUSTOM} {HOSTS_TARGET}\n"
+    # очередь аналитики — через минуту и в фоне: телеметрия стартует первой, и launcher ждёт её,
+    # прежде чем запустить основной maind; адреса уже закрыты, так что за минуту ничего не уйдёт
+    f"[ -f {HOSTS_CUSTOM} ] && ( sleep 60; {ANALYTICS_PURGE} ) >/dev/null 2>&1 &\n"
     # yamd сам после загрузки не стартует; start-stop-daemon -b — чтобы не держать rootkeeper.sh
     f"[ -f {YAM_AUTOSTART} ] && [ -x {YAMD} ] && ! pidof yamd >/dev/null && "
     f"start-stop-daemon -S -b -m -p /tmp/webpanel_yamd.sd -x /bin/sh -- -c {shlex.quote(YAMD_CMD)}\n"
@@ -1355,10 +1364,16 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     def privacy_status(self):
         out, _, _ = self.adb.shell(
             f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && echo mounted; [ -f {HOSTS_CUSTOM} ] && echo custom; "
+            f"echo queued=$(cat {METRICA_BATCH} 2>/dev/null | wc -c); md5sum {BOOT_HOOK} 2>/dev/null; "
             # проверка на деле: куда сейчас ведёт адрес аналитики
             f"ping -c 1 -W 1 {ANALYTICS_HOSTS[0]} 2>&1 | head -n 1; true", check=False, timeout=15)
         out = strip_ansi(out)
-        return {"enabled": "mounted" in out and "custom" in out, "hosts": list(ANALYTICS_HOSTS),
+        enabled = "mounted" in out and "custom" in out
+        # хук от прошлой версии панели не умеет чистить очередь — обновляем
+        if enabled and hashlib.md5(BOOT_HOOK_SCRIPT.encode()).hexdigest() not in out:
+            self._ensure_hook()
+        m = re.search(r"queued=(\d+)", out)
+        return {"enabled": enabled, "hosts": list(ANALYTICS_HOSTS), "queued": int(m.group(1)) if m else 0,
                 "blocked": f"({ANALYTICS_HOSTS[0]}" not in out and "127.0.0.1" in out}
 
     def privacy_set(self, enabled):
@@ -1381,6 +1396,13 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         _, err, rc = self.adb.shell(f"chmod 644 {HOSTS_CUSTOM}; mount --bind {HOSTS_CUSTOM} {HOSTS_TARGET}", check=False)
         if rc:
             raise AdbError("не удалось подключить свой /etc/hosts: " + strip_ansi(err).strip()[-200:])
+        self.privacy_purge()
+        return self.privacy_status()
+
+    def privacy_purge(self):
+        """Удалить накопленную неотправленную аналитику (только при включённой блокировке — иначе незачем)."""
+        self.adb.shell(f"[ -f {HOSTS_CUSTOM} ] && {{ {ANALYTICS_PURGE}; }}; true", check=False)
+        time.sleep(2)   # launcher перезапускает телеметрию
         return self.privacy_status()
 
     def footprint(self):
@@ -2689,6 +2711,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/alarms/install": p.alarm_install,
             "/api/footprint/reset": p.footprint_reset,
             "/api/privacy": lambda: p.privacy_set(bool(d.get("enabled"))),
+            "/api/privacy/purge": p.privacy_purge,
             "/api/panel/update": lambda: self.updater.update(),
             "/api/metrics/clear": lambda: p.metrics.clear(),
             "/api/alarms/uninstall": p.alarm_uninstall,

@@ -920,7 +920,7 @@
           <div class="set-ctl"><div id="fp-list" class="fp-list"><span class="meta">—</span></div></div></div>
         <label class="set-item" id="privacy-row"><div class="set-label"><b>Блокировать аналитику Яндекса</b><small id="privacy-state">Адреса сбора статистики
           (clck, appmetrica, metrica) ведут в никуда. Системный раздел не меняется, Алиса и музыка работают как обычно</small></div>
-          <div class="set-ctl"><input type="checkbox" class="switch" id="privacy-on" disabled></div></label>
+          <div class="set-ctl"><button class="btn sm" id="privacy-purge" hidden>Очистить очередь</button><input type="checkbox" class="switch" id="privacy-on" disabled></div></label>
         <div class="set-item"><div class="set-label"><b>Резервная копия</b><small>Заставка, звук запуска, будильники со звуками, флаги автозапуска, оформление и раскладка.
           Пароль, вход в Яндекс и история графиков в копию не входят</small></div>
           <div class="set-ctl"><button class="btn sm" id="bk-save"><svg width="18" height="18" aria-hidden="true"><use href="#i-dl"/></svg>Скачать</button>
@@ -3068,12 +3068,19 @@ async function loadPrivacy() {
   let p;
   try { p = await api('/api/privacy'); } catch { return; }
   $('#privacy-on').checked = p.enabled;
+  $('#privacy-purge').hidden = !(p.enabled && p.queued > 16);
   $('#privacy-on').disabled = false;
+  const q = p.queued > 16 ? ` Сейчас в очереди ${(p.queued / 1024).toFixed(1)} КБ.` : '';
   $('#privacy-state').textContent = p.enabled
-    ? (p.blocked ? `Включено: ${p.hosts.join(', ')} → 127.0.0.1. Действует и после перезагрузки`
+    ? (p.blocked ? `Включено: ${p.hosts.join(', ')} → 127.0.0.1. Неотправленная аналитика удаляется `
+        + `при каждом включении колонки.${q}`
       : 'Включено, но адрес аналитики всё ещё доступен — попробуйте выключить и включить снова')
     : 'Адреса сбора статистики (clck, appmetrica, metrica) ведут в никуда. Системный раздел не меняется, Алиса и музыка работают как обычно';
 }
+$('#privacy-purge').onclick = e => {
+  e.preventDefault();   // кнопка внутри <label> — не переключать блокировку
+  act(e.currentTarget, async () => { await api('/api/privacy/purge', {}); await loadPrivacy(); }, 'Накопленная аналитика удалена');
+};
 $('#privacy-on').onchange = e => {
   const on = e.target.checked;
   e.target.disabled = true;
