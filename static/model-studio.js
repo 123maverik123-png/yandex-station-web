@@ -119,8 +119,9 @@ let preference=null;
 window.modelColor=key=>{if(!preference)paint(key);};
 paint(window.__deviceColor||fallback);
 // Gallery-only bodies differ widely in size: frame each one by its bounding sphere.
+if(concept?.lying)group.rotation.z=Math.PI/2;
 const bounds=concept&&new T.Box3().setFromObject(group).getBoundingSphere(new T.Sphere());
-if(bounds){controls.minDistance=bounds.radius*1.6;controls.maxDistance=bounds.radius*6;}
+if(bounds){controls.minDistance=bounds.radius*1.6;controls.maxDistance=bounds.radius*6;controls.maxPolarAngle=Math.PI;}
 function home(){if(bounds){camera.position.copy(bounds.center).add(new T.Vector3(.38,.42,1).setLength(bounds.radius*4.3));controls.target.copy(bounds.center);}
   else{if(lite)camera.position.set(60,115,215);else camera.position.set(mini?55:240,mini?83:155,mini?258:420);controls.target.set(0,mini?-4:0,0);}controls.update();dirty=true;}home();
 modelSettings(profile.id,palette,{color:key=>{preference=key;paint(key||window.__deviceColor||fallback);},home,spin:value=>{controls.autoRotate=value;dirty=true;}});

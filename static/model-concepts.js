@@ -51,7 +51,8 @@ export const CONCEPTS={
   max:{name:'Яндекс Станция Макс',colors:STATION,build:kit=>square(kit,{w:141,h:215,r:8,top:'knob',display:76})},
   station3:{name:'Яндекс Станция 3',colors:SPEAKER,build:kit=>square(kit,{w:126,h:198,r:28})},
   midi:{name:'Яндекс Станция Миди',colors:SPEAKER,build:kit=>square(kit,{w:150,h:146,r:24,display:78})},
-  street:{name:'Яндекс Станция Стрит',colors:pal(['black','Чёрный','#2c2d31'],['green','Хаки','#555e4b']),build:kit=>{
+  // Street usually lies on its side; the studio turns it after building.
+  street:{name:'Яндекс Станция Стрит',lying:true,colors:pal(['black','Чёрный','#2c2d31'],['green','Хаки','#555e4b']),build:kit=>{
     const {mesh,rubber,ledMaterial,T}=kit;cyl(kit,38,220,kit.fabric,0);cyl(kit,38.6,10,rubber,-115);cyl(kit,38.6,10,rubber,115);cyl(kit,30,2,ledMaterial(),121);
     for(let i=0;i<5;i++){const b=mesh(new T.CylinderGeometry(5,5,2,32),rubber,0,50-i*16,38.4);b.rotation.x=Math.PI/2;}
     return {topY:122,baseY:-120};}},
