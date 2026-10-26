@@ -16,7 +16,7 @@ for(const [label,models]of[['Поддерживаются панелью',suppor
 picker.value=id;
 picker.addEventListener('change',()=>{const url=new URL(location.href);url.searchParams.set('model',picker.value);location.assign(url);});
 const lite2=id==='lite2'||id==='lite2nc';
-window.clockGeom=geometry;window.__deviceColor=id==='lite2'?'copper':id==='lite2nc'?'blue':id==='lite'?'purple':'black';
+window.clockGeom=geometry;window.__deviceColor=id==='lite2'?'copper':id==='lite2nc'?'blue':id==='lite'?'purple':CONCEPTS[id]?Object.keys(CONCEPTS[id].colors)[0]:'black';
 document.getElementById('model-description').textContent=id in concepts
   ?'Заготовка: приблизительная форма по фото производителя, чтобы будущим участникам не пришлось рисовать модель. Совместимость с настоящей колонкой не проверена, панель её пока не поддерживает.'
   :id==='lite2'?'Авторская STL vanyabeat, CC BY-SA 4.0. Геометрия, материалы и свет исходного рендера сохранены.':'Приблизительная визуальная реконструкция по официальным ракурсам. Лёгкие материалы без теней. Это не официальный CAD-файл.';

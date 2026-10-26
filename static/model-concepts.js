@@ -71,7 +71,22 @@ export const CONCEPTS={
   tv2:{name:'ТВ Станция 2',colors:BLACK,build:kit=>tv(kit,{w:230,bezel:1,strip:true})},
   tvbasic:{name:'ТВ Станция Бейсик',colors:BLACK,build:kit=>tv(kit,{w:190,bezel:3})},
   tvbasicqled:{name:'ТВ Станция Бейсик QLED',colors:BLACK,build:kit=>tv(kit,{w:220,bezel:2})},
-  drops:{name:'Яндекс Дропс',colors:pal(['black','Чёрный','#25262b'],['white','Белый','#e6e5e2']),build:kit=>{
-    const {mesh,roundedBox,rubber,ledMaterial,T}=kit;mesh(roundedBox(64,30,50,15,4),kit.fabric,0,0);mesh(roundedBox(64.4,.8,50.4,15,.2),rubber,0,6);
-    const led=mesh(new T.CircleGeometry(1.4,16),ledMaterial(),0,-4,25.3);led.renderOrder=2;return {topY:15,baseY:-15};}},
+  // Drops: TWS charging case with the lid open and both earbuds in front, after the manufacturer's photos.
+  drops:{name:'Яндекс Дропс',colors:pal(['white','Белый','#eeedea'],['black','Чёрный','#25262b']),build:kit=>{
+    const {mesh,roundedBox,canvasTexture,ledMaterial,fabric,T}=kit,W=60,H=34,Dp=24;fabric.roughness=.3;   // glossy plastic
+    const ink=new T.MeshStandardMaterial({color:'#0b0b0d',roughness:.15}),cup=new T.MeshStandardMaterial({color:'#222328',roughness:.12}),metal=new T.MeshStandardMaterial({color:'#b9bbc0',roughness:.35,metalness:.8});
+    const decal=(map,w,h,x,y,z,rx,ry)=>{const m=mesh(new T.PlaneGeometry(w,h),new T.MeshStandardMaterial({map,transparent:true,roughness:.4,polygonOffset:true,polygonOffsetFactor:-1}),x,y,z);m.rotation.set(rx,ry,0);};
+    mesh(roundedBox(W,H,Dp,10,3),fabric);mesh(roundedBox(W-6,1,Dp-6,8,.4),ink,0,H/2+.1);
+    for(const s of[-1,1]){const c=mesh(new T.SphereGeometry(8,32,16),cup,s*13,H/2,0);c.scale.set(1.25,.3,.75);}
+    const lid=new T.Group();lid.position.set(0,H/2,-Dp/2);lid.rotation.x=-1.8;kit.group.add(lid);
+    mesh(roundedBox(W,12,Dp,10,3),fabric,0,5,Dp/2-1.5,lid);mesh(roundedBox(W-6,1,Dp-6,8,.4),ink,0,-1.2,Dp/2-1.5,lid);
+    for(const s of[-1,1]){const c=mesh(new T.SphereGeometry(8,32,16),cup,s*13,-1.3,Dp/2-1.5,lid);c.scale.set(1.25,.3,.75);}
+    mesh(roundedBox(26,6,1,1,.3),metal,0,H/2-4,-Dp/2-.2);                                     // hinge
+    decal(canvasTexture(256,(c,n)=>{c.fillStyle='#c4c4c8';c.beginPath();c.arc(n/2,n/2,n/2-4,0,7);c.fill();c.fillStyle='#f4f4f4';c.font='700 150px system-ui,sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('Я',n/2,n/2+8);}),9,9,0,H/2-15,-Dp/2-.05,0,Math.PI);
+    decal(canvasTexture(512,(c,n)=>{c.strokeStyle='#cfcfd2';c.lineWidth=5;c.beginPath();c.arc(150,n/2,44,0,7);c.stroke();c.fillStyle='#d8d8dc';c.beginPath();c.roundRect(240,n/2-26,150,52,26);c.fill();c.fillStyle='#16161a';c.beginPath();c.roundRect(252,n/2-16,126,32,16);c.fill();}),Dp-4,Dp-4,0,-H/2-.05,0,Math.PI/2,0);   // button and USB-C
+    const led=mesh(new T.CircleGeometry(1.2,16),ledMaterial(),0,6,Dp/2+.05);led.renderOrder=2;
+    for(const[x,z,turn]of[[-22,34,.35],[24,30,Math.PI-.45]]){const bud=new T.Group();bud.position.set(x,-H/2+7,z);bud.rotation.y=turn;kit.group.add(bud);
+      const stem=mesh(new T.CapsuleGeometry(3.4,22,8,16),fabric,9,-1,0,bud);stem.rotation.z=Math.PI/2;
+      mesh(new T.SphereGeometry(7,32,16),fabric,-6,0,0,bud);const tip=mesh(new T.SphereGeometry(6.6,32,16),ink,-11,0,0,bud);tip.scale.set(.55,1,1);}
+    return {topY:H/2+30,baseY:-H/2};}},
 };
