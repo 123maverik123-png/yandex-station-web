@@ -41,8 +41,9 @@ if(lite){
   // которое сужается книзу и изрезано наклонными канавками.
   mesh(new T.LatheGeometry([[0,-16],[43.7,-16],[44,-15.7],[44,27.6],[43.6,28]].map(p=>new T.Vector2(...p)),160),fabric);
   const cap=mesh(new T.CircleGeometry(43.6,160),fabric,0,28);cap.rotation.x=-Math.PI/2;   // плоская крышка: без сглаженных нормалей края
+  // шаг канавок — ровно 1/22 ширины текстуры, иначе на стыке по кругу виден шов
   const ribs=canvasTexture(512,(c,n)=>{c.fillStyle='#3b3c42';c.fillRect(0,0,n,n);c.strokeStyle='#060607';c.lineWidth=11;
-    for(let x=-n;x<2*n;x+=24){c.beginPath();c.moveTo(x,n*.06);c.lineTo(x+n*.2,n*.94);c.stroke();}});
+    for(let i=-22;i<44;i++){const x=i*n/22;c.beginPath();c.moveTo(x,n*.06);c.lineTo(x+n*.2,n*.94);c.stroke();}});
   ribs.wrapS=T.RepeatWrapping;ribs.repeat.set(3,1);
   mesh(new T.LatheGeometry([[0,-28],[38.6,-28],[40.2,-27.3],[42,-25],[43.3,-20.5],[43.7,-16]].map(p=>new T.Vector2(...p)),160),
     new T.MeshStandardMaterial({color:'#ffffff',map:ribs,roughness:.8}));
