@@ -125,11 +125,7 @@ def install(s, model='lite2', auto=False):
             device, _, _ = self.adb.shell(f'{s.QRUN}/maind --device-id 2>/dev/null | tail -1', timeout=20)
             did = device.replace('Device ID:', '').strip()
             self._version = {'quasar_version': out.strip(), 'device_id': did, 'model': model}
-            self.glagol.device_id = did or None
-            if not self.glagol.host:
-                ip, _, _ = self.adb.shell("wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^ip_address=//p'", check=False)
-                self.glagol.host = s.strip_ansi(ip).strip() or None
-            self.glagol.wake.set()
+            self._configure_glagol(did)
         return self._version
     P.version = version
 

@@ -97,14 +97,53 @@ IP колонки, запомнит его и откроет браузер.
 портативный Python с python.org (~11 МБ). Нужна Windows 10 (1803) или новее. Уже установленные Python 3.14+, adb (в `PATH` или папка `platform-tools`
 рядом с `server.py`) и ffmpeg `start.bat` найдёт и использует.
 
-### Linux / macOS — запускать, когда нужно
+### macOS — запускать, когда нужно
+
+1. Установите [Homebrew](https://brew.sh), если его ещё нет, затем зависимости в Терминале:
+
+   ```sh
+   brew install python ffmpeg zstd
+   brew install --cask android-platform-tools
+   ```
+
+   Python и adb нужны для запуска; ffmpeg — для mp3/ogg и своих звуков, zstd — для анимаций
+   при Python ниже 3.14. [Android platform-tools](https://formulae.brew.sh/cask/android-platform-tools)
+   можно не ставить повторно, если adb уже установлен через Android Studio.
+
+2. Скачайте **Code → Download ZIP** и распакуйте архив или склонируйте репозиторий:
+
+   ```sh
+   git clone https://github.com/dimap/yandex-station-web.git
+   cd yandex-station-web
+   ```
+
+3. Дважды щёлкните **`start.command`** в Finder. Откроется Терминал: введите IP колонки
+   (Enter — подключение по USB), затем панель сама откроется в браузере. Адрес запоминается.
+   Если macOS блокирует открытие скачанного скрипта, запустите его из Терминала в папке проекта:
+
+   ```sh
+   sh start.command
+   ```
+
+Можно сразу передать адрес и параметры:
+
+```sh
+./start.sh 192.168.1.50     # дальше достаточно ./start.sh или start.command
+```
+
+Скрипт находит Homebrew в `/opt/homebrew` на Apple Silicon и `/usr/local` на Intel.
+adb также ищется в `~/Library/Android/sdk/platform-tools`, `ANDROID_HOME` и `ANDROID_SDK_ROOT`.
+HTTPS использует доступный `openssl`; свой путь можно задать через `PANEL_OPENSSL`.
+Панель: `http://127.0.0.1:8765/`. Остановить — Ctrl+C в окне Терминала.
+
+### Linux — запускать, когда нужно
 
 ```sh
 # Debian/Ubuntu: sudo apt install python3 adb ffmpeg zstd      Fedora: sudo dnf install python3 android-tools ffmpeg zstd
-# macOS:        brew install python android-platform-tools ffmpeg zstd
 git clone https://github.com/dimap/yandex-station-web.git
 cd yandex-station-web
 ./start.sh 192.168.1.50     # IP колонки; дальше можно просто ./start.sh
+./start.sh --find           # или найти колонку в сети (IP поменялся, переехали)
 ```
 
 Панель откроется на `http://127.0.0.1:8765/`. Остановить — Ctrl+C.
@@ -165,9 +204,15 @@ services:
 | `mini3pro` | 36 сегментов / кольцо 16 RGB | отключены | чтение, часы, кольцо |
 | `station2` | без часов / framebuffer 89 RGB | отключены | чтение |
 | `mini3` | запись отключена | отключены | нет, экспериментальный |
+| Лайт 1-го поколения → `lite2` | дисплея нет, светится логотип Алисы / не проверено | не проверены | музыка и плеер (Glagol) |
 
-На других моделях скрипты загрузки Лайт 2 и будильник не подключаются. 3D-корпуса Станции 2, Мини 3 и
-Мини 3 Про — реконструкции по фото производителя ([источники](static/models/SOURCES.md)).
+На других моделях скрипты загрузки Лайт 2 и будильник не подключаются. 3D-корпуса Станции 2, Мини 3,
+Мини 3 Про и Лайт первого поколения — реконструкции по фото производителя ([источники](static/models/SOURCES.md)).
+
+**Станция Лайт первого поколения** (`Yandex Station Micro`) распознаётся: на «Обзоре» её название и 3D-модель,
+часы скрыты (дисплея у неё нет). Музыка и плеер работают — платформа Glagol берётся из `common.deviceType`
+в конфигурации колонки (`yandexmicro`). Отдельного аппаратного профиля пока нет: панель работает с ней
+через резервный профиль `lite2`, поэтому подсветка, заставка, звук запуска и будильник не проверены.
 
 **Несколько колонок в одной панели.** Скопируйте `speakers.example.json` в `speakers.json`, укажите свои
 колонки (модель — явно) и запустите:
@@ -189,6 +234,7 @@ python3 multi.py --config speakers.json --data-dir data/multi --port 8765
 | Аргумент | Переменная | По умолчанию | |
 |---|---|---|---|
 | `--device` | `ADB_SERIAL` | запомненный | IP колонки (порт 5555 подставится сам), `host:port` или серийник USB |
+| `--find` | | | найти колонку в локальной сети и запомнить её адрес; можно указать подсеть: `--find 192.168.1.0/24`. На Windows: `start.bat --find` |
 | `--host` | `PANEL_HOST` | `127.0.0.1` | `0.0.0.0` — доступ из локальной сети (в Docker так и есть) |
 | `--port` | `PANEL_PORT` | `8765` | порт HTTP |
 | `--https-port` | `PANEL_HTTPS_PORT` | `8766` | порт HTTPS, `0` — выключить |
@@ -248,6 +294,8 @@ python3 multi.py --config speakers.json --data-dir data/multi --port 8765
   производителя от **[chelaxian](https://github.com/chelaxian)** (`static/model-studio.js`), лицензия MIT, как у кода
   панели. Это не официальные чертежи и не скачанные модели; фотографии в проект не входят —
   [источники](static/models/SOURCES.md).
+- 3D-модель Станции Лайт первого поколения — такая же приблизительная реконструкция по фотографиям
+  (`static/model-studio.js`), лицензия MIT.
 - Поддержка других моделей, профили колонок и единая панель для нескольких колонок —
   [PR №1](https://github.com/dimap/yandex-station-web/pull/1) от **[chelaxian](https://github.com/chelaxian)**.
 - [three.js](https://threejs.org) (MIT), [xterm.js](https://xtermjs.org) (MIT),

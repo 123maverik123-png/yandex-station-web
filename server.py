@@ -147,6 +147,19 @@ def alarm_script():
     return ALARM_SRC.read_bytes().replace(b"\r\n", b"\n")
 ALARM_MODES = ("sound", "wave", "show", "music", "text")
 ALARM_DEFAULT_SOUND = "common/timer.wav"
+# Блокировка аналитики: свой /etc/hosts (копия системного + адреса аналитики на 127.0.0.1) подключается
+# поверх системного через bind mount. Системный раздел не меняется; выключить — просто отмонтировать.
+HOSTS_TARGET = "/etc/hosts"
+HOSTS_CUSTOM = f"{WEB_DIR}/hosts"
+HOSTS_MARK = "# webpanel: блокировка аналитики Яндекса"
+ANALYTICS_HOSTS = ("clck.yandex.net", "report.appmetrica.yandex.net", "appmetrica.yandex.net", "metrica.yandex.net")
+# Неотправленные события телеметрия копит здесь (до 1 МБ) и отправит, как только адреса откроются. Телеметрия
+# читает файл при старте и дописывает его при выходе, поэтому сначала kill -9, потом удаление; launcher
+# перезапускает её через секунду уже с пустой очередью. Остальное (fluent-bit, teleme3d) лежит в /tmp.
+METRICA_BATCH = "/data/quasar/appmetrica/persistedBatch"
+ANALYTICS_PURGE = ("p=$(ps | grep '[m]aind --telemetry' | awk '{print $1}'); "
+                   f"[ -n \"$p\" ] && kill -9 $p; rm -f {METRICA_BATCH}")
+
 BOOT_HOOK_SCRIPT = (
     "#!/bin/sh\n"
     "# Веб-панель: своя заставка и звук запуска. Вызывается из rootkeeper.sh до того, как Quasar\n"
@@ -155,6 +168,10 @@ BOOT_HOOK_SCRIPT = (
     "bind() { [ -f \"$1\" ] && [ -f \"$2\" ] && ! grep -q \" $2 \" /proc/mounts && mount --bind \"$1\" \"$2\"; }\n"
     f"bind {BOOT_CUSTOM} {BOOT_TARGET}\n"
     f"bind {SOUND_CUSTOM} {SOUND_TARGET}\n"
+    f"bind {HOSTS_CUSTOM} {HOSTS_TARGET}\n"
+    # очередь аналитики — через минуту и в фоне: телеметрия стартует первой, и launcher ждёт её,
+    # прежде чем запустить основной maind; адреса уже закрыты, так что за минуту ничего не уйдёт
+    f"[ -f {HOSTS_CUSTOM} ] && ( sleep 60; {ANALYTICS_PURGE} ) >/dev/null 2>&1 &\n"
     # yamd сам после загрузки не стартует; start-stop-daemon -b — чтобы не держать rootkeeper.sh
     f"[ -f {YAM_AUTOSTART} ] && [ -x {YAMD} ] && ! pidof yamd >/dev/null && "
     f"start-stop-daemon -S -b -m -p /tmp/webpanel_yamd.sd -x /bin/sh -- -c {shlex.quote(YAMD_CMD)}\n"
@@ -873,6 +890,11 @@ def find_adb():
     exe = "adb.exe" if os.name == "nt" else "adb"
     cands = [os.environ.get("ADB"), shutil.which("adb"), str(ROOT / "platform-tools" / exe),
              str(Path.home() / "Android/Sdk/platform-tools" / exe)]
+    for name in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
+        if os.environ.get(name):
+            cands.append(str(Path(os.environ[name]) / "platform-tools" / exe))
+    if sys.platform == "darwin":
+        cands.append(str(Path.home() / "Library/Android/sdk/platform-tools/adb"))
     if os.name == "nt":
         cands.append(str(Path(os.environ.get("LOCALAPPDATA", "")) / "Android/Sdk/platform-tools/adb.exe"))
     for cand in cands:
@@ -900,6 +922,25 @@ class Panel:
         self._version = None
         self.ffmpeg = shutil.which("ffmpeg")
 
+    def _configure_glagol(self, device_id):
+        # Glagol использует тип устройства из прошивки, а не профиль LED/часов панели.
+        # Например, Лайт первого поколения — yandexmicro, даже при резервном профиле lite2.
+        try:
+            config, _, _ = self.adb.shell(f"cat {QUASAR}/quasar.cfg 2>/dev/null", check=False)
+            config = json.loads(config)
+            common = config.get("common") if isinstance(config, dict) else None
+            platform = common.get("deviceType") if isinstance(common, dict) else None
+            if isinstance(platform, str) and re.fullmatch(r"[a-zA-Z0-9_-]+", platform):
+                self.glagol.platform = platform
+        except (AdbError, OSError, subprocess.TimeoutExpired, ValueError):
+            pass  # На старых прошивках без этого поля остаётся платформа выбранного профиля.
+        # Публикуем device_id после platform: фоновый поток уже может ожидать подключения.
+        self.glagol.device_id = device_id or None
+        if not self.glagol.host:     # колонка по USB — для Glagol нужен её адрес в Wi-Fi
+            ip, _, _ = self.adb.shell("wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^ip_address=//p'", check=False)
+            self.glagol.host = strip_ansi(ip).strip() or None
+        self.glagol.wake.set()
+
     # ---------- статус ----------
     def version(self):
         if self._version is None:
@@ -907,11 +948,7 @@ class Panel:
             m = re.search(r"Quasar Software Version:\s*(\S+)", out)
             d, _, _ = self.adb.shell(f"{QRUN}/maind --device-id 2>/dev/null | tail -1", timeout=20)
             self._version = {"quasar_version": m.group(1) if m else "?", "device_id": d.replace("Device ID:", "").strip()}
-            self.glagol.device_id = self._version["device_id"] or None
-            if not self.glagol.host:     # колонка по USB — для Glagol нужен её адрес в Wi-Fi
-                ip, _, _ = self.adb.shell("wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^ip_address=//p'", check=False)
-                self.glagol.host = strip_ansi(ip).strip() or None
-            self.glagol.wake.set()
+            self._configure_glagol(self._version["device_id"])
         return self._version
 
     def status(self):
@@ -1271,7 +1308,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         # Хук нужен, пока есть хоть что-то своё; иначе возвращаем rootkeeper.sh к исходному виду.
         self.adb.shell(
             f"if [ ! -f {BOOT_CUSTOM} ] && [ ! -f {SOUND_CUSTOM} ] && [ ! -f {BOOT_ALWAYS} ] && [ ! -f {YAM_AUTOSTART} ] "
-            f"&& [ ! -f {ALARM_CONF} ]; then "
+            f"&& [ ! -f {ALARM_CONF} ] && [ ! -f {HOSTS_CUSTOM} ]; then "
             f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; rm -f {BOOT_HOOK}; fi; true")
 
     def _install_override(self, data, custom, target, orig):
@@ -1343,6 +1380,51 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     _registry = (0, None)
 
     # ---------- что панель оставила на колонке ----------
+    # ---------- блокировка аналитики ----------
+    def privacy_status(self):
+        out, _, _ = self.adb.shell(
+            f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && echo mounted; [ -f {HOSTS_CUSTOM} ] && echo custom; "
+            f"echo queued=$(cat {METRICA_BATCH} 2>/dev/null | wc -c); md5sum {BOOT_HOOK} 2>/dev/null; "
+            # проверка на деле: куда сейчас ведёт адрес аналитики
+            f"ping -c 1 -W 1 {ANALYTICS_HOSTS[0]} 2>&1 | head -n 1; true", check=False, timeout=15)
+        out = strip_ansi(out)
+        enabled = "mounted" in out and "custom" in out
+        # хук от прошлой версии панели не умеет чистить очередь — обновляем
+        if enabled and hashlib.md5(BOOT_HOOK_SCRIPT.encode()).hexdigest() not in out:
+            self._ensure_hook()
+        m = re.search(r"queued=(\d+)", out)
+        return {"enabled": enabled, "hosts": list(ANALYTICS_HOSTS), "queued": int(m.group(1)) if m else 0,
+                "blocked": f"({ANALYTICS_HOSTS[0]}" not in out and "127.0.0.1" in out}
+
+    def privacy_set(self, enabled):
+        if not enabled:
+            self.adb.shell(f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && {{ umount {HOSTS_TARGET} || umount -l {HOSTS_TARGET}; }}; "
+                           f"rm -f {HOSTS_CUSTOM}; true")
+            self._drop_hook_if_unused()
+            return self.privacy_status()
+        # основа — настоящий системный /etc/hosts (если наш уже подключён, сначала снимаем его)
+        self.adb.shell(f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && umount {HOSTS_TARGET}; true")
+        base = strip_ansi(self.adb.read_bytes(HOSTS_TARGET).decode("utf-8", "replace")).replace("\r\n", "\n")
+        lines = [ln for ln in base.splitlines() if ln.strip()]
+        text = "\n".join(lines + ["", HOSTS_MARK] + [f"127.0.0.1\t{h}" for h in ANALYTICS_HOSTS]) + "\n"
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "hosts"
+            write_unix(f, text)
+            self.adb.shell(f"mkdir -p {WEB_DIR}")
+            self.adb.push(f, HOSTS_CUSTOM)
+        self._ensure_hook()
+        _, err, rc = self.adb.shell(f"chmod 644 {HOSTS_CUSTOM}; mount --bind {HOSTS_CUSTOM} {HOSTS_TARGET}", check=False)
+        if rc:
+            raise AdbError("не удалось подключить свой /etc/hosts: " + strip_ansi(err).strip()[-200:])
+        self.privacy_purge()
+        return self.privacy_status()
+
+    def privacy_purge(self):
+        """Удалить накопленную неотправленную аналитику (только при включённой блокировке — иначе незачем)."""
+        self.adb.shell(f"[ -f {HOSTS_CUSTOM} ] && {{ {ANALYTICS_PURGE}; }}; true", check=False)
+        time.sleep(2)   # launcher перезапускает телеметрию
+        return self.privacy_status()
+
     def footprint(self):
         """Всё постоянное, что панель ставит на колонку. Временное (/tmp) исчезает само после перезагрузки."""
         q = lambda path: f"[ -e {path} ] && echo 1 || echo 0"
@@ -1355,9 +1437,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"grep -q '{HOOK_MARK}' {ROOTKEEPER} 2>/dev/null && echo 1 || echo 0",
             f"[ -d {WEB_DIR} ] && du -sk {WEB_DIR} | cut -f1 || echo 0",
             f"[ -d {ALARM_DIR} ] && du -sk {ALARM_DIR} | cut -f1 || echo 0",
-            q(YAMD)])
+            q(YAMD),
+            f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && echo 1 || echo 0", q(HOSTS_CUSTOM)])
         v = self.adb.shell(cmd, check=False)[0].split()
-        v = (v + ["0"] * 15)[:15]
+        v = (v + ["0"] * 17)[:17]
         b = [x == "1" for x in v]
         n = lambda x: int(x) if x.isdigit() else 0
         items = [
@@ -1365,6 +1448,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             {"key": "sound", "name": "Свой звук запуска", "on": b[2] or b[3]},
             {"key": "always", "name": "Заставка при каждой загрузке", "on": b[4]},
             {"key": "yamd", "name": "Автозапуск yamd", "on": b[5]},
+            {"key": "privacy", "name": "Блокировка аналитики", "on": b[15] or b[16], "detail": "свой /etc/hosts"},
             {"key": "alarm", "name": "Будильник", "on": b[6], "detail": f"будильников: {n(v[7])}", "size_kb": n(v[13])},
             {"key": "backup", "name": "Копии оригиналов", "on": b[8] or b[9] or b[10],
              "detail": "заставка, звук запуска, rootkeeper.sh — на случай отката"},
@@ -1381,6 +1465,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"start-stop-daemon -K -p {ALARM_SD} 2>/dev/null; killall aplay 2>/dev/null; "
             f"grep -q ' {BOOT_TARGET} ' /proc/mounts && {{ umount {BOOT_TARGET} || umount -l {BOOT_TARGET}; }}; "
             f"grep -q ' {SOUND_TARGET} ' /proc/mounts && {{ umount {SOUND_TARGET} || umount -l {SOUND_TARGET}; }}; "
+            f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && {{ umount {HOSTS_TARGET} || umount -l {HOSTS_TARGET}; }}; "
             f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; true", check=False)
         # Копию rootkeeper.sh удаляем, только если без нашей строки файл совпал с ней: значит, других правок не было.
         out, _, _ = self.adb.shell(
@@ -1398,7 +1483,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     # Что берём из /data/quasar/webpanel: только своё. Копии оригиналов не берём — на другой прошивке они
     # были бы чужими; при восстановлении они снимаются заново с этой колонки. Хук и скрипт будильника — тоже
     # не берём: ставим текущую версию из панели.
-    BACKUP_FILES = re.compile(r"(boot\.binscled\.zst|boot_sound\.wav|boot_every_time|yamd_autostart|"
+    BACKUP_FILES = re.compile(r"(boot\.binscled\.zst|boot_sound\.wav|boot_every_time|yamd_autostart|hosts|"
                               r"alarm/alarms\.conf|alarm/default\.wav|alarm/[su]_[0-9a-f]{10}\.wav)")
     BACKUP_LIMIT = 200 * 1024 * 1024
 
@@ -1462,6 +1547,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         if "boot_every_time" in files:
             self.boot_always(True)
             report.append("заставка при каждой загрузке")
+        if "hosts" in files:
+            # файл из копии не ставим: в нём имя хоста той колонки — собираем заново из /etc/hosts этой
+            self.privacy_set(True)
+            report.append("блокировка аналитики")
         if "yamd_autostart" in files:
             if self.yam_status().get("installed"):
                 self.yam_autostart(True)
@@ -2539,6 +2628,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/yam/version": lambda: p.yam_version(q.get("refresh") == "1"),
             "/api/alarms": p.alarms,
             "/api/footprint": p.footprint,
+            "/api/privacy": p.privacy_status,
             "/api/panel/version": lambda: self.updater.check(q.get("refresh") == "1"),
             "/api/bt": p.bt_state,
             "/api/metrics": lambda: p.metrics.get(q.get("range", 3600)),
@@ -2645,6 +2735,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/alarms/cmd": lambda: p.alarm_cmd(d.get("action")),
             "/api/alarms/install": p.alarm_install,
             "/api/footprint/reset": p.footprint_reset,
+            "/api/privacy": lambda: p.privacy_set(bool(d.get("enabled"))),
+            "/api/privacy/purge": p.privacy_purge,
             "/api/panel/update": lambda: self.updater.update(),
             "/api/metrics/clear": lambda: p.metrics.clear(),
             "/api/alarms/uninstall": p.alarm_uninstall,
@@ -2658,7 +2750,7 @@ class PanelUpdater:
     """Проверка новых релизов панели на GitHub и обновление — в зависимости от того, как панель установлена:
     zip (Windows-сборка, Download ZIP) — скачать релиз и заменить файлы панели; git — git pull --ff-only;
     docker — только подсказать команду (образ изнутри не обновить)."""
-    FILES = ("server.py", "access.py", "glagol.py", "profiles.py", "managed_yam.py", "multi.py", "speakers.example.json", "VERSION", "LICENSE", "README.md", "CONTRIBUTION.md", "start.bat", "start.sh",
+    FILES = ("server.py", "access.py", "glagol.py", "profiles.py", "managed_yam.py", "multi.py", "speakers.example.json", "VERSION", "LICENSE", "README.md", "CONTRIBUTION.md", "start.bat", "start.sh", "start.command",
              "Dockerfile", "docker-compose.yml")
     DIRS = ("static", "device", "3d", "tools", "docs")
 
@@ -2751,7 +2843,7 @@ class PanelUpdater:
                 tmp = dst.with_name(dst.name + ".upd")
                 tmp.write_bytes(z.read(n))
                 os.replace(tmp, dst)
-                if rel == "start.sh":
+                if rel in ("start.sh", "start.command"):
                     os.chmod(dst, 0o755)
 
 
@@ -2769,6 +2861,94 @@ def detect_model(adb):
         if re.search(rf"(^|[^a-z0-9]){platform}([^a-z0-9]|$)", text):
             return model, platform
     return None, None
+
+
+def local_networks():
+    """Подсети /24 этого компьютера, где может быть колонка: частные адреса, кроме VPN-туннелей (/32)."""
+    nets = []
+    try:
+        out = subprocess.run(["ip", "-4", "-o", "addr"], capture_output=True, text=True, timeout=5).stdout
+        addrs = [m.group(1, 2) for m in re.finditer(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", out)]
+    except (OSError, subprocess.SubprocessError):
+        addrs = []
+    if not addrs:   # Windows, macOS: адрес, через который идёт трафик наружу (пакет не отправляется)
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as u:
+                u.connect(("10.255.255.255", 1))
+                addrs = [(u.getsockname()[0], "24")]
+        except OSError:
+            pass
+    for ip, prefix in addrs:
+        a = ipaddress.ip_address(ip)
+        if a.is_private and not a.is_loopback and not a.is_link_local and int(prefix) < 31:
+            net = ipaddress.ip_network(f"{ip}/24", strict=False)
+            if net not in nets:
+                nets.append(net)
+    return nets
+
+
+def find_devices(adb_path, nets):
+    """Ищет колонки в подсетях: открытый порт adb 5555, затем проверка платы по device-tree.
+    → [(«ip:5555», профиль, имя хоста)]."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def port_open(ip):
+        try:
+            socket.create_connection((ip, 5555), timeout=0.6).close()
+            return ip
+        except OSError:
+            return None
+
+    hosts = [str(h) for net in nets for h in net.hosts()]
+    with ThreadPoolExecutor(64) as pool:
+        candidates = [ip for ip in pool.map(port_open, hosts) if ip]
+
+    def check(ip):
+        serial = f"{ip}:5555"
+        try:
+            subprocess.run([adb_path, "connect", serial], capture_output=True, timeout=10)
+            out = subprocess.run([adb_path, "-s", serial, "shell",
+                                  "cat /proc/device-tree/compatible 2>/dev/null | tr '\\000' ' '; echo; hostname"],
+                                 capture_output=True, timeout=10).stdout.decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            out = ""
+        text = strip_ansi(out).strip().lower()
+        for platform, model in PLATFORM_MODELS.items():
+            if "yandex" in text and re.search(rf"(^|[^a-z0-9]){platform}([^a-z0-9]|$)", text):
+                return serial, model, strip_ansi(out).strip().splitlines()[-1].strip()
+        # не колонка (телевизор, приставка) — не оставляем ей висящее подключение
+        subprocess.run([adb_path, "disconnect", serial], capture_output=True, timeout=10)
+        return None
+
+    with ThreadPoolExecutor(8) as pool:
+        return [r for r in pool.map(check, candidates) if r]
+
+
+def pick_device(adb_path, where):
+    """--find: найти колонку в сети и выбрать (если их несколько — спросить)."""
+    import profiles
+    try:
+        nets = [ipaddress.ip_network(where, strict=False)] if where != "auto" else local_networks()
+    except ValueError:
+        raise SystemExit(f"--find: «{where}» — не подсеть. Пример: --find 192.168.1.0/24")
+    if not nets:
+        raise SystemExit("--find: не нашлось локальной сети. Укажите подсеть явно: --find 192.168.1.0/24")
+    print(f"Ищем колонку в {', '.join(map(str, nets))}…")
+    found = find_devices(adb_path, nets)
+    if not found:
+        print("Колонка не найдена: проверьте, что она включена и в той же сети, а adb по сети на ней работает.")
+        return None
+    for i, (serial, model, name) in enumerate(found, 1):
+        print(f"  {i}. {serial.rpartition(':')[0]}  {profiles.PROFILES[model]['name']}  ({name})")
+    if len(found) == 1 or not (sys.stdin and sys.stdin.isatty()):
+        return found[0][0]
+    while True:
+        try:
+            choice = input(f"Какую подключить (1–{len(found)}): ").strip()
+        except EOFError:
+            return found[0][0]
+        if choice.isdigit() and 1 <= int(choice) <= len(found):
+            return found[int(choice) - 1][0]
 
 
 def watch_model(adb, conn, active):
@@ -2848,6 +3028,8 @@ def main():
     ap = argparse.ArgumentParser(description="Веб-панель для Яндекс Станций")
     ap.add_argument("--device", default=env("ADB_SERIAL"),
                     help="IP колонки (порт 5555 по умолчанию), host:port или серийник USB; запоминается [ADB_SERIAL]")
+    ap.add_argument("--find", nargs="?", const="auto", metavar="ПОДСЕТЬ",
+                    help="найти колонку в локальной сети (или в заданной подсети, например 192.168.1.0/24) и запомнить")
     ap.add_argument("--host", default=env("PANEL_HOST", "127.0.0.1"),
                     help="адрес веб-сервера; 0.0.0.0 — доступ из локальной сети [PANEL_HOST]")
     ap.add_argument("--port", type=int, default=int(env("PANEL_PORT", "8765")), help="порт HTTP [PANEL_PORT]")
@@ -2870,6 +3052,8 @@ def main():
     # Адрес колонки: из аргумента/окружения, иначе — запомненный, иначе спросим (если есть кому ответить).
     settings = load_settings()
     device = normalize_device(args.device) or settings.get("device")
+    if args.find:
+        device = pick_device(find_adb(), args.find) or device
     if not device and sys.stdin and sys.stdin.isatty():
         try:
             device = normalize_device(input("IP-адрес колонки (Enter — колонка по USB): "))

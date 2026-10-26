@@ -3,7 +3,7 @@ setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
 title Станция Лайт 2 - панель
-rem Запуск панели на Windows: двойной щелчок или  start.bat [IP колонки]
+rem Запуск панели на Windows: двойной щелчок,  start.bat [IP колонки]  или  start.bat --find  (найти колонку в сети)
 rem Чего нет в системе (Python, adb, ffmpeg) — по согласию скачивается в папку runtime рядом с панелью.
 rem В систему ничего не ставится, права администратора не нужны. Удалить — просто удалить папку.
 
@@ -80,8 +80,11 @@ set "PATH=%RT%\ffmpeg\bin;%PATH%"
 
 :run
 echo.
+set "ARG1=%~1"
 if "%~1"=="" (
   "%PYEXE%" server.py --open
+) else if "%ARG1:~0,1%"=="-" (
+  "%PYEXE%" server.py --open %*
 ) else (
   "%PYEXE%" server.py --open --device %*
 )
