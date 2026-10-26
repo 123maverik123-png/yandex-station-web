@@ -2708,7 +2708,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/boot/sound/play": lambda: p.boot_sound_play(d.get("which", "default")),
             "/api/clock/boot/always": lambda: p.boot_always(bool(d["enabled"])),
             "/api/yam/start": p.yam_start,
-            "/api/yam/install-daemon": p.yam_install_daemon,
+            "/api/yam/install-daemon": lambda: p.yam_install_daemon(**({"drop_backups": True} if d.get("drop_backups") else {})),
             "/api/display": lambda: p.display_set(d),
             "/api/display/stop": p.display_stop,
             "/api/ring/reset": p.ring_reset,

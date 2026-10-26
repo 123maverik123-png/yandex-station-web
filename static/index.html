@@ -1205,7 +1205,7 @@
           <button class="btn sm primary" id="yam-update" hidden>Обновить yamd</button></div>
       </div>
       <div id="yam-update-confirm" hidden class="hint">
-        <p>Обновить yamd? Пакеты временно остановятся и запустятся снова. Пакеты и настройки сохранятся; перед заменой будет создана резервная копия.</p>
+        <p id="yam-update-text"></p>
         <button class="btn primary" id="yam-update-confirm-btn">Обновить сейчас</button>
         <button class="btn" id="yam-update-cancel">Отмена</button>
       </div>
@@ -2595,6 +2595,7 @@ const yam = { registry: [], plugins: [] };
 async function loadYam() {
   let st;
   try { st = await api('/api/yam/status'); } catch (e) { return e.offline || toast(e.message, true); }
+  yam.status = st;
   $('#yam-missing').hidden = st.installed;
   $('#yam-card').hidden = !st.installed;
   if (!st.installed) { $('#yam-on').hidden = true; return; }
@@ -2719,7 +2720,14 @@ $('#yam-install').onclick = e => {
     await loadYam();
   });
 };
-$('#yam-update').onclick = () => { $('#yam-update-confirm').hidden = false; };
+$('#yam-update').onclick = () => {
+  // Станция 2 и Мини 3 Про: перед заменой — резервная копия, прошлые копии при этом удаляются
+  const b = yam.status?.backups;
+  $('#yam-update-text').textContent = 'Обновить yamd? Пакеты временно остановятся и запустятся снова, пакеты и настройки сохранятся.'
+    + (!b ? '' : ' Перед заменой будет создана резервная копия.'
+      + (b.count ? ` Старые резервные копии (${b.count} шт., ${(b.kb / 1024).toFixed(1)} МБ) будут удалены.` : ''));
+  $('#yam-update-confirm').hidden = false;
+};
 $('#yam-update-cancel').onclick = () => { $('#yam-update-confirm').hidden = true; };
 $('#yam-update-confirm-btn').onclick = e => {
   const btn = e.currentTarget, result = $('#yam-update-result');
@@ -2729,7 +2737,7 @@ $('#yam-update-confirm-btn').onclick = e => {
     result.hidden = false; result.classList.remove('warn');
     result.textContent = 'Скачиваю и проверяю yamd. Не закрывайте страницу…';
     try {
-      const r = await api('/api/yam/install-daemon', {});
+      const r = await api('/api/yam/install-daemon', { drop_backups: !!yam.status?.backups?.count });
       $('#yam-update-confirm').hidden = true;
       result.textContent = 'yamd обновлён до ' + (r.version || 'последней версии') + '. Пакеты и настройки сохранены.';
       toast(result.textContent);

@@ -20,7 +20,26 @@ def install(s):
         self.adb.shell('test -x ' + service + ' && ' + service + ' start', timeout=30)
         return self.yam_status()
 
-    def update(self):
+    def backups(self):
+        # Резервные копии прошлых обновлений из панели: (количество, КБ)
+        out = self.adb.shell(f'for d in {base}/backup-web-*; do [ -d "$d" ] && du -sk "$d"; done; true', check=False)[0]
+        rows = [line.split() for line in out.splitlines()]
+        sizes = [int(r[0]) for r in rows if len(r) == 2 and r[0].isdigit() and r[1].startswith(base + '/backup-web-')]
+        return len(sizes), sum(sizes)
+
+    original_status = s.Panel.yam_status
+
+    def status(self):
+        result = original_status(self)
+        if result.get('installed'):
+            count, kb = backups(self)
+            result['backups'] = {'count': count, 'kb': kb}
+        return result
+
+    def update(self, drop_backups=False):
+        # Старые копии удаляются перед новой — только с явного согласия (панель спрашивает перед обновлением).
+        if backups(self)[0] and not drop_backups:
+            raise s.AdbError('Старые резервные копии yamd будут удалены — подтвердите обновление ещё раз')
         if not lock.acquire(blocking=False):
             raise s.AdbError('Обновление yamd уже выполняется')
         backup = base + '/backup-web-' + time.strftime('%Y%m%dT%H%M%S', time.gmtime()) + '-' + uuid.uuid4().hex[:8]
@@ -51,7 +70,8 @@ def install(s):
                 return {**self.yam_status(), 'version': tag, 'unchanged': True}
             self.adb.shell(f'mkdir {base}/.web-update-lock')
             acquired = True
-            # Include package data and configuration; never delete old snapshots.
+            # Старые копии удаляем (на это получено согласие), новая включает данные пакетов и настройки.
+            self.adb.shell(f'rm -rf {base}/backup-web-*', check=False)
             self.adb.shell(f'set -e; free=$(df -k {base} | tail -1 | awk \'{{print $4}}\'); '
                            f'need=$(du -sk {base}/data {base}/bin | awk \'{{s+=$1}}END{{print s}}\'); '
                            f'test "$free" -gt "$((need + {len(blob)//1024} + 8192))"; '
@@ -109,4 +129,5 @@ def install(s):
                 self.adb.shell(f'rm -f {stage}; rmdir {base}/.web-update-lock', check=False)
 
     s.Panel.yam_install_daemon = update
+    s.Panel.yam_status = status
     s.Panel.yam_start = start
