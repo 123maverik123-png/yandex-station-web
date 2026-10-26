@@ -905,6 +905,25 @@ class Panel:
         self._version = None
         self.ffmpeg = shutil.which("ffmpeg")
 
+    def _configure_glagol(self, device_id):
+        # Glagol использует тип устройства из прошивки, а не профиль LED/часов панели.
+        # Например, Лайт первого поколения — yandexmicro, даже при резервном профиле lite2.
+        try:
+            config, _, _ = self.adb.shell(f"cat {QUASAR}/quasar.cfg 2>/dev/null", check=False)
+            config = json.loads(config)
+            common = config.get("common") if isinstance(config, dict) else None
+            platform = common.get("deviceType") if isinstance(common, dict) else None
+            if isinstance(platform, str) and re.fullmatch(r"[a-zA-Z0-9_-]+", platform):
+                self.glagol.platform = platform
+        except (AdbError, OSError, subprocess.TimeoutExpired, ValueError):
+            pass  # На старых прошивках без этого поля остаётся платформа выбранного профиля.
+        # Публикуем device_id после platform: фоновый поток уже может ожидать подключения.
+        self.glagol.device_id = device_id or None
+        if not self.glagol.host:     # колонка по USB — для Glagol нужен её адрес в Wi-Fi
+            ip, _, _ = self.adb.shell("wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^ip_address=//p'", check=False)
+            self.glagol.host = strip_ansi(ip).strip() or None
+        self.glagol.wake.set()
+
     # ---------- статус ----------
     def version(self):
         if self._version is None:
@@ -912,11 +931,7 @@ class Panel:
             m = re.search(r"Quasar Software Version:\s*(\S+)", out)
             d, _, _ = self.adb.shell(f"{QRUN}/maind --device-id 2>/dev/null | tail -1", timeout=20)
             self._version = {"quasar_version": m.group(1) if m else "?", "device_id": d.replace("Device ID:", "").strip()}
-            self.glagol.device_id = self._version["device_id"] or None
-            if not self.glagol.host:     # колонка по USB — для Glagol нужен её адрес в Wi-Fi
-                ip, _, _ = self.adb.shell("wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^ip_address=//p'", check=False)
-                self.glagol.host = strip_ansi(ip).strip() or None
-            self.glagol.wake.set()
+            self._configure_glagol(self._version["device_id"])
         return self._version
 
     def status(self):
