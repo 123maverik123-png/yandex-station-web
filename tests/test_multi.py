@@ -137,7 +137,7 @@ class AutomaticHTTPSTests(unittest.TestCase):
                      patch.object(gateway.signal,'signal'), contextlib.redirect_stdout(io.StringIO()):
                     gateway.main()
                     if enabled:
-                        ensure.assert_called_once_with(Path(directory)/'.tls')
+                        ensure.assert_called_once_with(Path(directory).resolve()/'.tls')
                         context.return_value.load_cert_chain.assert_called_once_with(cert,key)
                         self.assertEqual(listener.call_args.args[0],('127.0.0.1',8766))
                     else:ensure.assert_not_called();listener.assert_not_called()

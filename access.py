@@ -233,7 +233,7 @@ def ensure_certs(tls_dir: Path):
                      "IP:192.168.0.0/255.255.0.0", "DNS:localhost", "DNS:local"] + [f"DNS:{n}" for n in names]
         with tempfile.NamedTemporaryFile("w", suffix=".cnf", delete=False) as f:
             f.write("[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n"
-                    f"[dn]\nCN=Stantsiya Lite 2 panel CA ({socket.gethostname()})\n"
+                    "[dn]\nCN=Yandex Station panel CA\n"
                     "[ext]\nbasicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\n"
                     "subjectKeyIdentifier=hash\n"
                     f"nameConstraints=critical,{','.join('permitted;' + p for p in permitted)}\n")
@@ -254,7 +254,7 @@ def ensure_certs(tls_dir: Path):
     csr = tls_dir / "server.csr"
     try:
         _openssl("req", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", str(key),
-                 "-out", str(csr), "-subj", "/CN=" + socket.gethostname(), cwd=tls_dir)
+                 "-out", str(csr), "-subj", "/CN=" + socket.gethostname()[:64], cwd=tls_dir)
         # 397 дней — дольше браузеры (Safari, Chrome) не принимают
         _openssl("x509", "-req", "-in", str(csr), "-CA", str(ca_crt), "-CAkey", str(ca_key), "-CAcreateserial",
                  "-out", str(crt), "-days", "397", "-extfile", ext, cwd=tls_dir)
