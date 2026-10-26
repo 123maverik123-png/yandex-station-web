@@ -5,7 +5,7 @@ const {bindVoiceInput,refreshCommand}=await import('data:text/javascript;base64,
 class Target {
   events={}; attrs={}; textContent=''; children=[];
   addEventListener(type,fn){(this.events[type]||=[]).push(fn);}
-  emit(type,extra={}){for(const fn of this.events[type]||[])fn({preventDefault(){},...extra});}
+  emit(type,extra={}){const e={defaultPrevented:false,preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.propagationStopped=true;},...extra};for(const fn of this.events[type]||[])fn(e);return e;}
   setAttribute(k,v){this.attrs[k]=v;}
   append(v){this.children.push(v);}
   setPointerCapture(){}
@@ -55,7 +55,7 @@ for(const error of ['not-allowed','network','no-speech']){
  const h=setup();h.down();h.down(1,9);assert.equal(h.instances.length,1);h.up();for(const fn of h.timers.values())fn();assert(h.instances[0].aborted);assert.deepEqual(h.sent,[]);
 }
 {
- const h=setup();const b=h.forms[0].button;b.emit('keydown',{key:' ',repeat:false});b.emit('keydown',{key:' ',repeat:true});assert.equal(h.instances.length,1);h.instances[0].onstart();h.instances[0].result([['тише']]);b.emit('keyup',{key:' '});h.instances[0].onend();assert.deepEqual(h.sent,[[0,'тише']]);
+ const h=setup();const b=h.forms[0].button;h.root.emit('keydown',{key:' ',repeat:false});h.root.emit('keydown',{key:' ',repeat:true});assert.equal(h.instances.length,1);h.instances[0].onstart();h.instances[0].result([['тише']]);h.root.emit('keyup',{key:' '});h.instances[0].onend();assert.deepEqual(h.sent,[[0,'тише']]);
 }
 {
  const h=setup({secure:false});h.down();assert.equal(h.instances.length,0);assert.match(h.forms[0].status.children[0].href,/^https:\/\/panel.local:8766\/speaker\/mini3pro\//);
@@ -134,7 +134,29 @@ for(const error of ['network','service-not-allowed']){
 {
  const h=setup({textOnly:true,connected:false});h.down();assert.equal(h.instances.length,0);assert(h.forms[1].submit.disabled);
  h.connect(true);const input=h.forms[1].elements.text;input.value='команда в плеере';input.emit('input');input.emit('keydown',{key:'Enter'});assert.deepEqual(h.sent,[[1,'команда в плеере']]);
- for(const key of ['Enter',' ']){const b=h.forms[0].button;b.emit('keydown',{key});const r=h.instances.at(-1);r.onstart();r.result([['клавиатура']]);b.emit('keyup',{key});r.onend();}
+ for(const key of ['Enter',' ']){const b=h.forms[0].button;h.root.emit('keydown',{key});const r=h.instances.at(-1);r.onstart();r.result([['клавиатура']]);h.root.emit('keyup',{key});r.onend();}
  assert.equal(h.sent.length,3);h.down();assert(h.forms[0].button.focused);h.root.emit('keydown',{key:'Escape'});
 }
 console.log('Review regressions: fresh Glagol IDLE, speaker echo cancellation, disconnect, persisted unsupported browser/retry, text-only Player, login and both keyboard keys passed');
+
+for (const key of [' ', 'Enter']) {
+ const h=setup(), target=new Target();
+ const down=h.root.emit('keydown',{key,target});assert(down.defaultPrevented);assert(down.propagationStopped);
+ const r=h.instances[0];r.onstart();r.result([['команда с любой точки страницы']]);
+ h.root.emit('keydown',{key,target,repeat:true});assert.equal(h.instances.length,1);
+ h.root.emit('keyup',{key:key===' '?'Enter':' '});assert(!r.stopped);
+ const up=h.root.emit('keyup',{key,target:{closest:()=>true}});assert(up.defaultPrevented);assert(r.stopped);assert.equal(h.sent.length,0);
+ r.onend();assert.deepEqual(h.sent,[[0,'команда с любой точки страницы']]);
+}
+for (const props of [{target:{closest:()=>true}},{target:{isContentEditable:true}},{ctrlKey:true},{altKey:true},{metaKey:true},{shiftKey:true},{isComposing:true},{defaultPrevented:true}]) {
+ const h=setup();const e=h.root.emit('keydown',{key:' ',...props});assert.equal(h.instances.length,0);assert.equal(e.propagationStopped,undefined);
+}
+for (const options of [{supported:false},{connected:false},{storage:new Map([['ui.voice.unavailable','1']])}]) {
+ const h=setup(options);const e=h.root.emit('keydown',{key:' '});assert(!e.defaultPrevented);assert.equal(h.instances.length,0);
+}
+{
+ const h=setup();h.forms[0].elements.text.emit('keydown',{key:' '});assert.equal(h.sent.length,0);
+ h.forms[0].elements.text.emit('keydown',{key:'Enter'});assert.deepEqual(h.sent,[[0,'старый текст']]);assert.equal(h.instances.length,0);
+ h.root.emit('keydown',{key:' ',code:'Space'});h.instances[0].result([['отменить при уходе']]);h.win.emit('blur');h.root.emit('keyup',{key:' '});assert(h.instances[0].aborted);assert.equal(h.sent.length,1);
+}
+console.log('Global keyboard: body Space/Enter hold/release, repeat, changed-focus keyup, editable/modifier/dialog exclusions, ordinary text input and blur cancellation passed');

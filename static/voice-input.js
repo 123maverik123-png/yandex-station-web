@@ -221,19 +221,29 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
     });
     button.addEventListener('lostpointercapture', () => { if (active?.button === button && !active.released) release(true); });
     button.addEventListener('contextmenu', e => e.preventDefault());
-    button.addEventListener('keydown', e => {
-      const key = e.code === 'Space' || [' ', 'Spacebar'].includes(e.key) ? 'Space' : e.key === 'Enter' ? 'Enter' : null;
-      if (!key || loop) return;
-      e.preventDefault(); if (!e.repeat) start(button, form, key);
-    });
-    button.addEventListener('keyup', e => { const key = e.code === 'Space' || [' ', 'Spacebar'].includes(e.key) ? 'Space' : e.key; if (active?.button === button && active.source === key) { e.preventDefault(); release(); } });
-    button.addEventListener('blur', () => { if (active?.button === button && ['Space', 'Enter'].includes(active.source)) release(true); });
+
   });
   support();
   update();
   root.addEventListener('pointerup', e => { if (active?.source === e.pointerId) release(); });
   root.addEventListener('pointercancel', e => { if (active?.source === e.pointerId) release(true); });
-  root.addEventListener('keydown', e => { if (e.key === 'Escape') cancel(); });
+  const voiceKey = e => e.code === 'Space' || [' ', 'Spacebar'].includes(e.key) ? 'Space' : e.key === 'Enter' ? 'Enter' : null;
+  root.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { cancel(); return; }
+    const key = voiceKey(e), target = e.target;
+    if (!key || e.defaultPrevented || e.isComposing || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey ||
+        target?.isContentEditable || target?.closest?.('input,textarea,select,[role="textbox"],[role="combobox"],[role="slider"],[role="spinbutton"],dialog,[role="dialog"]') ||
+        loop || !available || !ready() || !Recognition || blocked) return;
+    const form = voiceForms[0];
+    if (!form) return;
+    e.preventDefault(); e.stopPropagation();
+    if (!e.repeat) start(form.querySelector('.voice-mic'), form, key);
+  }, true);
+  root.addEventListener('keyup', e => {
+    if (active && active.source === voiceKey(e)) {
+      e.preventDefault(); e.stopPropagation(); release();
+    }
+  }, true);
   win.addEventListener('resize', () => forms.forEach(refreshCommand));
   win.addEventListener('blur', () => cancel());
   win.addEventListener('pagehide', () => cancel());
