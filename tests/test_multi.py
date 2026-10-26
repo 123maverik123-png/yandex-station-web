@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import multi as gateway,access,server
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 gateway.DEVICES.update({name:dict(name=name,model=name) for name in ("station2","mini3pro")})
 
 class Worker(BaseHTTPRequestHandler):
@@ -114,5 +114,33 @@ for local,header in [('127.0.0.1','test-secret'),('127.0.0.1','wrong'),('192.0.2
 print(json.dumps(results))'''
         result=subprocess.run([sys.executable,'-c',code],cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,check=True)
         self.assertEqual(json.loads(result.stdout),[False,True,True])
+
+
+
+class AutomaticHTTPSTests(unittest.TestCase):
+    def test_default_start_generates_certificate_and_explicit_zero_disables_it(self):
+        import contextlib,io
+        for options, enabled in [([], True), (['--https-port','0'],False)]:
+            with self.subTest(options=options), tempfile.TemporaryDirectory() as directory:
+                http=Mock();http.server_port=8765
+                tls=Mock();tls.server_port=8766
+                workers=Mock();workers.start.return_value='test-secret'
+                cert=Path(directory)/'server.crt';key=Path(directory)/'server.key'
+                with patch.object(sys,'argv',['multi.py','--config','unused','--data-dir',directory]+options), \
+                     patch.object(gateway,'load_config',return_value={}), \
+                     patch.object(gateway,'Workers',return_value=workers), \
+                     patch.object(gateway,'ThreadingHTTPServer',return_value=http), \
+                     patch.object(gateway.server,'TLSServer',return_value=tls) as listener, \
+                     patch.object(gateway.access,'ensure_certs',return_value=(cert,key)) as ensure, \
+                     patch.object(gateway.ssl,'SSLContext') as context, \
+                     patch.object(gateway.threading,'Thread'), \
+                     patch.object(gateway.signal,'signal'), contextlib.redirect_stdout(io.StringIO()):
+                    gateway.main()
+                    if enabled:
+                        ensure.assert_called_once_with(Path(directory)/'.tls')
+                        context.return_value.load_cert_chain.assert_called_once_with(cert,key)
+                        self.assertEqual(listener.call_args.args[0],('127.0.0.1',8766))
+                    else:ensure.assert_not_called();listener.assert_not_called()
+                workers.stop.assert_called_once()
 
 if __name__=='__main__':unittest.main(verbosity=2)

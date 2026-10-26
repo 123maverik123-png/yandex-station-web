@@ -154,6 +154,16 @@
   /* поля */
   input[type=range] { accent-color: var(--accent); width: 100%; }
   .field { min-height: 42px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--btn-line); background: var(--card); min-width: 0; }
+  .voice-field { position: relative; flex: 1; min-width: 160px; }
+  .voice-field .field { display:block;width:100%;height:42px;padding:10px 48px 10px 12px;line-height:20px;resize:none;overflow-y:hidden; }
+  .voice-count { flex-basis:100%;text-align:right;margin:0;font-size:12px;color:var(--muted); }
+  .voice-count.over { color:var(--danger); }
+  .voice-mic { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; touch-action: none; user-select: none; -webkit-touch-callout: none; }
+  .voice-mic:hover, .voice-mic:focus-visible { color: var(--accent); background: var(--accent-soft); }
+  .voice-mic[aria-pressed=true] { color: var(--danger); background: var(--accent-soft); }
+  .voice-auto[aria-pressed="true"] { background:var(--danger); color:white; border-color:var(--danger) }
+  .voice-status { flex-basis: 100%; margin: 0; }
+  .voice-status:empty { display: none; }
   .field.mono { font-family: var(--mono); font-size: 14px; }
   .search { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 12px; border-radius: 12px; background: var(--field); color: var(--muted); }
   .search input { border: 0; background: transparent; flex: 1; min-width: 0; outline: none; color: var(--text); }
@@ -395,6 +405,7 @@
   .conn-card pre.out { min-height: 0; max-height: 260px; margin-top: 10px; }
 
   /* 3D-модель */
+  .mu-ask-form > .btn { min-height:42px;align-self:flex-start; }
   .model-view { position: relative; width: 100%; height: 340px; cursor: grab; touch-action: none; }
   .model-view:active { cursor: grabbing; }
   .model-view canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
@@ -589,6 +600,7 @@
     <symbol id="i-file" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></g></symbol>
     <symbol id="i-log" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></g></symbol>
     <symbol id="i-term" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 17l6-5-6-5M12 19h8"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></g></symbol>
     <symbol id="i-music" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></g></symbol>
     <symbol id="i-link" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></g></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M7 4.5v15l13-7.5z"/></symbol>
@@ -715,6 +727,19 @@
       <div class="col wzone" id="wz-left">
         <!-- 3D-модель -->
         <div class="model-view" id="model-view" data-widget="model" data-title="3D-модель" role="img" aria-label="3D-модель колонки: дисплей и кольцо повторяют настоящие"><canvas id="model-viz" aria-hidden="true"></canvas></div>
+        <section class="card" data-widget="alice" data-title="Управление Алисой">
+          <div class="card-head"><h2>Управление Алисой</h2></div>
+          <form class="row mu-ask-form" style="gap:8px;align-items:stretch">
+              <div class="voice-field">
+                <textarea class="field" name="text" rows="1" placeholder="Попросить Алису: «включи джаз»" aria-label="Команда Алисе" aria-describedby="alice-command-count"></textarea>
+                <button class="voice-mic" type="button" aria-label="Удерживайте для голосовой команды" aria-pressed="false" title="Удерживайте и говорите; отпустите — отправить. Escape — отменить."><svg width="20" height="20" aria-hidden="true"><use href="#i-mic"/></svg></button>
+              </div>
+              <button class="btn sm" style="min-height:42px">Отправить</button>
+              <button class="btn sm voice-auto" type="button" aria-label="Постоянное прослушивание" aria-pressed="false" title="Включить прослушивание: все фразы после паузы из настроек отправляются Алисе. Стоп / Escape — выключить.">Авто</button>
+              <span class="voice-count" id="alice-command-count">0 / 1024</span>
+              <span class="hint voice-status" role="status" aria-live="polite"></span>
+            </form>
+        </section>
 
         <!-- громкость -->
         <section class="card" data-widget="volume" data-title="Громкость">
@@ -827,10 +852,7 @@
             <div class="progress"><span class="mu-pos">0:00</span><input type="range" class="mu-seek" min="0" max="100" value="0" step="1" aria-label="Позиция в треке"><span class="mu-dur">0:00</span></div>
             <div class="mu-bt-note"><svg width="16" height="16" aria-hidden="true"><use href="#i-bt"/></svg>
               <span><b>Музыка с устройства по Bluetooth.</b> Лайки, очередь, перемешивание и перемотка доступны только на самом устройстве.</span></div>
-            <form class="row mu-ask-form" style="gap:8px">
-              <input class="field" name="text" placeholder="Попросить Алису: «включи джаз»" style="flex:1;min-width:160px" aria-label="Команда Алисе">
-              <button class="btn sm" style="min-height:42px">Отправить</button>
-            </form>
+
             <p class="hint" id="mu-err" hidden></p>
           </div>
         </section>
@@ -895,6 +917,11 @@
           <div class="set-ctl"><button class="btn sm" id="set-layout-edit">Настроить «Обзор»</button><button class="btn sm" id="set-layout-reset">По умолчанию</button></div></div>
         <div class="set-item"><div class="set-label"><b>Галерея 3D-моделей</b><small>Все корпуса, которые знает панель, — без подключения к колонке</small></div>
           <div class="set-ctl"><a class="btn sm" id="model-gallery" href="./static/model-preview.html" target="_blank" rel="noopener">Открыть ↗</a></div></div>
+      </section>
+
+      <section class="card set-card">
+        <div class="set-head"><span class="set-ic"><svg width="18" height="18" aria-hidden="true"><use href="#i-mic"/></svg></span><div><h2>Управление Алисой</h2><p>Голосовые команды и автопрослушивание</p></div></div>
+        <label class="set-item"><div class="set-label"><b>Пауза перед отправкой</b><small>Сколько ждать тишины в режиме «Авто», от 0,5 до 10 секунд</small></div><div class="set-ctl"><input class="field" id="set-alice-pause" type="number" min="0.5" max="10" step="0.1" style="width:95px" aria-label="Пауза перед отправкой, секунд"><span>с</span></div></label>
       </section>
 
       <section class="card set-card">
@@ -970,10 +997,7 @@
           <div class="controls pl-controls" data-mu-controls="full"></div>
           <div class="mu-volrow"><svg width="18" height="18" aria-hidden="true"><use href="#i-vol"/></svg>
             <input type="range" class="mu-vol" min="0" max="100" step="5" aria-label="Громкость"><span class="mono mu-vol-v">—</span></div>
-          <form class="row mu-ask-form" style="gap:8px">
-            <input class="field" name="text" placeholder="Попросить Алису: «включи что-нибудь весёлое»" style="flex:1;min-width:160px" aria-label="Команда Алисе">
-            <button class="btn sm" style="min-height:42px">Отправить</button>
-          </form>
+
         </div>
       </section>
       <div class="cols pl-body-cols">
@@ -2198,6 +2222,7 @@ const muCmd = (btn, payload, msg) => act(btn, async () => {
   const r = await api('/api/music/cmd', payload);
   if (r.status && r.status !== 'SUCCESS' && r.status !== 'timeout') throw new Error('Колонка ответила: ' + r.status);
   setTimeout(loadMusic, 300);
+  return r;
 }, msg);
 
 // кнопки управления — одинаковые везде
@@ -2464,12 +2489,18 @@ document.addEventListener('change', e => {
     muCmd(null, { command: 'rewind', position: +e.target.value }).finally(() => setTimeout(() => mu.seeking = false, 800));
   if (e.target.matches('input.mu-vol')) { mu.volSet = Date.now(); act(null, () => api('/api/volume', { level: +e.target.value })); }
 });
+async function sendAlice(form, submitter) {
+  const input = form.elements.text, text = input.value.trim();
+  if (!text || !input.reportValidity()) return false;
+  const result = await muCmd(submitter, { command: 'sendText', text }, 'Алиса: «' + text + '»');
+  if (result?.status === 'timeout') { toast('Колонка не подтвердила команду. Текст сохранён.'); return false; }
+  if (result && input.value.trim() === text) { input.value = ''; input.dispatchEvent(new Event('input')); }
+  return !!result;
+}
 document.addEventListener('submit', e => {
   if (!e.target.matches('.mu-ask-form')) return;
   e.preventDefault();
-  const input = e.target.elements.text, text = input.value.trim();
-  if (!text) return;
-  muCmd(e.submitter, { command: 'sendText', text }, 'Алиса: «' + text + '»').then(() => input.value = '');
+  sendAlice(e.target, e.submitter);
 });
 $('#mu-logout').onclick = e => confirm('Выйти из аккаунта Яндекса? Токен будет удалён с этого компьютера.') &&
   act(e.currentTarget, async () => { await api('/api/auth/logout', {}); mu.qr = null; await loadMusic(); }, 'Вы вышли из аккаунта');
@@ -2965,7 +2996,7 @@ function readLayout() {
 }
 const DEFAULT_LAYOUT = { zones: {
   'wz-top': ['stats'],
-  'wz-left': ['model', 'volume', 'bt', 'sounds'],
+  'wz-left': ['model', 'alice', 'volume', 'bt', 'sounds'],
   'wz-right': ['music', 'clock', 'light', 'device'],
 }, hidden: [] };
 const homeZone = id => ZONES.find(z => DEFAULT_LAYOUT.zones[z].includes(id)) || 'wz-right';
@@ -2976,6 +3007,9 @@ function applyLayout(l) {
   (l.hidden || []).forEach(id => put($('#wz-hidden'), id));
   // виджеты, которых не было в сохранённой раскладке (появились в новой версии панели), — на своё место
   Object.keys(byId).forEach(id => put($('#' + homeZone(id)), id));
+  // Place the newly introduced Alice card beneath the model in existing saved layouts.
+  if (!Object.values(l.zones || {}).flat().includes('alice') && !(l.hidden || []).includes('alice'))
+    $('[data-widget="model"]').after($('[data-widget="alice"]'));
 }
 function saveLayout() {
   store.set(LAYOUT_KEY, JSON.stringify(readLayout()));
@@ -3235,7 +3269,7 @@ function renderInstall() {
       hint.innerHTML = `Откройте панель по адресу <a href="${url}">${esc(url)}</a>. Чтобы браузер ей доверял, один раз установите сертификат (строка ниже): `
         + 'на Android — «Настройки → Безопасность → Шифрование и учётные данные → Установить сертификат → Сертификат ЦС»; '
         + 'на iPhone — открыть файл, затем «Основные → Об этом устройстве → Доверие сертификатам».';
-    } else hint.textContent = 'HTTPS выключен: запустите server.py без --https-port 0.';
+    } else hint.textContent = 'HTTPS недоступен. Подробности — в журнале запуска панели.';
     hint.hidden = false;
     return;
   }
@@ -3776,6 +3810,15 @@ renderConn();
 connCheck();
 // A fast local worker can connect before the vendor scripts below have loaded.
 document.addEventListener('DOMContentLoaded',()=>{if(online&&!$('#tab-console').hidden)termConnect();});
+</script>
+<script type="module">
+import { bindVoiceInput } from './static/voice-input.js';
+const pause = document.querySelector('#set-alice-pause');
+const pauseMs = () => Math.round(Math.max(0.5, Math.min(10, Number(pause.value) || 1.5)) * 10) * 100;
+pause.value = store.get('ui.alice.pause') ?? '1.5';
+pause.addEventListener('input', () => store.set('ui.alice.pause', String(pauseMs() / 1000)));
+pause.addEventListener('change', () => { pause.value = pauseMs() / 1000; });
+bindVoiceInput(document, { httpsPort: () => accessInfo?.ports?.https, send: form => sendAlice(form), pauseMs });
 </script>
 <script src="static/vendor/qrcode.js"></script>
 <script src="static/vendor/xterm/xterm.js"></script>

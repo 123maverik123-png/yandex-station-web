@@ -127,6 +127,7 @@ def alsa_to_level(v):
     return 0 if v <= 0 else max(1, round((v - 49) * 19 / 206) + 1) * 5
 
 
+ALICE_COMMAND_LIMIT = 1024  # Conservative panel limit, matching Dialogs original_utterance.
 MUSIC_COMMANDS = {"play": (), "stop": (), "next": (), "prev": (), "rewind": ("position",),
                   "setVolume": ("volume",), "repeat": ("mode",), "shuffle": ("enable",), "sendText": ("text",)}
 YAMD_CMD = f"exec {YAMD} --data-dir {YAM_DIR}/data >{YAM_DIR}/yamd.log 2>&1"
@@ -1986,6 +1987,11 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         cmd = d.get("command")
         if cmd not in MUSIC_COMMANDS:
             raise AdbError("неизвестная команда")
+        if cmd == "sendText":
+            text = d.get("text")
+            if not isinstance(text, str) or not 1 <= len(text.strip()) <= ALICE_COMMAND_LIMIT:
+                raise AdbError("Команда Алисе должна содержать от 1 до 1024 символов")
+            d = {**d, "text": text.strip()}
         payload = {"command": cmd, **{k: d[k] for k in MUSIC_COMMANDS[cmd] if k in d}}
         res = self.glagol.send(payload)
         if cmd == "play":

@@ -85,7 +85,7 @@ class Gateway(server.Handler):
             if clean == '/ca.crt':
                 certificate = self.data_dir/'.tls/ca.crt'
                 if not certificate.exists(): return self._send(404, {'error':'HTTPS не включён'})
-                return self._send(200,certificate.read_bytes(),'application/x-x509-ca-cert')
+                return self._send(200,certificate.read_bytes(),'application/x-x509-ca-cert',headers=[('Content-Disposition','attachment; filename="stantsiya-panel-ca.crt"')])
             if self.headers.get('Upgrade','').lower()=='websocket':
                 return self.tunnel(model,path)
             self.proxy(model,path)
@@ -214,7 +214,7 @@ def main():
     parser.add_argument('--data-dir',type=Path,default=ROOT/'data/multi')
     parser.add_argument('--host',default='127.0.0.1')
     parser.add_argument('--port',type=int,default=8765)
-    parser.add_argument('--https-port',type=int,default=0)
+    parser.add_argument('--https-port',type=int,default=8766,help='HTTPS port; certificate is generated automatically; 0 disables HTTPS')
     parser.add_argument('--allow-network',action='append',default=[],help='optional client CIDR; repeat for multiple networks')
     args=parser.parse_args()
     # Workers receive their private key in a copied environment; the gateway never uses worker mode.
