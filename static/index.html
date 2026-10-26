@@ -1293,6 +1293,7 @@
         <select id="log-lines" class="field" aria-label="Строк"><option>100</option><option selected>300</option><option>1000</option></select>
         <button class="btn sm" id="log-load" style="min-height:42px"><svg width="16" height="16" aria-hidden="true"><use href="#i-refresh"/></svg>Обновить</button>
         <label class="toggle" style="min-height:42px;gap:8px;font-size:14px"><input type="checkbox" id="log-follow"> авто (3 с)</label>
+        <label class="toggle" style="min-height:42px;gap:8px;font-size:14px" title="Device ID, серийный номер, Wi‑Fi и MAC-адреса, логин, номер аккаунта и токены Яндекса"><input type="checkbox" id="log-mask" checked> скрыть личное</label>
         <label class="search" style="flex:1;min-width:160px"><svg width="16" height="16" aria-hidden="true"><use href="#i-search"/></svg>
           <input type="search" id="log-filter" placeholder="Фильтр" aria-label="Фильтр"></label>
       </div>
@@ -1372,17 +1373,23 @@ async function act(btn, fn, okMsg) {
 }
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-// Скрытые значения (Device ID, IP): точки, по нажатию — значение, по повторному — снова точки.
+// Скрытые значения (Device ID, IP, Wi‑Fi, логин): точки, по нажатию — значение, по повторному — снова точки.
 const revealed = new Set();
-const secret = (key, v) => v
-  ? `<button class="secret${revealed.has(key) ? ' shown' : ''}" data-key="${key}" data-v="${esc(v)}" title="Показать / скрыть">${revealed.has(key) ? esc(v) : '••••••••'}</button>`
+const DOTS = '••••••••';
+const secret = (key, v, dots = DOTS) => v
+  ? `<button class="secret${revealed.has(key) ? ' shown' : ''}" data-key="${key}" data-v="${esc(v)}" data-dots="${dots}" title="Показать / скрыть">${revealed.has(key) ? esc(v) : dots}</button>`
   : '—';
+// Имя хоста и Bluetooth-имя колонки кончаются куском серийного номера (Yandex-Lite-gen2-NJ0C) — его и прячем.
+const hostHtml = h => {
+  const m = /^(.*[-_])([A-Za-z0-9]{4,})$/.exec(h || '');
+  return m ? esc(m[1]) + secret('serial', m[2], '••••') : esc(h || '—');
+};
 document.addEventListener('click', e => {
   const b = e.target.closest('.secret');
   if (!b) return;
   const on = !revealed.has(b.dataset.key);
   on ? revealed.add(b.dataset.key) : revealed.delete(b.dataset.key);
-  $$(`.secret[data-key="${b.dataset.key}"]`).forEach(x => { x.textContent = on ? x.dataset.v : '••••••••'; x.classList.toggle('shown', on); });
+  $$(`.secret[data-key="${b.dataset.key}"]`).forEach(x => { x.textContent = on ? x.dataset.v : x.dataset.dots || DOTS; x.classList.toggle('shown', on); });
 });
 const pctNum = v => Math.round(v / 255 * 100);
 const pct = v => pctNum(v) + '%';
@@ -1396,7 +1403,7 @@ function splitUptime(s) {
 }
 
 // ---------- статус ----------
-let volDragging = false, lastOk = 0, status = null;
+let volDragging = false, lastOk = 0, status = null, ymLogin = '';
 async function refreshStatus() {
   try {
     const s = status = await api('/api/status');
@@ -1418,8 +1425,8 @@ async function refreshStatus() {
     const rssi = +s.RSSI;
     $('#st-rssi').textContent = s.RSSI ? String(rssi).replace('-', '−') : '—';
     $('#st-rssi-bar').style.width = s.RSSI ? clamp((rssi + 90) / 60 * 100, 0, 100) + '%' : '0';
-    $('#st-wifi-n').textContent = [s.ssid, s.freq && (s.freq / 1000).toFixed(1).replace('.', ',') + ' ГГц', s.LINKSPEED && s.LINKSPEED + ' Мбит/с']
-      .filter(Boolean).join(' · ') || '—';
+    $('#st-wifi-n').innerHTML = [s.ssid && { html: secret('ssid', s.ssid) }, s.freq && (s.freq / 1000).toFixed(1).replace('.', ',') + ' ГГц', s.LINKSPEED && s.LINKSPEED + ' Мбит/с']
+      .filter(Boolean).map(x => x.html ?? esc(x)).join(' · ') || '—';
 
     const [uv, uu] = splitUptime(s.uptime);
     $('#st-up').textContent = uv; $('#st-up-u').textContent = uu;
@@ -1439,7 +1446,7 @@ async function refreshStatus() {
     window.modelColor?.(s.color);
     $('#dev-info').innerHTML = [
       ['Quasar', s.quasar === 'running' ? 'работает' : 'остановлен'],
-      ['Версия', s.quasar_version], ['Device ID', { html: secret('id', s.device_id) }], ['Хост', s.hostname],
+      ['Версия', s.quasar_version], ['Device ID', { html: secret('id', s.device_id) }], ['Хост', { html: hostHtml(s.hostname) }],
       ['Ядро', s.kernel], ['MAC', { html: secret('mac', s.address) }], ['Время', s.date],
     ].map(([k, v]) => `<dt>${k}</dt><dd>${v?.html ?? esc(v ?? '—')}</dd>`).join('');
     updateSub();
@@ -1451,7 +1458,7 @@ function updateSub() {
   const ver = (status.quasar_version || '').split('.').slice(0, 4).join('.');
   const alive = status.quasar === 'running';
   $('#ov-sub').innerHTML = `<span class="dot ${alive ? 'on' : 'off'}" title="${alive ? 'Алиса работает' : 'Алиса остановлена'}" style="display:inline-block;margin-right:6px;vertical-align:1px"></span>`
-    + esc(`${status.hostname} · Quasar ${ver} · ${ago} с назад`);
+    + hostHtml(status.hostname) + esc(` · Quasar ${ver} · ${ago} с назад`);
 }
 setInterval(updateSub, 1000);
 
@@ -1974,14 +1981,14 @@ function renderBt() {
   $('#bt-badge').className = 'badge' + (d.powered ? ' ok' : '');
   $('.bt-pair').classList.toggle('on', vis);
   $('#bt-pair-text').textContent = vis ? 'Колонка видна' : 'Колонка скрыта';
-  $('#bt-pair-hint').textContent = vis ? `Выберите «${d.alias || 'колонку'}» в настройках Bluetooth телефона`
+  $('#bt-pair-hint').innerHTML = vis ? `Выберите «${d.alias ? hostHtml(d.alias) : 'колонку'}» в настройках Bluetooth телефона`
     : `Чтобы подключить новое устройство, сделайте её видимой на 3 минуты`;
   $('#bt-pair-btn').textContent = vis ? 'Скрыть' : 'Сделать видимой';
   $('#bt-pair-btn').classList.toggle('primary', !vis);
   btLeft();
   $('#bt-list').innerHTML = d.devices.length ? d.devices.map(x => `<div class="bt-row${x.connected ? ' on' : ''}" data-mac="${esc(x.mac)}">
       <div class="bt-ic">${icon(BT_ICONS[x.icon] || 'i-bt', 18)}</div>
-      <div class="info"><b>${esc(x.name || 'Без имени')}</b>
+      <div class="info"><b>${x.name ? secret('btn-' + x.mac, x.name) : 'Без имени'}</b>
         <span class="meta">${[x.connected ? 'подключено' : 'сопряжено', x.battery != null ? `батарея ${x.battery}%` : ''].filter(Boolean).join(' · ')} · ${secret('bt-' + x.mac, x.mac)}</span></div>
       <div class="actions">${x.connected ? '<button class="btn sm" data-bta="disconnect">Отключить</button>' : '<button class="btn sm" data-bta="connect">Подключить</button>'}
         <button class="btn sm ghost" data-bta="remove" title="Забыть устройство" aria-label="Забыть устройство">${icon('i-trash', 16)}</button></div></div>`).join('')
@@ -2007,11 +2014,26 @@ $('#reboot').onclick = e => confirm('Перезагрузить колонку?'
 
 // ---------- логи ----------
 let logText = '';
+// В логах Quasar — Device ID, номер аккаунта, сеть: для скриншотов прячем всё, что известно о колонке и аккаунте.
+function maskLog(t) {
+  const st = status || {}, serial = /[-_]([A-Za-z0-9]{4,})$/.exec(st.hostname || '')?.[1];
+  // номер аккаунта Яндекса встречается в разном виде (uid: …, id=…, Account …) — находим и прячем везде
+  const uids = new Set([...t.matchAll(/(?:passport_uid|puid|uid)"?\s*[:=]\s*"?(\d{5,})/gi)].map(m => m[1]));
+  for (const v of [st.device_id, st.ssid, st.address, ymLogin, serial, ...uids].filter(v => v && v.length >= 4))
+    t = t.split(v).join('••••');
+  return t.replace(/\b(?:y0_|AQAAAA)[\w-]{10,}/g, '••••')                           // OAuth-токены
+    .replace(/(token["']?\s*[:=]\s*["']?)[\w.-]{20,}/gi, '$1••••')
+    .replace(/(\b[Aa]ccount[ :=]+)\d{5,}/g, '$1••••')
+    .replace(/("wifi_hash"\s*:\s*")[0-9a-f]+/g, '$1••••')
+    // MAC роутера (BSSID) находится в открытых базах точек Wi‑Fi — по нему можно узнать адрес
+    .replace(/\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b/gi, '••:••:••:••:••:••');
+}
 function renderLog() {
   const f = $('#log-filter').value.toLowerCase();
   const out = $('#log-out');
   const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 20;
-  out.textContent = f ? logText.split('\n').filter(l => l.toLowerCase().includes(f)).join('\n') : logText;
+  const text = $('#log-mask').checked ? maskLog(logText) : logText;
+  out.textContent = f ? text.split('\n').filter(l => l.toLowerCase().includes(f)).join('\n') : text;
   if (atBottom) out.scrollTop = out.scrollHeight;
 }
 async function loadLog(btn) {
@@ -2022,6 +2044,7 @@ $('#log-load').onclick = e => loadLog(e.currentTarget);
 $('#log-name').onchange = () => { $('#log-out').scrollTop = 1e9; loadLog(); };
 $('#log-lines').onchange = () => loadLog();
 $('#log-filter').oninput = renderLog;
+$('#log-mask').onchange = renderLog;
 setInterval(() => $('#log-follow').checked && !$('#tab-logs').hidden && loadLog(), 3000);
 
 // ---------- консоль ----------
@@ -2207,7 +2230,8 @@ function renderMusic() {
   $('#mu-login').hidden = logged;
   $('#mu-player').hidden = !logged;
   $('#mu-logout').hidden = !logged;
-  $('#mu-account').textContent = logged && i.auth.login ? i.auth.login : '';
+  ymLogin = logged ? i.auth.login || '' : '';
+  $('#mu-account').innerHTML = ymLogin ? secret('login', ymLogin) : '';
   $('#pl-login').hidden = logged;
   $('#pl-body').hidden = !logged;
   if (!logged) { if (!mu.qr && !$('#tab-overview').hidden) startQr(); return; }
@@ -3617,7 +3641,7 @@ function renderConn() {
     if (i.attempts > 1) more += ` Попытка ${i.attempts}.`;
   }
   $('#cs-text').textContent = text + more;
-  $('#cs-addr').textContent = i.serial || '';
+  $('#cs-addr').innerHTML = i.serial ? secret('ip', i.serial) : '';
   $('#cs-ring').className = 'conn-ring' + (ring ? ' ' + ring : '');
   $('#cs-ring').innerHTML = i.state === 'locked' ? icon('i-lock', 28) : '';
   const locked = i.state === 'locked', form = $('#cs-login');
