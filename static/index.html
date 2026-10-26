@@ -2560,7 +2560,7 @@ $('#mu-oauth-go').onclick = e => act(e.currentTarget, async () => {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = color;
-    const cx = cw / 2, cy = ch / 2, colW = FS * 0.62, rowH = FS * 1.1, maxR = Math.hypot(cx, cy), idleR = Math.min(cw, ch) * 0.8;
+    const cx = cw / 2, cy = ch / 2, colW = FS * 0.62, rowH = FS * 1.1, maxR = Math.hypot(cx, cy), idleR = Math.min(cw, ch) * 0.75;
     for (let y = rowH / 2; y < ch; y += rowH) {
       for (let x = colW / 2; x < cw; x += colW) {
         const dx = x - cx, dy = y - cy;
@@ -2578,9 +2578,8 @@ $('#mu-oauth-go').onclick = e => act(e.currentTarget, async () => {
         v = Math.max(v, Math.max(0, Math.sin(r * 16 - t * 3.4)) ** 3 * 0.5 * energy * (1 - r));   // волны-кольца
         if (idle) {
           const wave = 0.78 + 0.12 * Math.sin(a * 3 + ti * 0.8) + 0.07 * Math.sin(a * 7 - ti);
-          // ореол: ярче всего кольцом вокруг колонки, к центру (за моделью) и к краям — тише
-          const q = Math.hypot(dx, dy) / idleR / wave;
-          v = Math.max(v, Math.max(0, 1 - ((q - 0.72) / 0.42) ** 2) * 0.6 * idle);
+          // сплошное пятно из центра; крупнее модели, чтобы край выходил из-за корпуса
+          v = Math.max(v, Math.max(0, 1 - (Math.hypot(dx, dy) / idleR / wave) ** 2) * 0.45 * idle);
         }
         if (v < 0.08) continue;
         ctx.globalAlpha = Math.min(0.8, v * 0.85);
