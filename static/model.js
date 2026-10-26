@@ -22,6 +22,8 @@ for(;;){
 }
 const visual=rendererProfile(profile,status);
 loading.remove();
+const gallery = document.getElementById("model-gallery");
+if (gallery) gallery.href = PanelContext.url("static/model-preview.html") + "?model=" + encodeURIComponent(visual.id);
 window.__deviceColor=status.color||window.__deviceColor;
 document.title=visual.name+' — панель';
 document.getElementById('model-name').textContent=visual.name;

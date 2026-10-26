@@ -6,7 +6,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY server.py access.py glagol.py profiles.py multi.py speakers.example.json VERSION ./
+COPY server.py access.py glagol.py profiles.py managed_yam.py multi.py speakers.example.json VERSION ./
 COPY static ./static
 COPY device ./device
 COPY 3d ./3d

@@ -1,0 +1,18 @@
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const html = fs.readFileSync(require('path').join(__dirname,'../static/index.html'),'utf8');
+const source = html.slice(html.indexOf('function vcmp('), html.indexOf("$('#yam-filter').oninput = renderYam;"));
+const elements = {};
+const node = id => elements[id] ||= {value:'',innerHTML:'',textContent:''};
+const context = {$:node,$$:()=>[],esc:x=>String(x??''),icon:()=>'',yam:{plugins:[{manifest:{id:'station-airplay',name:'Station airplay',version:'1.4.0',launch:{mode:'service'}},enabled:true,running:true,compatible:true}],registry:[{id:'station-airplay',name:'Station airplay',version:'1.1.5',description:''},{id:'station-airplay',name:'Station airplay',version:'1.4.0',description:''},{id:'station-airplay',name:'Station airplay',version:'1.2.0',description:''},{id:'sqlite',name:'sqlite',version:'3.45.3',description:''}]}};
+vm.createContext(context);vm.runInContext(source+'\nrenderYam();',context);
+const catalog=node('#yam-catalog').innerHTML;
+assert.equal((catalog.match(/Station airplay/g)||[]).length,1);
+assert(catalog.includes('1.4.0') && !catalog.includes('1.1.5') && !catalog.includes('1.2.0'));
+assert.equal((catalog.match(/установлено/g)||[]).length,1);
+assert(catalog.includes('sqlite'));
+context.yam.registry.push({id:'station-airplay',name:'Station airplay',version:'1.5.0',description:''});
+vm.runInContext('renderYam();',context);
+assert(node('#yam-catalog').innerHTML.includes('Обновить с 1.4.0'));
+node('#yam-filter').value='sqlite';vm.runInContext('renderYam();',context);
+assert(!node('#yam-catalog').innerHTML.includes('Station airplay'));
+console.log('PASS: one latest version per ID; one installed badge; update and search preserved');

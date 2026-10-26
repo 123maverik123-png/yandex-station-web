@@ -1834,7 +1834,12 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         body, headers = (b"{}", {"Content-Type": "application/json"}) if action == "run" else (None, {})
         if action == "run":
             self.adb.shell(YAM_FIX_EXEC, check=False)
-        self._yam(method, f"/api/plugins/{pkg_id}{path}", body, headers)
+        try:
+            self._yam(method, f"/api/plugins/{pkg_id}{path}", body, headers)
+        except AdbError as e:
+            if action != "run" or "package launch mode does not support this command" not in str(e):
+                raise
+            self._yam("POST", f"/api/plugins/{pkg_id}/service/start")
         return {"ok": True}
 
     def yam_logs(self, pkg_id):
@@ -2653,11 +2658,12 @@ class PanelUpdater:
     """Проверка новых релизов панели на GitHub и обновление — в зависимости от того, как панель установлена:
     zip (Windows-сборка, Download ZIP) — скачать релиз и заменить файлы панели; git — git pull --ff-only;
     docker — только подсказать команду (образ изнутри не обновить)."""
-    FILES = ("server.py", "access.py", "glagol.py", "profiles.py", "multi.py", "speakers.example.json", "VERSION", "LICENSE", "README.md", "CONTRIBUTION.md", "start.bat", "start.sh",
+    FILES = ("server.py", "access.py", "glagol.py", "profiles.py", "managed_yam.py", "multi.py", "speakers.example.json", "VERSION", "LICENSE", "README.md", "CONTRIBUTION.md", "start.bat", "start.sh",
              "Dockerfile", "docker-compose.yml")
     DIRS = ("static", "device", "3d", "tools", "docs")
 
-    def __init__(self):
+    def __init__(self, restart=None):
+        self.restart = restart or restart_self
         self.cache = (0, None)
         self.lock = threading.Lock()
 
@@ -2717,7 +2723,7 @@ class PanelUpdater:
                     raise AdbError("git pull не удался: " + (r.stderr or r.stdout).strip()[-300:])
             else:
                 self._from_zip(info["latest"])
-            threading.Timer(1.0, restart_self).start()
+            threading.Timer(1.0, self.restart).start()
             return {"ok": True, "version": info["latest"], "install": kind}
         finally:
             self.lock.release()

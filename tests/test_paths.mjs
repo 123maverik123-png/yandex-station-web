@@ -29,3 +29,5 @@ for(const path of ['/','/speaker/room-a/','/speaker/room-b/']){
   for(const leaf of ['api/status','api/clock','model.stl','ca.crt'])handlers.fetch({request:{method:'GET',url:'https://panel.test'+path+leaf},respondWith:()=>assert.fail('must not cache '+leaf)});
 }
 console.log('Page context, scoped storage, WebSocket, manifest and uncached API cases passed');
+
+assert.ok(html.includes("import(PanelContext.url('static/ascii-background.js'))"), 'inline module import must use the instance base path');

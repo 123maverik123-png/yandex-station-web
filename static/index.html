@@ -688,7 +688,7 @@
         <div class="actions"><button class="btn sm" id="ov-reset">Виджеты по умолчанию</button><button class="btn sm primary" id="ov-done">Готово</button></div>
       </div>
       <div class="ov-opts">
-        <label class="set-item"><div class="set-label"><b>Визуализатор за 3D-моделью</b><small>Спектр из символов за моделью, пока колонка играет музыку (нужен вход в Яндекс)</small></div>
+        <label class="set-item"><div class="set-label"><b>Визуализатор за 3D-моделью</b><small>Фон из символов для всех моделей; при воспроизведении реагирует на музыку</small></div>
           <div class="set-ctl"><input type="checkbox" class="switch" id="set-viz"></div></label>
         <div id="model-settings" hidden></div>
         <div class="set-item set-top"><div class="set-label"><b>Виджеты</b><small>Перетаскивайте за ⠿ или двигайте стрелками. Убранные можно вернуть отсюда.
@@ -710,6 +710,7 @@
       <div class="col wzone" id="wz-left">
         <!-- 3D-модель -->
         <div class="model-view" id="model-view" data-widget="model" data-title="3D-модель" role="img" aria-label="3D-модель колонки: дисплей и кольцо повторяют настоящие"><canvas id="model-viz" aria-hidden="true"></canvas></div>
+        <a class="btn sm" id="model-gallery" href="./static/model-preview.html" target="_blank" rel="noopener">Галерея 3D-моделей ↗</a>
 
         <!-- громкость -->
         <section class="card" data-widget="volume" data-title="Громкость">
@@ -1194,6 +1195,12 @@
         <div class="set-ctl"><a class="btn sm" id="yam-notes" target="_blank" rel="noopener" hidden>Что нового ↗</a>
           <button class="btn sm primary" id="yam-update" hidden>Обновить yamd</button></div>
       </div>
+      <div id="yam-update-confirm" hidden class="hint">
+        <p>Обновить yamd? Пакеты временно остановятся и запустятся снова. Пакеты и настройки сохранятся; перед заменой будет создана резервная копия.</p>
+        <button class="btn primary" id="yam-update-confirm-btn">Обновить сейчас</button>
+        <button class="btn" id="yam-update-cancel">Отмена</button>
+      </div>
+      <p id="yam-update-result" role="status" class="hint" hidden></p>
       <label class="toggle"><span>Запускать yamd при загрузке колонки</span>
         <input type="checkbox" id="yam-autostart"></label>
     </section>
@@ -2470,67 +2477,11 @@ $('#mu-oauth-go').onclick = e => act(e.currentTarget, async () => {
 // Звука у панели нет, но пока играет музыка, Quasar сам рисует на часах эквалайзер из 4 полос — его мы
 // получаем потоком (liveLeds) и раскладываем по кругу. Без него — синтетика: лучи пульсируют в темпе.
 // Цвет — акцент темы.
-(() => {
-  const cv = $('#model-viz'), ctx = cv.getContext('2d');
-  const RAMP = ' .·:-=+*%#@', FS = 13;
-  let cw = 0, ch = 0, energy = 0, last = 0, color = '#6C47FF';
-  const sb = [0, 0, 0, 0];   // сглаженные полосы спектра
-  const readColor = () => { color = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || color; };
-  readColor();
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColor);
-  window.addEventListener('themechange', readColor);
-  new ResizeObserver(() => {
-    const r = cv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
-    cw = r.width; ch = r.height;
-    cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }).observe(cv);
-
-  function frame(now) {
-    requestAnimationFrame(frame);
-    if (document.hidden || !cv.offsetParent || !cw || now - last < 33) return;   // ~30 к/с и только на экране
-    last = now;
-    if (window.__vizOff) { if (energy) { ctx.clearRect(0, 0, cw, ch); energy = 0; } return; }
-    const t = now / 1000;
-    const playing = !!mu.info?.glagol?.state?.playing;
-    energy += ((playing ? 1 : 0.12) - energy) * 0.05;          // плавно разгоняется и затихает
-    const beat = Math.exp(-((t * 2) % 1) * 5);                 // запасной пульс 120 уд/мин
-    // Настоящий спектр с колонки, если он свежий: сглаживаем полосы, пульс — от общей громкости.
-    const sp = window.__spectrum, live = !!sp && now - sp.t < 700;
-    if (live) sp.bands.forEach((b, k) => { sb[k] += (b - sb[k]) * 0.35; }); else sb.forEach((_, k) => { sb[k] *= 0.9; });
-    const loud = (sb[0] + sb[1] + sb[2] + sb[3]) / 4;
-    const pulse = live ? 0.45 + 0.75 * loud : 0.55 + 0.45 * beat;
-    ctx.clearRect(0, 0, cw, ch);
-    if (energy < 0.02) return;
-    ctx.font = `${FS}px 'JetBrains Mono', monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = color;
-    const cx = cw / 2, cy = ch / 2, colW = FS * 0.62, rowH = FS * 1.1, maxR = Math.hypot(cx, cy);
-    for (let y = rowH / 2; y < ch; y += rowH) {
-      for (let x = colW / 2; x < cw; x += colW) {
-        const dx = x - cx, dy = y - cy;
-        const r = Math.hypot(dx, dy) / maxR, a = Math.atan2(dy, dx);
-        // дальность луча в этом направлении: по спектру (4 полосы по кругу, зеркально сверху и снизу —
-        // справа низкие частоты, слева высокие) или, без него, несколько «частот» по углу
-        let amp;
-        if (live) {
-          const u = Math.abs(a) / Math.PI * 3, k = Math.min(2, Math.floor(u)), f = u - k;
-          amp = 0.2 + 0.95 * (sb[k] * (1 - f) + sb[k + 1] * f) + 0.06 * Math.sin(a * 9 + t * 2);
-        } else amp = 0.4 + 0.22 * Math.sin(a * 3 + t * 1.3) + 0.18 * Math.sin(a * 7 - t * 2.1) + 0.12 * Math.sin(a * 13 + t * 3.7);
-        // Лучи идут прямо из центра и редеют к концу.
-        const reach = (0.42 + 0.5 * amp * pulse) * energy;
-        let v = r < reach ? 1 - (r / reach) ** 2 : 0;
-        v = Math.max(v, Math.max(0, Math.sin(r * 16 - t * 3.4)) ** 3 * 0.5 * energy * (1 - r));   // волны-кольца
-        if (v < 0.08) continue;
-        ctx.globalAlpha = Math.min(0.8, v * 0.85);
-        ctx.fillText(RAMP[Math.min(RAMP.length - 1, Math.floor(v * RAMP.length))], x, y);
-      }
-    }
-    ctx.globalAlpha = 1;
-  }
-  requestAnimationFrame(frame);
-})();
+import(PanelContext.url('static/ascii-background.js')).then(({startAsciiBackground}) => startAsciiBackground($('#model-viz'), {
+  playing: () => !!mu.info?.glagol?.state?.playing,
+  spectrum: () => window.__spectrum,
+  disabled: () => window.__vizOff,
+}));
 
 // ---------- приложения (yam) ----------
 const yam = { registry: [], plugins: [] };
@@ -2630,7 +2581,7 @@ function renderYam() {
   });
 
   const f = $('#yam-filter').value.toLowerCase();
-  const list = yam.registry.filter(p => !f || (p.id + ' ' + p.name + ' ' + p.description).toLowerCase().includes(f));
+  const list = Object.values(latest).filter(p => !f || (p.id + ' ' + p.name + ' ' + p.description).toLowerCase().includes(f));
   $('#yam-catalog').innerHTML = list.length ? list.map(p => {
     const have = inst[p.id];
     const action = !have ? 'Установить' : vcmp(p.version, have.manifest.version) > 0 ? `Обновить с ${esc(have.manifest.version)}` : '';
@@ -2661,14 +2612,29 @@ $('#yam-install').onclick = e => {
     await loadYam();
   });
 };
-$('#yam-update').onclick = e => {
-  if (!confirm('Обновить yamd до последней версии? Демон перезапустится, запущенные пакеты на это время остановятся. Пакеты и настройки сохранятся.')) return;
-  const btn = e.currentTarget;
+$('#yam-update').onclick = () => { $('#yam-update-confirm').hidden = false; };
+$('#yam-update-cancel').onclick = () => { $('#yam-update-confirm').hidden = true; };
+$('#yam-update-confirm-btn').onclick = e => {
+  const btn = e.currentTarget, result = $('#yam-update-result');
   act(btn, async () => {
-    btn.textContent = 'Скачиваю…';
-    try { const r = await api('/api/yam/install-daemon', {}); toast('yamd обновлён до ' + (r.version || 'последней версии')); }
-    finally { btn.textContent = 'Обновить yamd'; }
-    await loadYam();
+    $('#yam-update').disabled = true;
+    $('#yam-update-cancel').disabled = true;
+    result.hidden = false; result.classList.remove('warn');
+    result.textContent = 'Скачиваю и проверяю yamd. Не закрывайте страницу…';
+    try {
+      const r = await api('/api/yam/install-daemon', {});
+      $('#yam-update-confirm').hidden = true;
+      result.textContent = 'yamd обновлён до ' + (r.version || 'последней версии') + '. Пакеты и настройки сохранены.';
+      toast(result.textContent);
+      await loadYam();
+    } catch (error) {
+      result.textContent = 'Не удалось обновить yamd: ' + error.message;
+      result.classList.add('warn');
+      throw error;
+    } finally {
+      $('#yam-update').disabled = false;
+      $('#yam-update-cancel').disabled = false;
+    }
   });
 };
 $('#yam-start').onclick = e => act(e.currentTarget, async () => { await api('/api/yam/start', {}); await loadYam(); }, 'yamd запущен');
@@ -3511,60 +3477,80 @@ async function loadPanelModel() {
     ? 'Определена автоматически по плате колонки. Задать вручную — параметр --model'
     : `Задана вручную: --model ${p.id}. Определять автоматически — --model auto (так по умолчанию)`;
 }
+let promptedPanelVersion = null;
+const updateDialog = document.createElement('dialog');
+updateDialog.id = 'panel-update-dialog';
+updateDialog.setAttribute('aria-labelledby', 'panel-update-title');
+updateDialog.style.cssText = 'max-width:520px;width:calc(100% - 32px);border:1px solid var(--line);border-radius:20px;padding:24px;background:var(--card);color:var(--text)';
+updateDialog.innerHTML = '<h2 id="panel-update-title">Доступно обновление панели</h2><p id="panel-update-message"></p><p id="panel-update-status" role="status"></p><div class="row"><button class="btn primary" id="panel-update-accept">Обновить автоматически</button><button class="btn" id="panel-update-later">Позже</button></div>';
+document.body.append(updateDialog);
+$('#panel-update-later').onclick = () => updateDialog.close();
+function offerPanelUpdate(force = false) {
+  const v = panelVer;
+  if (!v?.update || v.error || (!force && (promptedPanelVersion === v.latest || store.get('upd.prompted') === v.latest))) return;
+  promptedPanelVersion = v.latest; store.set('upd.prompted', v.latest);
+  $('#panel-update-message').textContent = `Установлена ${v.version}, доступна ${v.latest}. ` +
+    (v.install === 'docker' ? 'Обновите контейнер: docker compose pull && docker compose up -d' : 'Скачать обновление и перезапустить панель? Данные колонок сохранятся.');
+  $('#panel-update-status').textContent = '';
+  $('#panel-update-accept').hidden = v.install === 'docker';
+  if (!updateDialog.open) updateDialog.showModal();
+}
 async function loadPanelVersion(refresh) {
   try { panelVer = await api('/api/panel/version' + (refresh ? '?refresh=1' : '')); }
   catch (e) {
-    // старый сервер (до перезапуска после обновления файлов) этого запроса не знает
-    if (!e.offline) $('#upd-state').textContent = 'сервер не ответил — перезапустите панель (' + e.message + ')';
-    return;
+    if (!e.offline) $('#upd-state').textContent = 'Не удалось проверить обновления: ' + e.message;
+    throw e;
   }
-  renderPanelVersion();
+  renderPanelVersion(); offerPanelUpdate(!!refresh);
 }
 function renderPanelVersion() {
   const v = panelVer; if (!v) return;
   const date = d => d ? new Date(d).toLocaleDateString('ru-RU') : '';
   $('#upd-version').textContent = v.version;
   $('#upd-repo').href = v.repo;
-  $('#upd-state').textContent = v.update ? 'есть обновление'
-    : v.latest ? `последняя версия${v.latest_date ? ' · релиз от ' + date(v.latest_date) : ''}`
-    : `не удалось проверить: ${v.error || 'нет данных'}`;
-  $('#upd-state').classList.toggle('warn', !!v.update);
+  const checked = v.checked ? ' · проверено ' + new Date(v.checked * 1000).toLocaleTimeString('ru-RU') : '';
+  $('#upd-state').textContent = v.error ? 'Не удалось проверить: ' + v.error
+    : v.update ? 'Доступна версия ' + v.latest + checked
+    : v.latest ? 'Установлена последняя версия' + checked : 'Нет данных о релизе';
+  $('#upd-state').classList.toggle('warn', !!v.update || !!v.error);
   $('#upd-row').hidden = !v.update;
   if (v.update) {
     $('#upd-latest').textContent = v.latest + (v.latest_date ? ` от ${date(v.latest_date)}` : '');
-    $('#upd-how').textContent = UPD_HOW[v.install] || '';
+    $('#upd-how').textContent = v.multi ? 'Обновятся шлюз и все процессы колонок; данные сохранятся.' : (UPD_HOW[v.install] || '');
     $('#upd-notes').href = v.url || v.repo;
     $('#upd-go').hidden = v.install === 'docker';
   }
   $('#upd-cmd').hidden = !(v.update && v.install === 'docker');
   $('#upd-cmd').textContent = 'docker compose pull && docker compose up -d';
-  const hidden = store.get('upd.hide') === v.latest;
-  $('#ov-update').hidden = !v.update || hidden;
+  $('#ov-update').hidden = !v.update || store.get('upd.hide') === v.latest;
   $('#ov-update-text').textContent = `Доступна новая версия панели — ${v.latest}`;
 }
 $('#ov-update-hide').onclick = () => { store.set('upd.hide', panelVer?.latest || ''); renderPanelVersion(); };
-$('#upd-check').onclick = e => act(e.currentTarget, async () => { await loadPanelVersion(true); },
-  null);
-$('#upd-go').onclick = e => {
-  if (!confirm(`Обновить панель до ${panelVer.latest}? Сервер перезапустится, страница обновится сама.`)) return;
+$('#upd-check').onclick = e => act(e.currentTarget, async () => {
+  const btn = e.currentTarget; btn.textContent = 'Проверяю…'; $('#upd-state').textContent = 'Проверяю релизы на GitHub…';
+  try { await loadPanelVersion(true); if (!panelVer.error && !panelVer.update) toast('Проверено: установлена последняя версия'); }
+  finally { btn.textContent = 'Проверить'; }
+});
+$('#upd-go').onclick = () => offerPanelUpdate(true);
+$('#panel-update-accept').onclick = e => {
   const btn = e.currentTarget;
   act(btn, async () => {
-    btn.textContent = 'Обновляем…';
-    await api('/api/panel/update', {});
-    toast('Обновлено, перезапускаемся…');
-    // ждём, пока сервер поднимется с новой версией, и перезагружаем страницу
-    const until = Date.now() + 60000;
-    await new Promise(r => setTimeout(r, 2500));
-    while (Date.now() < until) {
-      try { const r = await PanelContext.fetch('/api/panel/version'); if (r.ok || r.status === 401) { location.reload(); return; } } catch {}
-      await new Promise(r => setTimeout(r, 1000));
-    }
-    btn.textContent = 'Обновить';
-    toast('Сервер не поднялся за минуту — запустите панель вручную', true);
+    $('#panel-update-status').textContent = 'Скачиваю обновление…';
+    try {
+      const updated = await api('/api/panel/update', {});
+      $('#panel-update-status').textContent = 'Обновлено. Ожидаю перезапуска панели…';
+      const until = Date.now() + 60000;
+      await new Promise(r => setTimeout(r, 2500));
+      while (Date.now() < until) {
+        try { const r = await PanelContext.fetch('/api/panel/version'); if (r.status === 401 || (r.ok && (await r.json()).version === updated.version)) { location.reload(); return; } } catch {}
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      throw new Error('Сервер не поднялся за минуту — запустите панель вручную');
+    } catch (error) { $('#panel-update-status').textContent = 'Не удалось обновить: ' + error.message; throw error; }
   });
 };
-loadPanelVersion();
-setInterval(() => !document.hidden && loadPanelVersion(), 6 * 3600 * 1000);
+loadPanelVersion().catch(() => {});
+setInterval(() => !document.hidden && loadPanelVersion().catch(() => {}), 6 * 3600 * 1000);
 
 // ---------- подключение ----------
 // Сервер сам переподключается к колонке; страница только показывает состояние и после
