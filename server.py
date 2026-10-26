@@ -2844,6 +2844,18 @@ class PanelUpdater:
         finally:
             self.lock.release()
 
+    def repair_missing(self):
+        """Обновление из архива копирует только файлы из списка старой версии: новых модулей (managed_yam.py
+        после 0.1.3) после него нет. Докачиваем исходники своей же версии, пока профили их не импортировали."""
+        missing = [f for f in self.FILES if f.endswith(".py") and not (ROOT / f).exists()]
+        if not missing or self.kind() != "zip":
+            return
+        print(f"Нет {', '.join(missing)} — докачиваю файлы версии {VERSION} с GitHub…")
+        try:
+            self._from_zip(VERSION)
+        except (OSError, AdbError, zipfile.BadZipFile) as e:
+            print(f"Не удалось: {e}. Часть функций будет недоступна до следующего обновления.")
+
     def _from_zip(self, version):
         """Исходники релиза с GitHub → поверх файлов панели. Данные (.yandex_auth.json и пр.), runtime и
         platform-tools не трогаем — их в архиве нет, а заменяем только файлы самой панели."""
@@ -3090,6 +3102,7 @@ def main():
     # Профиль: явный --model или auto — запомненный (до первого подключения — Лайт 2), сверка после подключения.
     auto = args.model == "auto"
     model = (settings.get("model") if settings.get("model") in profiles.PROFILES else "lite2") if auto else args.model
+    PanelUpdater().repair_missing()
     profiles.install(sys.modules[__name__], model, auto=auto)
 
     adb = Adb(find_adb(), device)

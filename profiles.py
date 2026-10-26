@@ -239,5 +239,9 @@ def install(s, model='lite2', auto=False):
     P.stop_pattern = stop
 
     if model in ("station2", "mini3pro"):
-        import managed_yam
-        managed_yam.install(s)
+        try:
+            import managed_yam
+        except ImportError:     # архив обновлён кодом 0.1.3, а он новые модули не копирует
+            print('Нет managed_yam.py — обновление yamd из панели для этой модели недоступно')
+        else:
+            managed_yam.install(s)
