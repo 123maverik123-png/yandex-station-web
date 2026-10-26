@@ -2,6 +2,6 @@
 .studio-error,.studio-caption{position:absolute;inset:45% 12px auto;text-align:center}
 /* Только страница предпросмотра моделей: в панели строки настроек оформлены её общими стилями (.set-item). */
 .preview-settings .set-item{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--border,#8885)}
-.preview-settings .set-label b{display:block}.preview-settings .set-label small{display:block;color:#a5a5b2;font-size:12px;margin-top:2px}
+.preview-settings .set-label b{display:block}.preview-settings .set-label small{display:block;color:var(--muted,#a5a5b2);font-size:12px;margin-top:2px}
 .preview-settings select,.preview-settings button{background:var(--card,#222);color:var(--text,inherit);padding:8px 12px;border:1px solid var(--border,#8885);border-radius:8px;cursor:pointer}
 .preview-settings input.switch{width:20px;height:20px}

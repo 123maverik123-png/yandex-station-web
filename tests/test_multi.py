@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import multi as gateway,access,server
+from unittest.mock import Mock
 gateway.DEVICES.update({name:dict(name=name,model=name) for name in ("station2","mini3pro")})
 
 class Worker(BaseHTTPRequestHandler):
@@ -52,6 +53,18 @@ class GatewayTests(unittest.TestCase):
         for model in gateway.DEVICES:
             for method in ['GET','POST']:
                 self.assertEqual(self.request('/speaker/'+model+'/api/status',method,cookie=False)[0],401)
+    def test_updates_are_owned_by_gateway_and_keep_auth_and_csrf(self):
+        TestGateway.updater=Mock()
+        TestGateway.updater.check.return_value={'version':'0.1.3','latest':'0.1.4','update':True}
+        TestGateway.updater.update.return_value={'ok':True,'version':'0.1.4'}
+        status,data,_=self.request('/speaker/station2/api/panel/version?refresh=1')
+        self.assertEqual(status,200);self.assertTrue(json.loads(data)['multi'])
+        TestGateway.updater.check.assert_called_once_with(True)
+        self.assertEqual(self.request('/speaker/station2/api/panel/update','POST',cookie=False)[0],401)
+        self.assertEqual(self.request('/speaker/station2/api/panel/update','POST',origin='https://untrusted.example')[0],403)
+        TestGateway.updater.update.assert_not_called()
+        self.assertEqual(self.request('/speaker/mini3pro/api/panel/update','POST')[0],200)
+        TestGateway.updater.update.assert_called_once_with()
     def test_paths_pin_requests_to_device_even_with_concurrent_tabs(self):
         for _ in range(2):
             for model in ['station2','mini3pro']:

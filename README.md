@@ -225,9 +225,12 @@ python3 multi.py --config speakers.json --data-dir data/multi --port 8765
 `/speaker/<id>/`, свой вход в Яндекс и своя история, пароль панели общий. Для доступа из сети задайте пароль
 и добавьте `--host 0.0.0.0` (по желанию `--allow-network 192.168.1.0/24` и `--https-port 8766`). В Docker
 замените команду контейнера на `python multi.py --config /config/speakers.json --data-dir /data --host 0.0.0.0`.
-Обновление из настроек в этом режиме отключено — обновите файлы и перезапустите `multi.py`.
+Обновление из «Настроек» в этом режиме обновляет шлюз и перезапускает панели всех колонок.
 
-3D-модели без колонки: `python3 tools/preview-models.py`. Добавить новую модель: [CONTRIBUTION.md](CONTRIBUTION.md).
+Обновление yamd на Станции 2 и Мини 3 Про работает с уже установленным `/data/local/yam/service.sh`: перед заменой
+демона делается резервная копия, при ошибке — откат.
+
+3D-модели без колонки: «Настройки» → «Оформление» → «Галерея 3D-моделей» или `python3 tools/preview-models.py`. Добавить новую модель: [CONTRIBUTION.md](CONTRIBUTION.md).
 
 ## Параметры
 
@@ -298,6 +301,8 @@ python3 multi.py --config speakers.json --data-dir data/multi --port 8765
   (`static/model-studio.js`), лицензия MIT.
 - Поддержка других моделей, профили колонок и единая панель для нескольких колонок —
   [PR №1](https://github.com/dimap/yandex-station-web/pull/1) от **[chelaxian](https://github.com/chelaxian)**.
+  Галерея моделей, цвета подсветки Станции 2, обновление yamd и панели в режиме нескольких колонок —
+  [PR №4](https://github.com/dimap/yandex-station-web/pull/4) от него же.
 - [three.js](https://threejs.org) (MIT), [xterm.js](https://xtermjs.org) (MIT),
   [QR Code Generator](https://github.com/kazuhikoarase/qrcode-generator) Kazuhiko Arase (MIT) — в `static/vendor`.
 - Тексты песен — [LRCLIB](https://lrclib.net); пакеты — [yam / yapkg](https://github.com/nyakokitsu/yam).

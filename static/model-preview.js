@@ -1,3 +1,4 @@
+import {startAsciiBackground} from './ascii-background.js';
 import * as geometry from './clock-geometry.js';
 const catalog={lite:'Станция Лайт',lite2:'Станция Лайт 2',mini3:'Станция Мини 3',mini3pro:'Станция Мини 3 Про',station2:'Станция 2'};
 const requested=new URLSearchParams(location.search).get('model');
@@ -11,3 +12,5 @@ document.getElementById('model-view').addEventListener('modelready',demo,{once:t
 if(id==='lite2')await import('./model-lite2.js');
 else{const{createModel}=await import('./model-studio.js');createModel({id,name:catalog[id]});}
 demo();
+
+startAsciiBackground(document.getElementById('model-viz'));

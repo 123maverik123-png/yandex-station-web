@@ -176,7 +176,8 @@ def install(s, model='lite2', auto=False):
                 self.adb.shell(f'rm -f {temporary}', check=False)
             if len(blob) != 356:
                 raise s.AdbError('Неожиданный размер световой панели')
-            pixels = [[blob[i + 2], blob[i + 1], blob[i]] for i in range(0, 356, 4)]
+            # gowin_led_device consumes RGBX despite its advertised BGRX offsets.
+            pixels = [[blob[i], blob[i + 1], blob[i + 2]] for i in range(0, 356, 4)]
             representative = [[round(sum(pixel[k] for pixel in pixels[a:b]) / (b-a)) for k in range(3)]
                               for a, b in ((0, 30), (30, 60), (60, 89))]
             return {'v': [0] * 36, 'ring': representative, 'ring_all': pixels}
@@ -212,7 +213,7 @@ def install(s, model='lite2', auto=False):
                            '[ -f /tmp/webpanel_ring.before ] || head -c 356 /dev/fb0 > /tmp/webpanel_ring.before')
             with tempfile.TemporaryDirectory() as directory:
                 frame = Path(directory) / 'frame'
-                frame.write_bytes(bytes((rgb[2], rgb[1], rgb[0], 0)) * 89)
+                frame.write_bytes(bytes((rgb[0], rgb[1], rgb[2], 0)) * 89)
                 self.adb.push(frame, '/tmp/webpanel_ring.frame')
             self.adb.shell('cat /tmp/webpanel_ring.frame > /dev/fb0')
         return {'ok': True}
@@ -236,3 +237,7 @@ def install(s, model='lite2', auto=False):
             original_stop(self, 'clock')
         return {'ok': True}
     P.stop_pattern = stop
+
+    if model in ("station2", "mini3pro"):
+        import managed_yam
+        managed_yam.install(s)

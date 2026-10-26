@@ -78,8 +78,10 @@ class Gateway(server.Handler):
                 manifest=json.loads((server.STATIC/'manifest.webmanifest').read_text(encoding='utf8'))
                 manifest.update(name=DEVICES[model]['name'],short_name=DEVICES[model]['name'])
                 return self._send(200,json.dumps(manifest,ensure_ascii=False).encode('utf8'),server.MIME['.webmanifest'])
+            if clean == '/api/panel/version' and self.command == 'GET':
+                return self._handle(lambda: {**self.updater.check('refresh=1' in urlsplit(path).query.split('&')), 'multi': True})
             if clean == '/api/panel/update' and self.command == 'POST':
-                return self._send(400, {'error':'Обновите исходники и перезапустите multi.py целиком; обновление отдельного worker отключено.'})
+                return self._handle(self.updater.update)
             if clean == '/ca.crt':
                 certificate = self.data_dir/'.tls/ca.crt'
                 if not certificate.exists(): return self._send(404, {'error':'HTTPS не включён'})
@@ -200,6 +202,12 @@ class Workers:
         self.children.clear()
 
 
+def restart_workers(workers):
+    """Stop every private child before replacing the gateway process."""
+    workers.stop()
+    server.restart_self()
+
+
 def main():
     parser=argparse.ArgumentParser(description='One console for several rooted Yandex speakers')
     parser.add_argument('--config',required=True,help='JSON speaker list; see speakers.example.json')
@@ -219,6 +227,7 @@ def main():
     httpd=tls=None
     signal.signal(signal.SIGTERM,lambda *_:sys.exit(0))
     try:
+        Gateway.updater=server.PanelUpdater(restart=lambda: restart_workers(workers))
         Gateway.secret=workers.start()
         httpd=ThreadingHTTPServer((args.host,args.port),Gateway);httpd.daemon_threads=True
         Gateway.ports={'http':httpd.server_port}
