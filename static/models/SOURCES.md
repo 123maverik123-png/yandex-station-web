@@ -9,6 +9,11 @@
   model-studio.js (MIT), based on the manufacturer's public product photographs.
   They are not official CAD, downloaded commercial meshes, or manufacturing drawings.
 
+- Gallery placeholders (Max, Station 3, Midi, Street, Duo Max, Station, Mini 2 with/without clock, Mini gen 1,
+  all TV Station models and Drops): simplified original shapes in model-concepts.js (MIT) after the
+  manufacturer's public photographs. They only help future contributors start; hardware support is not implied.
+  Lite 2 without clock reuses lite2.stl with the display off.
+
 References:
 - https://alice.yandex.ru/station-gen2
 - https://alice.yandex.ru/station-mini-gen3-pro
