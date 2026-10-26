@@ -273,4 +273,3 @@ python3 multi.py --config speakers.json --data-dir data/multi --port 8765
 `/data/local/yam/service.sh`: проверяет релиз, создаёт резервную копию, заменяет
 только daemon и восстанавливает запущенные пакеты. CLI `yam` обновляется отдельно.
 Другой layout не переустанавливается скриптом Лайт2.
-
