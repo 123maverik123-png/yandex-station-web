@@ -7,7 +7,7 @@ const view=document.getElementById('model-view'),lite=profile.id==='lite',mini=l
 view.setAttribute('role','group');view.setAttribute('aria-label','3D-модель: вращайте мышью или пальцем');view.classList.add('studio-view');
 // Preserve upstream visualizer canvas and the references held by its animation loop.
 // Лайт первого поколения: цвета как в её ledconfigs (purple, yellow, green, pink, red, beige).
-const palette=lite?{purple:['Фиолетовый','#6a3fe6'],yellow:['Жёлтый','#f0c43a'],green:['Зелёный','#59b96d'],pink:['Розовый','#e98fae'],red:['Красный','#d9473f'],beige:['Бежевый','#d8c6ab']}:profile.id==='mini3'?{black:['Чёрный','#34343a'],grey:['Серый','#a0a2a8'],violet:['Лиловый','#9b8eaa'],teal:['Бирюзовый','#6aa6a7']}:mini?{black:['Графит','#34343a'],grey:['Серый','#888b91'],blue:['Синий','#355d82']}:{black:['Антрацит','#3b3c40'],blue:['Кобальт','#485c85'],copper:['Медный','#a66d5d'],sand:['Песочный','#c5baaa'],red:['Рубин','#8c3447']};
+const palette=lite?{purple:['Фиолетовый','#6a3fe6'],yellow:['Жёлтый','#f0c43a'],green:['Зелёный','#59b96d'],pink:['Розовый','#ec2c7c'],red:['Красный','#d9473f'],beige:['Бежевый','#d8c6ab']}:profile.id==='mini3'?{black:['Чёрный','#34343a'],grey:['Серый','#a0a2a8'],violet:['Лиловый','#9b8eaa'],teal:['Бирюзовый','#6aa6a7']}:mini?{black:['Графит','#34343a'],grey:['Серый','#888b91'],blue:['Синий','#355d82']}:{black:['Антрацит','#3b3c40'],blue:['Кобальт','#485c85'],copper:['Медный','#a66d5d'],sand:['Песочный','#c5baaa'],red:['Рубин','#8c3447']};
 let renderer;
 try{renderer=new T.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});}catch(e){view.insertAdjacentHTML('beforeend','<p class="studio-error">Для объёмной модели включите WebGL в браузере.</p>');throw e;}
 renderer.domElement.className='studio-canvas';renderer.domElement.setAttribute('aria-label',profile.name+' — вращаемая 3D-модель');
@@ -49,8 +49,8 @@ if(lite){
   // кожаный язычок с «Я» сбоку, на стыке корпуса и основания
   const side=.62,tagGroup=new T.Group();tagGroup.position.set(44.25*Math.sin(side),-12,44.25*Math.cos(side));tagGroup.rotation.y=side;group.add(tagGroup);
   mesh(roundedBox(9,13,1.6,1.6,.5),new T.MeshStandardMaterial({color:'#1d1e22',roughness:.75}),0,0,0,tagGroup);
-  const tagTex=canvasTexture(128,(c,n)=>{c.fillStyle='#c9c9cf';c.font='bold 70px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('Я',n/2,n/2+4);});
-  mesh(new T.PlaneGeometry(6,6),new T.MeshBasicMaterial({map:tagTex,transparent:true,depthWrite:false}),0,1.6,.82,tagGroup);
+  const tagTex=canvasTexture(128,(c,n)=>{c.fillStyle='#4a4b51';c.font='600 64px sans-serif';c.textAlign='center';c.textBaseline='middle';c.translate(n/2,n/2+4);c.scale(.8,1.7);c.fillText('Я',0,0);});
+  mesh(new T.PlaneGeometry(6,8),new T.MeshBasicMaterial({map:tagTex,transparent:true,depthWrite:false}),0,1.6,.82,tagGroup);
   topY=24.1;baseY=-25;port(-19,-41.6);
 }else if(mini){
   const points=[[0,-35],[43,-35],[47,-34],[49.4,-31],[50.4,-26],[51,-18],[51,20],[50.8,28],[49.6,31],[0,31]].map(p=>new T.Vector2(...p));
@@ -72,15 +72,23 @@ if(lite){
   const top=mesh(new T.ShapeGeometry(roundedShape(115,91,18),32),topMaterial,0,98.65);top.rotation.x=-Math.PI/2;topY=99;baseY=-100;port(-85,-49.6);
 }
 const controlsTex=canvasTexture(512,(c,n)=>{c.strokeStyle='#d6d6dc';c.fillStyle='#d6d6dc';c.lineWidth=2;c.lineCap='round';for(const x of[100,412]){c.beginPath();c.moveTo(x-10,256);c.lineTo(x+10,256);if(x>256){c.moveTo(x,246);c.lineTo(x,266);}c.stroke();}c.beginPath();c.ellipse(256,256,25,19,0,0,Math.PI*2);c.stroke();c.beginPath();c.moveTo(242,262);c.quadraticCurveTo(256,225,270,262);c.closePath();c.fill();c.fillStyle='#090a0c';for(const[x,y]of[[162,128],[350,128],[162,384],[350,384]]){c.beginPath();c.arc(x,y,2,0,Math.PI*2);c.fill();}});
-const liteTex=lite&&canvasTexture(1024,(c,n)=>{const r=n/2;c.translate(r,r);c.scale(2,2);c.fillStyle='#1f1440';
-  // перфорация по краю — два ряда дырочек
-  for(const[ring,count]of[[.955,170],[.915,160]])for(let i=0;i<count;i++){const a=i/count*Math.PI*2+(ring<.94?.018:0);c.globalAlpha=.6;c.beginPath();c.arc(Math.cos(a)*r/2*ring,Math.sin(a)*r/2*ring,1.5,0,Math.PI*2);c.fill();}
-  c.globalAlpha=.6;c.strokeStyle='#2a1d55';c.lineWidth=5;c.lineCap='round';
-  c.beginPath();c.moveTo(-150,0);c.lineTo(-126,0);c.moveTo(126,0);c.lineTo(150,0);c.moveTo(138,-12);c.lineTo(138,12);c.stroke();   // − и +
-  c.beginPath();c.moveTo(-9,-150);c.lineTo(-9,-128);c.moveTo(9,-150);c.lineTo(9,-128);c.stroke();                       // микрофон
-  c.beginPath();c.moveTo(-12,124);c.lineTo(12,124);c.moveTo(-12,136);c.lineTo(12,136);c.stroke();                       // действие
-  c.globalAlpha=.95;const g=c.createRadialGradient(0,0,0,0,0,26);g.addColorStop(0,'#ffffff');g.addColorStop(1,'#e4dcff');c.fillStyle=g;c.beginPath();c.arc(0,0,22,0,Math.PI*2);c.fill();});
-const topMarks=mesh(lite?new T.CircleGeometry(40.8,128):new T.PlaneGeometry(mini?98:117,mini?98:93),lite?new T.MeshBasicMaterial({map:liteTex,transparent:true,depthWrite:false}):new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.castShadow=false;
+// Крышка Лайт по фото сверху: по краю кольцо наклонных прорезей, по диагоналям микрофоны,
+// слева «−», справа «+», сверху зачёркнутый микрофон, снизу пауза, в центре треугольник Алисы.
+const liteTex=lite&&canvasTexture(1024,(c,n)=>{const R=n/2;c.translate(R,R);
+  const ink='rgba(20,10,40,.34)';c.strokeStyle=ink;c.fillStyle=ink;c.lineCap='round';c.lineJoin='round';
+  for(let i=0;i<72;i++){const a=i/72*Math.PI*2;c.save();c.rotate(a);c.translate(0,-R*.905);c.rotate(.62);
+    c.beginPath();c.roundRect(-11,-28,22,56,11);c.fill();c.restore();}
+  for(const[x,y]of[[-1,-1],[1,-1],[-1,1],[1,1]]){c.beginPath();c.arc(x*R*.49,y*R*.49,6,0,Math.PI*2);c.fillStyle='rgba(10,5,20,.8)';c.fill();}
+  c.fillStyle=ink;c.lineWidth=7;const k=R*.48;
+  c.beginPath();c.moveTo(-k-38,0);c.lineTo(-k+38,0);c.moveTo(k-38,0);c.lineTo(k+38,0);c.moveTo(k,-38);c.lineTo(k,38);c.stroke();   // − и +
+  c.beginPath();c.moveTo(-14,k-34);c.lineTo(-14,k+34);c.moveTo(14,k-34);c.lineTo(14,k+34);c.stroke();                                // пауза
+  c.save();c.translate(0,-k);c.scale(1.5,1.5);c.lineWidth=4.6;c.beginPath();c.roundRect(-11,-34,22,38,11);c.moveTo(-19,-8);c.quadraticCurveTo(-19,16,0,16);c.quadraticCurveTo(19,16,19,-8);
+  c.moveTo(0,16);c.lineTo(0,28);c.moveTo(-13,28);c.lineTo(13,28);c.moveTo(-22,12);c.lineTo(22,-30);c.stroke();c.restore();            // микрофон выключен
+  // треугольник Алисы со скруглёнными углами, как медиатор
+  const t=60,pts=[[0,-t],[t*.9,t*.62],[-t*.9,t*.62]];c.beginPath();c.moveTo(t*.45,-t*.19);
+  for(let i=0;i<3;i++){const p=pts[(i+1)%3],q=pts[(i+2)%3];c.arcTo(p[0],p[1],q[0],q[1],t*.42);}c.closePath();
+  const g=c.createRadialGradient(0,10,4,0,10,t);g.addColorStop(0,'#ffffff');g.addColorStop(1,'#e9e6f1');c.fillStyle=g;c.fill();});        // Алиса
+const topMarks=mesh(lite?new T.CircleGeometry(40.7,128):new T.PlaneGeometry(mini?98:117,mini?98:93),lite?new T.MeshBasicMaterial({map:liteTex,transparent:true,depthWrite:false}):new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.castShadow=false;
 if(mini&&!lite){
   const white=new T.MeshStandardMaterial({color:'#fff9e8',emissive:'#fff2d6',emissiveIntensity:2,roughness:.8,toneMapped:false});
   function horizontal(){const s=new T.Shape();s.moveTo(-3.5,0);s.lineTo(-2.5,1);s.lineTo(2.5,1);s.lineTo(3.5,0);s.lineTo(2.5,-1);s.lineTo(-2.5,-1);s.closePath();return new T.ShapeGeometry(s);}
@@ -100,8 +108,9 @@ paint(window.__deviceColor||fallback);
 function home(){if(lite)camera.position.set(60,115,215);else camera.position.set(mini?55:240,mini?83:155,mini?258:420);controls.target.set(0,mini?-4:0,0);controls.update();dirty=true;}home();
 modelSettings(profile.id,palette,{color:key=>{preference=key;paint(key||window.__deviceColor||fallback);},home,spin:value=>{controls.autoRotate=value;dirty=true;}});
 controls.addEventListener('change',()=>{dirty=true;});controls.addEventListener('start',()=>{view.classList.add('studio-used');});
-let visible=true,last=0;new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;dirty=true;}).observe(view);
+let visible=true;new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;dirty=true;}).observe(view);
 new ResizeObserver(()=>{const{width,height}=view.getBoundingClientRect();if(width&&height){renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();dirty=true;}}).observe(view);
-function frame(now){requestAnimationFrame(frame);if(document.hidden||!visible||now-last<33)return;last=now;controls.update();if(dirty||controls.autoRotate){renderer.render(scene,camera);dirty=false;view.dataset.renderer='webgl';view.dataset.model=profile.id;}}requestAnimationFrame(frame);
+// без ограничения частоты, как у Лайт 2: с ограничением в 30 к/с вращение дёргалось; в покое кадры не рисуются
+function frame(){requestAnimationFrame(frame);if(document.hidden||!visible)return;controls.update();if(dirty||controls.autoRotate){renderer.render(scene,camera);dirty=false;view.dataset.renderer='webgl';view.dataset.model=profile.id;}}requestAnimationFrame(frame);
 
 }
