@@ -3,10 +3,11 @@ import * as T from 'three';
 import { OrbitControls } from './vendor/three/OrbitControls.js';
 import {modelSettings} from './model-settings.js';
 export function createModel(profile){
-const view=document.getElementById('model-view'),mini=profile.id==='mini3pro'||profile.id==='mini3';
+const view=document.getElementById('model-view'),lite=profile.id==='lite',mini=lite||profile.id==='mini3pro'||profile.id==='mini3';
 view.setAttribute('role','group');view.setAttribute('aria-label','3D-модель: вращайте мышью или пальцем');view.classList.add('studio-view');
 // Preserve upstream visualizer canvas and the references held by its animation loop.
-const palette=profile.id==='mini3'?{black:['Чёрный','#34343a'],grey:['Серый','#a0a2a8'],violet:['Лиловый','#9b8eaa'],teal:['Бирюзовый','#6aa6a7']}:mini?{black:['Графит','#34343a'],grey:['Серый','#888b91'],blue:['Синий','#355d82']}:{black:['Антрацит','#3b3c40'],blue:['Кобальт','#485c85'],copper:['Медный','#a66d5d'],sand:['Песочный','#c5baaa'],red:['Рубин','#8c3447']};
+// Лайт первого поколения: цвета как в её ledconfigs (purple, yellow, green, pink, red, beige).
+const palette=lite?{purple:['Фиолетовый','#6a3fe6'],yellow:['Жёлтый','#f0c43a'],green:['Зелёный','#59b96d'],pink:['Розовый','#e98fae'],red:['Красный','#d9473f'],beige:['Бежевый','#d8c6ab']}:profile.id==='mini3'?{black:['Чёрный','#34343a'],grey:['Серый','#a0a2a8'],violet:['Лиловый','#9b8eaa'],teal:['Бирюзовый','#6aa6a7']}:mini?{black:['Графит','#34343a'],grey:['Серый','#888b91'],blue:['Синий','#355d82']}:{black:['Антрацит','#3b3c40'],blue:['Кобальт','#485c85'],copper:['Медный','#a66d5d'],sand:['Песочный','#c5baaa'],red:['Рубин','#8c3447']};
 let renderer;
 try{renderer=new T.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});}catch(e){view.insertAdjacentHTML('beforeend','<p class="studio-error">Для объёмной модели включите WebGL в браузере.</p>');throw e;}
 renderer.domElement.className='studio-canvas';renderer.domElement.setAttribute('aria-label',profile.name+' — вращаемая 3D-модель');
@@ -20,7 +21,8 @@ const keyLight=new T.DirectionalLight(0xfff5e9,3.2);keyLight.position.set(-140,2
 const fill=new T.DirectionalLight(0xd7e4ff,1.5);fill.position.set(160,80,-100);scene.add(fill);
 function canvasTexture(size,draw){const canvas=document.createElement('canvas');canvas.width=canvas.height=size;draw(canvas.getContext('2d'),size);const texture=new T.CanvasTexture(canvas);texture.colorSpace=T.SRGBColorSpace;return texture;}
 // Match the lightweight material budget of the original Lite 2 renderer.
-const fabric=new T.MeshStandardMaterial({color:palette.black[1],roughness:.92,metalness:.02});
+const fallback=Object.keys(palette)[0];
+const fabric=new T.MeshStandardMaterial({color:palette[fallback][1],roughness:.92,metalness:.02});
 const plastic=new T.MeshStandardMaterial({color:'#27282d',roughness:.55,metalness:.04});
 const rubber=new T.MeshStandardMaterial({color:'#101114',roughness:.85});
 const glass=new T.MeshStandardMaterial({color:'#303139',roughness:.35,metalness:.1});
@@ -30,8 +32,27 @@ function roundedBox(w,h,d,r,b=1){const geo=new T.ExtrudeGeometry(roundedShape(w-
 const ledMaterials=[];
 function ledMaterial(){const m=new T.MeshStandardMaterial({color:'#181820',emissive:'#000000',emissiveIntensity:0,roughness:.28,metalness:.05});ledMaterials.push(m);return m;}
 function port(y,z){mesh(roundedBox(10,4,1.5,1.9,.3),rubber,0,y,z);mesh(roundedBox(6,1.5,1.8,.7,.2),new T.MeshStandardMaterial({color:'#727078',metalness:.7,roughness:.5}),0,y,z-.15);}
-let topY,baseY,clockSegments=[];
-if(mini){
+let topY,baseY,clockSegments=[],topShell=null;
+if(lite){
+  // Шайба 88 × 48 мм: мягкий цветной корпус на чёрном рифлёном основании, сверху перфорация, кнопки и кольцо света.
+  const points=[[0,-14],[43.2,-14],[43.8,-12],[44,-6],[44,19],[43.6,21.6],[42.4,23.4],[40.6,24],[0,24]].map(p=>new T.Vector2(...p));
+  mesh(new T.LatheGeometry(points,160),fabric);
+  const ribs=canvasTexture(512,(c,n)=>{c.fillStyle='#3a3b41';c.fillRect(0,0,n,n);c.strokeStyle='#060607';c.lineWidth=9;for(let x=-n;x<2*n;x+=22){c.beginPath();c.moveTo(x,n*.1);c.lineTo(x+n*.22,n*.9);c.stroke();}});
+  ribs.wrapS=T.RepeatWrapping;ribs.repeat.set(5,1);
+  mesh(new T.CylinderGeometry(42.6,40,10,128,1,true),new T.MeshStandardMaterial({color:'#ffffff',map:ribs,roughness:.8,side:T.DoubleSide}),0,-19);
+  mesh(new T.CylinderGeometry(40,38.5,1.4,96),rubber,0,-24.3);
+  topShell=new T.MeshStandardMaterial({color:'#7b55f0',roughness:.6,metalness:.02});
+  const lid=mesh(new T.CircleGeometry(40.7,128),topShell,0,24.02);lid.rotation.x=-Math.PI/2;
+  // кольцо света по краю крышки: выключенное не видно, включённое светится сквозь перфорацию
+  for(let i=0;i<12;i++){const m=new T.MeshBasicMaterial({color:'#000000',transparent:true,opacity:0,depthWrite:false,toneMapped:false});ledMaterials.push(m);
+    const ring=mesh(new T.RingGeometry(35.5,40.4,8,1,i*Math.PI/6,Math.PI/6+.004),m,0,24.12);ring.rotation.x=-Math.PI/2;}
+  // кожаный язычок с «Я» сбоку, на стыке корпуса и основания
+  const side=.62,tagGroup=new T.Group();tagGroup.position.set(44.25*Math.sin(side),-12,44.25*Math.cos(side));tagGroup.rotation.y=side;group.add(tagGroup);
+  mesh(roundedBox(9,13,1.6,1.6,.5),new T.MeshStandardMaterial({color:'#1d1e22',roughness:.75}),0,0,0,tagGroup);
+  const tagTex=canvasTexture(128,(c,n)=>{c.fillStyle='#c9c9cf';c.font='bold 70px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText('Я',n/2,n/2+4);});
+  mesh(new T.PlaneGeometry(6,6),new T.MeshBasicMaterial({map:tagTex,transparent:true,depthWrite:false}),0,1.6,.82,tagGroup);
+  topY=24.1;baseY=-25;port(-19,-41.6);
+}else if(mini){
   const points=[[0,-35],[43,-35],[47,-34],[49.4,-31],[50.4,-26],[51,-18],[51,20],[50.8,28],[49.6,31],[0,31]].map(p=>new T.Vector2(...p));
   const shell=new T.LatheGeometry(points,192),shellUV=shell.attributes.uv,shellPosition=shell.attributes.position;
   for(let i=0;i<shellUV.count;i++)shellUV.setY(i,(shellPosition.getY(i)+35)/66);
@@ -51,8 +72,16 @@ if(mini){
   const top=mesh(new T.ShapeGeometry(roundedShape(115,91,18),32),topMaterial,0,98.65);top.rotation.x=-Math.PI/2;topY=99;baseY=-100;port(-85,-49.6);
 }
 const controlsTex=canvasTexture(512,(c,n)=>{c.strokeStyle='#d6d6dc';c.fillStyle='#d6d6dc';c.lineWidth=2;c.lineCap='round';for(const x of[100,412]){c.beginPath();c.moveTo(x-10,256);c.lineTo(x+10,256);if(x>256){c.moveTo(x,246);c.lineTo(x,266);}c.stroke();}c.beginPath();c.ellipse(256,256,25,19,0,0,Math.PI*2);c.stroke();c.beginPath();c.moveTo(242,262);c.quadraticCurveTo(256,225,270,262);c.closePath();c.fill();c.fillStyle='#090a0c';for(const[x,y]of[[162,128],[350,128],[162,384],[350,384]]){c.beginPath();c.arc(x,y,2,0,Math.PI*2);c.fill();}});
-const topMarks=mesh(new T.PlaneGeometry(mini?98:117,mini?98:93),new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.castShadow=false;
-if(mini){
+const liteTex=lite&&canvasTexture(1024,(c,n)=>{const r=n/2;c.translate(r,r);c.scale(2,2);c.fillStyle='#1f1440';
+  // перфорация по краю — два ряда дырочек
+  for(const[ring,count]of[[.955,170],[.915,160]])for(let i=0;i<count;i++){const a=i/count*Math.PI*2+(ring<.94?.018:0);c.globalAlpha=.6;c.beginPath();c.arc(Math.cos(a)*r/2*ring,Math.sin(a)*r/2*ring,1.5,0,Math.PI*2);c.fill();}
+  c.globalAlpha=.6;c.strokeStyle='#2a1d55';c.lineWidth=5;c.lineCap='round';
+  c.beginPath();c.moveTo(-150,0);c.lineTo(-126,0);c.moveTo(126,0);c.lineTo(150,0);c.moveTo(138,-12);c.lineTo(138,12);c.stroke();   // − и +
+  c.beginPath();c.moveTo(-9,-150);c.lineTo(-9,-128);c.moveTo(9,-150);c.lineTo(9,-128);c.stroke();                       // микрофон
+  c.beginPath();c.moveTo(-12,124);c.lineTo(12,124);c.moveTo(-12,136);c.lineTo(12,136);c.stroke();                       // действие
+  c.globalAlpha=.95;const g=c.createRadialGradient(0,0,0,0,0,26);g.addColorStop(0,'#ffffff');g.addColorStop(1,'#e4dcff');c.fillStyle=g;c.beginPath();c.arc(0,0,22,0,Math.PI*2);c.fill();});
+const topMarks=mesh(lite?new T.CircleGeometry(40.8,128):new T.PlaneGeometry(mini?98:117,mini?98:93),lite?new T.MeshBasicMaterial({map:liteTex,transparent:true,depthWrite:false}):new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.castShadow=false;
+if(mini&&!lite){
   const white=new T.MeshStandardMaterial({color:'#fff9e8',emissive:'#fff2d6',emissiveIntensity:2,roughness:.8,toneMapped:false});
   function horizontal(){const s=new T.Shape();s.moveTo(-3.5,0);s.lineTo(-2.5,1);s.lineTo(2.5,1);s.lineTo(3.5,0);s.lineTo(2.5,-1);s.lineTo(-2.5,-1);s.closePath();return new T.ShapeGeometry(s);}
   const positions=[[0,10,0],[4.2,5,1],[4.2,-5,1],[0,-10,0],[-4.2,-5,1],[-4.2,5,1],[0,0,0]];
@@ -61,13 +90,15 @@ if(mini){
 }
 let dirty=true;
 window.modelShow=values=>{clockSegments.forEach((s,i)=>{s.visible=Number(values?.[i])>0;});dirty=true;};
-window.modelRing=leds=>{if(!leds?.length)return;ledMaterials.forEach((m,i)=>{const rgb=leds[Math.floor(i*leds.length/ledMaterials.length)]||[0,0,0],color=new T.Color().setRGB(...rgb.map(v=>Math.max(0,Math.min(255,v))/255),T.SRGBColorSpace);m.color.copy(color);m.emissive.copy(color);m.emissiveIntensity=.55;});dirty=true;};
-function paint(key){key=palette[key]?key:'black';fabric.color.set(palette[key][1]);plastic.color.copy(fabric.color).multiplyScalar(.65);dirty=true;}
+window.modelRing=leds=>{if(!leds?.length)return;ledMaterials.forEach((m,i)=>{const rgb=leds[Math.floor(i*leds.length/ledMaterials.length)]||[0,0,0],color=new T.Color().setRGB(...rgb.map(v=>Math.max(0,Math.min(255,v))/255),T.SRGBColorSpace);m.color.copy(color);
+  if(m.isMeshBasicMaterial){m.opacity=Math.min(.9,Math.max(...rgb)/255*1.2);return;}   // свечение Лайт: прозрачное, пока выключено
+  m.emissive.copy(color);m.emissiveIntensity=.55;});dirty=true;};
+function paint(key){key=palette[key]?key:fallback;fabric.color.set(palette[key][1]);plastic.color.copy(fabric.color).multiplyScalar(.65);topShell?.color.copy(fabric.color).offsetHSL(0,0,.04);dirty=true;}
 let preference=null;
 window.modelColor=key=>{if(!preference)paint(key);};
-paint(window.__deviceColor||'black');
-function home(){camera.position.set(mini?55:240,mini?83:155,mini?258:420);controls.target.set(0,mini?-4:0,0);controls.update();dirty=true;}home();
-modelSettings(profile.id,palette,{color:key=>{preference=key;paint(key||window.__deviceColor||'black');},home,spin:value=>{controls.autoRotate=value;dirty=true;}});
+paint(window.__deviceColor||fallback);
+function home(){if(lite)camera.position.set(60,115,215);else camera.position.set(mini?55:240,mini?83:155,mini?258:420);controls.target.set(0,mini?-4:0,0);controls.update();dirty=true;}home();
+modelSettings(profile.id,palette,{color:key=>{preference=key;paint(key||window.__deviceColor||fallback);},home,spin:value=>{controls.autoRotate=value;dirty=true;}});
 controls.addEventListener('change',()=>{dirty=true;});controls.addEventListener('start',()=>{view.classList.add('studio-used');});
 let visible=true,last=0;new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;dirty=true;}).observe(view);
 new ResizeObserver(()=>{const{width,height}=view.getBoundingClientRect();if(width&&height){renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();dirty=true;}}).observe(view);
