@@ -105,6 +105,7 @@ IP колонки, запомнит его и откроет браузер.
 git clone https://github.com/dimap/yandex-station-web.git
 cd yandex-station-web
 ./start.sh 192.168.1.50     # IP колонки; дальше можно просто ./start.sh
+./start.sh --find           # или найти колонку в сети (IP поменялся, переехали)
 ```
 
 Панель откроется на `http://127.0.0.1:8765/`. Остановить — Ctrl+C.
@@ -189,6 +190,7 @@ python3 multi.py --config speakers.json --data-dir data/multi --port 8765
 | Аргумент | Переменная | По умолчанию | |
 |---|---|---|---|
 | `--device` | `ADB_SERIAL` | запомненный | IP колонки (порт 5555 подставится сам), `host:port` или серийник USB |
+| `--find` | | | найти колонку в локальной сети и запомнить её адрес; можно указать подсеть: `--find 192.168.1.0/24`. На Windows: `start.bat --find` |
 | `--host` | `PANEL_HOST` | `127.0.0.1` | `0.0.0.0` — доступ из локальной сети (в Docker так и есть) |
 | `--port` | `PANEL_PORT` | `8765` | порт HTTP |
 | `--https-port` | `PANEL_HTTPS_PORT` | `8766` | порт HTTPS, `0` — выключить |

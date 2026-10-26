@@ -2814,6 +2814,94 @@ def detect_model(adb):
     return None, None
 
 
+def local_networks():
+    """Подсети /24 этого компьютера, где может быть колонка: частные адреса, кроме VPN-туннелей (/32)."""
+    nets = []
+    try:
+        out = subprocess.run(["ip", "-4", "-o", "addr"], capture_output=True, text=True, timeout=5).stdout
+        addrs = [m.group(1, 2) for m in re.finditer(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", out)]
+    except (OSError, subprocess.SubprocessError):
+        addrs = []
+    if not addrs:   # Windows, macOS: адрес, через который идёт трафик наружу (пакет не отправляется)
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as u:
+                u.connect(("10.255.255.255", 1))
+                addrs = [(u.getsockname()[0], "24")]
+        except OSError:
+            pass
+    for ip, prefix in addrs:
+        a = ipaddress.ip_address(ip)
+        if a.is_private and not a.is_loopback and not a.is_link_local and int(prefix) < 31:
+            net = ipaddress.ip_network(f"{ip}/24", strict=False)
+            if net not in nets:
+                nets.append(net)
+    return nets
+
+
+def find_devices(adb_path, nets):
+    """Ищет колонки в подсетях: открытый порт adb 5555, затем проверка платы по device-tree.
+    → [(«ip:5555», профиль, имя хоста)]."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def port_open(ip):
+        try:
+            socket.create_connection((ip, 5555), timeout=0.6).close()
+            return ip
+        except OSError:
+            return None
+
+    hosts = [str(h) for net in nets for h in net.hosts()]
+    with ThreadPoolExecutor(64) as pool:
+        candidates = [ip for ip in pool.map(port_open, hosts) if ip]
+
+    def check(ip):
+        serial = f"{ip}:5555"
+        try:
+            subprocess.run([adb_path, "connect", serial], capture_output=True, timeout=10)
+            out = subprocess.run([adb_path, "-s", serial, "shell",
+                                  "cat /proc/device-tree/compatible 2>/dev/null | tr '\\000' ' '; echo; hostname"],
+                                 capture_output=True, timeout=10).stdout.decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            out = ""
+        text = strip_ansi(out).strip().lower()
+        for platform, model in PLATFORM_MODELS.items():
+            if "yandex" in text and re.search(rf"(^|[^a-z0-9]){platform}([^a-z0-9]|$)", text):
+                return serial, model, strip_ansi(out).strip().splitlines()[-1].strip()
+        # не колонка (телевизор, приставка) — не оставляем ей висящее подключение
+        subprocess.run([adb_path, "disconnect", serial], capture_output=True, timeout=10)
+        return None
+
+    with ThreadPoolExecutor(8) as pool:
+        return [r for r in pool.map(check, candidates) if r]
+
+
+def pick_device(adb_path, where):
+    """--find: найти колонку в сети и выбрать (если их несколько — спросить)."""
+    import profiles
+    try:
+        nets = [ipaddress.ip_network(where, strict=False)] if where != "auto" else local_networks()
+    except ValueError:
+        raise SystemExit(f"--find: «{where}» — не подсеть. Пример: --find 192.168.1.0/24")
+    if not nets:
+        raise SystemExit("--find: не нашлось локальной сети. Укажите подсеть явно: --find 192.168.1.0/24")
+    print(f"Ищем колонку в {', '.join(map(str, nets))}…")
+    found = find_devices(adb_path, nets)
+    if not found:
+        print("Колонка не найдена: проверьте, что она включена и в той же сети, а adb по сети на ней работает.")
+        return None
+    for i, (serial, model, name) in enumerate(found, 1):
+        print(f"  {i}. {serial.rpartition(':')[0]}  {profiles.PROFILES[model]['name']}  ({name})")
+    if len(found) == 1 or not (sys.stdin and sys.stdin.isatty()):
+        return found[0][0]
+    while True:
+        try:
+            choice = input(f"Какую подключить (1–{len(found)}): ").strip()
+        except EOFError:
+            return found[0][0]
+        if choice.isdigit() and 1 <= int(choice) <= len(found):
+            return found[int(choice) - 1][0]
+
+
 def watch_model(adb, conn, active):
     """--model auto: как только колонка на связи, узнаём её модель и запоминаем. Если запущены не с тем
     профилем (первый запуск, другая колонка), перезапускаемся с правильным — один раз, дальше он запомнен."""
@@ -2891,6 +2979,8 @@ def main():
     ap = argparse.ArgumentParser(description="Веб-панель для Яндекс Станций")
     ap.add_argument("--device", default=env("ADB_SERIAL"),
                     help="IP колонки (порт 5555 по умолчанию), host:port или серийник USB; запоминается [ADB_SERIAL]")
+    ap.add_argument("--find", nargs="?", const="auto", metavar="ПОДСЕТЬ",
+                    help="найти колонку в локальной сети (или в заданной подсети, например 192.168.1.0/24) и запомнить")
     ap.add_argument("--host", default=env("PANEL_HOST", "127.0.0.1"),
                     help="адрес веб-сервера; 0.0.0.0 — доступ из локальной сети [PANEL_HOST]")
     ap.add_argument("--port", type=int, default=int(env("PANEL_PORT", "8765")), help="порт HTTP [PANEL_PORT]")
@@ -2913,6 +3003,8 @@ def main():
     # Адрес колонки: из аргумента/окружения, иначе — запомненный, иначе спросим (если есть кому ответить).
     settings = load_settings()
     device = normalize_device(args.device) or settings.get("device")
+    if args.find:
+        device = pick_device(find_adb(), args.find) or device
     if not device and sys.stdin and sys.stdin.isatty():
         try:
             device = normalize_device(input("IP-адрес колонки (Enter — колонка по USB): "))

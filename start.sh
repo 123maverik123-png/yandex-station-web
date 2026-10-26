@@ -1,5 +1,5 @@
 #!/bin/sh
-# Запуск панели на Linux / macOS: ./start.sh [IP колонки]
+# Запуск панели на Linux / macOS: ./start.sh [IP колонки]  или  ./start.sh --find  (найти колонку в сети)
 cd "$(dirname "$0")" || exit 1
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Нужен Python 3.9 или новее: https://www.python.org/downloads/"
