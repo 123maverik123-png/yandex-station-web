@@ -19,6 +19,9 @@ const group=new T.Group();scene.add(group);
 scene.add(new T.HemisphereLight(0xf1f4ff,0x45404b,2));
 const keyLight=new T.DirectionalLight(0xfff5e9,3.2);keyLight.position.set(-140,220,180);scene.add(keyLight);
 const fill=new T.DirectionalLight(0xd7e4ff,1.5);fill.position.set(160,80,-100);scene.add(fill);
+// прорези по краю крышки Лайт: 72 наклонных овала (R — радиус крышки в пикселях холста)
+function liteSlots(c,R){const k=R/512;c.save();c.translate(R,R);for(let i=0;i<72;i++){c.save();c.rotate(i/72*Math.PI*2);c.translate(0,-R*.905);c.rotate(.62);
+  c.beginPath();c.roundRect(-11*k,-28*k,22*k,56*k,11*k);c.fill();c.restore();}c.restore();}
 function canvasTexture(size,draw){const canvas=document.createElement('canvas');canvas.width=canvas.height=size;draw(canvas.getContext('2d'),size);const texture=new T.CanvasTexture(canvas);texture.colorSpace=T.SRGBColorSpace;return texture;}
 // Match the lightweight material budget of the original Lite 2 renderer.
 const fallback=Object.keys(palette)[0];
@@ -36,21 +39,29 @@ let topY,baseY,clockSegments=[];
 if(lite){
   // По фото: прямой цилиндр 88 мм с острым верхним краем (корпус ~44 мм) на чёрном основании ~12 мм,
   // которое сужается книзу и изрезано наклонными канавками.
-  mesh(new T.LatheGeometry([[0,-16],[43.7,-16],[44,-15.7],[44,27.6],[43.6,28],[0,28]].map(p=>new T.Vector2(...p)),160),fabric);
+  mesh(new T.LatheGeometry([[0,-16],[43.7,-16],[44,-15.7],[44,27.6],[43.6,28]].map(p=>new T.Vector2(...p)),160),fabric);
+  const cap=mesh(new T.CircleGeometry(43.6,160),fabric,0,28);cap.rotation.x=-Math.PI/2;   // плоская крышка: без сглаженных нормалей края
   const ribs=canvasTexture(512,(c,n)=>{c.fillStyle='#3b3c42';c.fillRect(0,0,n,n);c.strokeStyle='#060607';c.lineWidth=11;
     for(let x=-n;x<2*n;x+=24){c.beginPath();c.moveTo(x,n*.06);c.lineTo(x+n*.2,n*.94);c.stroke();}});
   ribs.wrapS=T.RepeatWrapping;ribs.repeat.set(3,1);
   mesh(new T.LatheGeometry([[0,-28],[38.6,-28],[40.2,-27.3],[42,-25],[43.3,-20.5],[43.7,-16]].map(p=>new T.Vector2(...p)),160),
     new T.MeshStandardMaterial({color:'#ffffff',map:ribs,roughness:.8}));
-  // кольцо света: под прорезями по краю крышки, выключенное не видно
-  for(let i=0;i<12;i++){const m=new T.MeshBasicMaterial({color:'#000000',transparent:true,opacity:0,depthWrite:false,toneMapped:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});ledMaterials.push(m);
-    const ring=mesh(new T.RingGeometry(37.4,41.6,8,1,i*Math.PI/6,Math.PI/6+.004),m,0,28);ring.rotation.x=-Math.PI/2;}
+  // кольцо света светится сквозь прорези: маска — те же прорези, что на рисунке крышки; выключенное не видно
+  const slotMask=canvasTexture(512,(c,n)=>{c.fillStyle='#000';c.fillRect(0,0,n,n);c.fillStyle='#fff';liteSlots(c,n/2);});
+  for(let i=0;i<12;i++){const m=new T.MeshBasicMaterial({color:'#000000',alphaMap:slotMask,transparent:true,opacity:0,depthWrite:false,toneMapped:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});ledMaterials.push(m);
+    // внешний радиус = радиусу рисунка крышки: тогда UV кольца и круга совпадают
+    const ring=mesh(new T.RingGeometry(36,43.5,8,1,i*Math.PI/6,Math.PI/6+.004),m,0,28);ring.rotation.x=-Math.PI/2;ring.renderOrder=2;}
   // плоская чёрная пластина с вдавленной «Я» на стыке корпуса и основания
   const side=.62,tagGroup=new T.Group();tagGroup.position.set(44.45*Math.sin(side),-9.5,44.45*Math.cos(side));tagGroup.rotation.y=side;group.add(tagGroup);
-  const tagTex=canvasTexture(256,(c,n)=>{c.fillStyle='#1d1e22';c.fillRect(0,0,n,n);c.font='300 120px Georgia, serif';c.textAlign='center';c.textBaseline='middle';
+  const tagTex=canvasTexture(256,(c,n)=>{c.fillStyle='#1d1e22';c.fillRect(0,0,n,n);c.font='300 120px "Helvetica Neue", Arial, sans-serif';c.textAlign='center';c.textBaseline='middle';
     c.translate(n/2,n/2+6);c.scale(1.05,1.75);c.lineJoin='round';c.strokeStyle='#5a5b62';c.lineWidth=1.6;c.strokeText('Я',1,.7);c.fillStyle='#08080a';c.fillText('Я',0,0);});
   mesh(new T.BoxGeometry(10.5,15,.9),[0,0,0,0,1,0].map(i=>new T.MeshStandardMaterial(i?{color:'#ffffff',map:tagTex,roughness:.75}:{color:'#1d1e22',roughness:.75})),0,0,0,tagGroup);
-  topY=28;baseY=-28;port(-11,-44.1);
+  // USB-C сзади — рисунком на корпусе: скруглённое окно, внутри тёмный проём и светлый язычок
+  const usb=canvasTexture(256,(c,n)=>{c.translate(n/2,n/2);c.fillStyle='#9a9aa2';c.beginPath();c.roundRect(-118,-44,236,88,44);c.fill();
+    c.fillStyle='#141418';c.beginPath();c.roundRect(-106,-33,212,66,33);c.fill();c.fillStyle='#5d5d66';c.beginPath();c.roundRect(-64,-9,128,18,5);c.fill();});
+  const usbDecal=mesh(new T.PlaneGeometry(9.6,9.6),new T.MeshStandardMaterial({map:usb,transparent:true,roughness:.5,metalness:.3,polygonOffset:true,polygonOffsetFactor:-1}),0,-9,-44.03);
+  usbDecal.rotation.y=Math.PI;
+  topY=28;baseY=-28;
 }else if(mini){
   const points=[[0,-35],[43,-35],[47,-34],[49.4,-31],[50.4,-26],[51,-18],[51,20],[50.8,28],[49.6,31],[0,31]].map(p=>new T.Vector2(...p));
   const shell=new T.LatheGeometry(points,192),shellUV=shell.attributes.uv,shellPosition=shell.attributes.position;
@@ -75,8 +86,7 @@ const controlsTex=canvasTexture(512,(c,n)=>{c.strokeStyle='#d6d6dc';c.fillStyle=
 // слева «−», справа «+», сверху зачёркнутый микрофон, снизу пауза, в центре треугольник Алисы.
 const liteTex=lite&&canvasTexture(1024,(c,n)=>{const R=n/2;c.translate(R,R);
   const ink='rgba(20,10,40,.34)';c.strokeStyle=ink;c.fillStyle=ink;c.lineCap='round';c.lineJoin='round';
-  for(let i=0;i<72;i++){const a=i/72*Math.PI*2;c.save();c.rotate(a);c.translate(0,-R*.905);c.rotate(.62);
-    c.beginPath();c.roundRect(-11,-28,22,56,11);c.fill();c.restore();}
+  c.translate(-R,-R);liteSlots(c,R);c.translate(R,R);
   for(const[x,y]of[[-1,-1],[1,-1],[-1,1],[1,1]]){c.beginPath();c.arc(x*R*.49,y*R*.49,6,0,Math.PI*2);c.fillStyle='rgba(10,5,20,.8)';c.fill();}
   c.fillStyle=ink;c.lineWidth=7;const k=R*.48;
   c.beginPath();c.moveTo(-k-38,0);c.lineTo(-k+38,0);c.moveTo(k-38,0);c.lineTo(k+38,0);c.moveTo(k,-38);c.lineTo(k,38);c.stroke();   // − и +
@@ -87,7 +97,8 @@ const liteTex=lite&&canvasTexture(1024,(c,n)=>{const R=n/2;c.translate(R,R);
   const t=60,pts=[[0,-t],[t*.9,t*.62],[-t*.9,t*.62]];c.beginPath();c.moveTo(t*.45,-t*.19);
   for(let i=0;i<3;i++){const p=pts[(i+1)%3],q=pts[(i+2)%3];c.arcTo(p[0],p[1],q[0],q[1],t*.42);}c.closePath();
   const g=c.createRadialGradient(0,10,4,0,10,t);g.addColorStop(0,'#ffffff');g.addColorStop(1,'#e9e6f1');c.fillStyle=g;c.fill();});        // Алиса
-const topMarks=mesh(lite?new T.CircleGeometry(43.5,128):new T.PlaneGeometry(mini?98:117,mini?98:93),lite?new T.MeshBasicMaterial({map:liteTex,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}):new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.castShadow=false;
+const topMarks=mesh(lite?new T.CircleGeometry(43.5,128):new T.PlaneGeometry(mini?98:117,mini?98:93),lite?new T.MeshBasicMaterial({map:liteTex,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}):new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.renderOrder=1;   // прозрачные слои крышки — всегда в одном порядке, иначе мерцают при вращении
+topMarks.castShadow=false;
 if(mini&&!lite){
   const white=new T.MeshStandardMaterial({color:'#fff9e8',emissive:'#fff2d6',emissiveIntensity:2,roughness:.8,toneMapped:false});
   function horizontal(){const s=new T.Shape();s.moveTo(-3.5,0);s.lineTo(-2.5,1);s.lineTo(2.5,1);s.lineTo(3.5,0);s.lineTo(2.5,-1);s.lineTo(-2.5,-1);s.closePath();return new T.ShapeGeometry(s);}
