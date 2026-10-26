@@ -11,7 +11,7 @@ async function loadProfile(){
 }
 const profile=await loadProfile();
 const view=document.getElementById('model-view');
-const loading=document.createElement('p');loading.className='studio-caption';loading.textContent='Ожидаю данные колонки для выбора 3D-модели…';view.append(loading);
+const loading=document.createElement('p');loading.className='studio-caption';loading.textContent='Ожидаю данные колонки…';view.append(loading);
 let status;
 for(;;){
   try{
@@ -28,7 +28,9 @@ document.getElementById('model-name').textContent=visual.name;
 view.dataset.hardwareProfile=profile.id;
 if(visual.id!==profile.id){
   const note=document.createElement('p');note.className='hint';note.id='model-profile-note';
-  note.textContent='3D: '+visual.name+'. Профиль управления: '+profile.name+'. Для аппаратных функций выберите --model '+visual.id+' при запуске сервера.';
+  note.textContent=visual.id==='lite'
+    ? 'Станция Лайт первого поколения. Для управления пока используется профиль «'+profile.name+'»; совместимость аппаратных функций не подтверждена.'
+    : '3D: '+visual.name+'. Профиль управления: '+profile.name+'. Для аппаратных функций выберите --model '+visual.id+' при запуске сервера.';
   view.after(note);
 }
 const hide=element=>element?.setAttribute('data-profile-hidden','');
@@ -41,6 +43,11 @@ if(profile.id!=='lite2'){
   hide(document.getElementById('pat-play'));
   document.querySelectorAll('[data-k="clock"]').forEach(e=>{if(!profile.clock)hide(e);});
   document.querySelector('[data-widget="light"] .hint').textContent=profile.light_note;
+}
+// У Лайт первого поколения нет дисплея: только светящийся логотип Алисы — прячем всё про часы.
+if(visual.id==='lite'){
+  hide(document.querySelector('[data-widget="clock"]'));hide(document.getElementById('pat-play'));
+  document.querySelectorAll('[data-k="clock"]').forEach(hide);
 }
 if(visual.id==='lite2')await import('./model-lite2.js');
 else{const {createModel}=await import('./model-studio.js');createModel(visual);}

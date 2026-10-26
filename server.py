@@ -890,6 +890,11 @@ def find_adb():
     exe = "adb.exe" if os.name == "nt" else "adb"
     cands = [os.environ.get("ADB"), shutil.which("adb"), str(ROOT / "platform-tools" / exe),
              str(Path.home() / "Android/Sdk/platform-tools" / exe)]
+    for name in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
+        if os.environ.get(name):
+            cands.append(str(Path(os.environ[name]) / "platform-tools" / exe))
+    if sys.platform == "darwin":
+        cands.append(str(Path.home() / "Library/Android/sdk/platform-tools/adb"))
     if os.name == "nt":
         cands.append(str(Path(os.environ.get("LOCALAPPDATA", "")) / "Android/Sdk/platform-tools/adb.exe"))
     for cand in cands:
@@ -917,6 +922,25 @@ class Panel:
         self._version = None
         self.ffmpeg = shutil.which("ffmpeg")
 
+    def _configure_glagol(self, device_id):
+        # Glagol использует тип устройства из прошивки, а не профиль LED/часов панели.
+        # Например, Лайт первого поколения — yandexmicro, даже при резервном профиле lite2.
+        try:
+            config, _, _ = self.adb.shell(f"cat {QUASAR}/quasar.cfg 2>/dev/null", check=False)
+            config = json.loads(config)
+            common = config.get("common") if isinstance(config, dict) else None
+            platform = common.get("deviceType") if isinstance(common, dict) else None
+            if isinstance(platform, str) and re.fullmatch(r"[a-zA-Z0-9_-]+", platform):
+                self.glagol.platform = platform
+        except (AdbError, OSError, subprocess.TimeoutExpired, ValueError):
+            pass  # На старых прошивках без этого поля остаётся платформа выбранного профиля.
+        # Публикуем device_id после platform: фоновый поток уже может ожидать подключения.
+        self.glagol.device_id = device_id or None
+        if not self.glagol.host:     # колонка по USB — для Glagol нужен её адрес в Wi-Fi
+            ip, _, _ = self.adb.shell("wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^ip_address=//p'", check=False)
+            self.glagol.host = strip_ansi(ip).strip() or None
+        self.glagol.wake.set()
+
     # ---------- статус ----------
     def version(self):
         if self._version is None:
@@ -924,11 +948,7 @@ class Panel:
             m = re.search(r"Quasar Software Version:\s*(\S+)", out)
             d, _, _ = self.adb.shell(f"{QRUN}/maind --device-id 2>/dev/null | tail -1", timeout=20)
             self._version = {"quasar_version": m.group(1) if m else "?", "device_id": d.replace("Device ID:", "").strip()}
-            self.glagol.device_id = self._version["device_id"] or None
-            if not self.glagol.host:     # колонка по USB — для Glagol нужен её адрес в Wi-Fi
-                ip, _, _ = self.adb.shell("wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^ip_address=//p'", check=False)
-                self.glagol.host = strip_ansi(ip).strip() or None
-            self.glagol.wake.set()
+            self._configure_glagol(self._version["device_id"])
         return self._version
 
     def status(self):
@@ -2725,7 +2745,7 @@ class PanelUpdater:
     """Проверка новых релизов панели на GitHub и обновление — в зависимости от того, как панель установлена:
     zip (Windows-сборка, Download ZIP) — скачать релиз и заменить файлы панели; git — git pull --ff-only;
     docker — только подсказать команду (образ изнутри не обновить)."""
-    FILES = ("server.py", "access.py", "glagol.py", "profiles.py", "multi.py", "speakers.example.json", "VERSION", "LICENSE", "README.md", "CONTRIBUTION.md", "start.bat", "start.sh",
+    FILES = ("server.py", "access.py", "glagol.py", "profiles.py", "multi.py", "speakers.example.json", "VERSION", "LICENSE", "README.md", "CONTRIBUTION.md", "start.bat", "start.sh", "start.command",
              "Dockerfile", "docker-compose.yml")
     DIRS = ("static", "device", "3d", "tools", "docs")
 
@@ -2817,7 +2837,7 @@ class PanelUpdater:
                 tmp = dst.with_name(dst.name + ".upd")
                 tmp.write_bytes(z.read(n))
                 os.replace(tmp, dst)
-                if rel == "start.sh":
+                if rel in ("start.sh", "start.command"):
                     os.chmod(dst, 0o755)
 
 

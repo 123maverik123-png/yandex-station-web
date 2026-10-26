@@ -97,11 +97,49 @@ IP колонки, запомнит его и откроет браузер.
 портативный Python с python.org (~11 МБ). Нужна Windows 10 (1803) или новее. Уже установленные Python 3.14+, adb (в `PATH` или папка `platform-tools`
 рядом с `server.py`) и ffmpeg `start.bat` найдёт и использует.
 
-### Linux / macOS — запускать, когда нужно
+### macOS — запускать, когда нужно
+
+1. Установите [Homebrew](https://brew.sh), если его ещё нет, затем зависимости в Терминале:
+
+   ```sh
+   brew install python ffmpeg zstd
+   brew install --cask android-platform-tools
+   ```
+
+   Python и adb нужны для запуска; ffmpeg — для mp3/ogg и своих звуков, zstd — для анимаций
+   при Python ниже 3.14. [Android platform-tools](https://formulae.brew.sh/cask/android-platform-tools)
+   можно не ставить повторно, если adb уже установлен через Android Studio.
+
+2. Скачайте **Code → Download ZIP** и распакуйте архив или склонируйте репозиторий:
+
+   ```sh
+   git clone https://github.com/dimap/yandex-station-web.git
+   cd yandex-station-web
+   ```
+
+3. Дважды щёлкните **`start.command`** в Finder. Откроется Терминал: введите IP колонки
+   (Enter — подключение по USB), затем панель сама откроется в браузере. Адрес запоминается.
+   Если macOS блокирует открытие скачанного скрипта, запустите его из Терминала в папке проекта:
+
+   ```sh
+   sh start.command
+   ```
+
+Можно сразу передать адрес и параметры:
+
+```sh
+./start.sh 192.168.1.50     # дальше достаточно ./start.sh или start.command
+```
+
+Скрипт находит Homebrew в `/opt/homebrew` на Apple Silicon и `/usr/local` на Intel.
+adb также ищется в `~/Library/Android/sdk/platform-tools`, `ANDROID_HOME` и `ANDROID_SDK_ROOT`.
+HTTPS использует доступный `openssl`; свой путь можно задать через `PANEL_OPENSSL`.
+Панель: `http://127.0.0.1:8765/`. Остановить — Ctrl+C в окне Терминала.
+
+### Linux — запускать, когда нужно
 
 ```sh
 # Debian/Ubuntu: sudo apt install python3 adb ffmpeg zstd      Fedora: sudo dnf install python3 android-tools ffmpeg zstd
-# macOS:        brew install python android-platform-tools ffmpeg zstd
 git clone https://github.com/dimap/yandex-station-web.git
 cd yandex-station-web
 ./start.sh 192.168.1.50     # IP колонки; дальше можно просто ./start.sh
@@ -169,6 +207,11 @@ services:
 
 На других моделях скрипты загрузки Лайт 2 и будильник не подключаются. 3D-корпуса Станции 2, Мини 3 и
 Мини 3 Про — реконструкции по фото производителя ([источники](static/models/SOURCES.md)).
+
+Для Станции Лайт первого поколения (`Yandex Station Micro`) показываются её название и 3D-модель.
+Платформа подключения Glagol берётся из `common.deviceType` в конфигурации колонки: для этой модели это
+`yandexmicro`, даже если панель использует резервный профиль `lite2`. Отдельного аппаратного профиля Лайт
+первого поколения пока нет; совместимость функций подсветки, загрузки и будильника не подтверждена.
 
 **Несколько колонок в одной панели.** Скопируйте `speakers.example.json` в `speakers.json`, укажите свои
 колонки (модель — явно) и запустите:
@@ -250,6 +293,8 @@ python3 multi.py --config speakers.json --data-dir data/multi --port 8765
   производителя от **[chelaxian](https://github.com/chelaxian)** (`static/model-studio.js`), лицензия MIT, как у кода
   панели. Это не официальные чертежи и не скачанные модели; фотографии в проект не входят —
   [источники](static/models/SOURCES.md).
+- 3D-модель Станции Лайт первого поколения — такая же приблизительная реконструкция по фотографиям
+  (`static/model-studio.js`), лицензия MIT.
 - Поддержка других моделей, профили колонок и единая панель для нескольких колонок —
   [PR №1](https://github.com/dimap/yandex-station-web/pull/1) от **[chelaxian](https://github.com/chelaxian)**.
 - [three.js](https://threejs.org) (MIT), [xterm.js](https://xtermjs.org) (MIT),
