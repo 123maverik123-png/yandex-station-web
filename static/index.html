@@ -369,6 +369,22 @@
   .set-note { margin: -6px 0 14px; font-size: 13px; color: var(--text-2); line-height: 1.5; padding: 10px 12px; border-radius: 10px; background: var(--field); }
   .set-note a { color: var(--accent-ink); }
   .set-danger b { color: var(--danger); }
+  /* «Ассистент» */
+  .as-form { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px 14px; align-items: center; }
+  .as-form > label { font-weight: 600; font-size: 14px; }
+  .as-form .hint { grid-column: 2; margin: -4px 0 0; }
+  .as-form textarea.field, #as-question { width: 100%; min-height: 96px; padding: 10px 12px; font: inherit; resize: vertical; }
+  .as-keys { display: flex; flex-wrap: wrap; gap: 6px; }
+  .as-keys:empty { display: none; }
+  .as-keys span { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--field); font-size: 12.5px; }
+  .as-keys button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 6px; border-radius: 999px; }
+  .as-keys button:hover { color: var(--danger); }
+  .as-hist { display: grid; gap: 10px; margin-top: 12px; }
+  .as-hist div { padding: 10px 12px; border-radius: 10px; background: var(--field); font-size: 14px; line-height: 1.45; }
+  .as-hist b { display: block; }
+  .as-hist small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+  .as-hist .err { color: var(--danger); }
+  @media (max-width: 640px) { .as-form { grid-template-columns: 1fr; } .as-form .hint { grid-column: 1; } }
   .set-cmd { margin: -4px 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--field); font-family: var(--mono); font-size: 13px; white-space: pre-wrap; user-select: all; }
   /* «Обзор»: ненавязчивая пометка о новой версии */
   .upd-pill { display: inline-flex; align-items: center; gap: 2px; margin-top: 8px; border-radius: 999px; background: var(--accent-soft); font-size: 13px; }
@@ -602,6 +618,7 @@
     <symbol id="i-ul" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 16V5M7 10l5-5 5 5M5 20h14"/></symbol>
     <symbol id="i-edit" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3"/></g></symbol>
     <symbol id="i-box" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/></g></symbol>
     <symbol id="i-pause" viewBox="0 0 24 24"><g fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></g></symbol>
     <symbol id="i-prev" viewBox="0 0 24 24"><g fill="currentColor"><path d="M18 5.5v13L9 12z"/><rect x="5" y="5" width="2.5" height="14" rx="1"/></g></symbol>
@@ -632,6 +649,7 @@
       <a href="#player" data-tab="player"><svg width="20" height="20" aria-hidden="true"><use href="#i-music"/></svg>Плеер</a>
       <div class="nav-group" role="presentation">Колонка</div>
       <a href="#alarm" data-tab="alarm"><svg width="20" height="20" aria-hidden="true"><use href="#i-alarm"/></svg>Будильник</a>
+      <a href="#assistant" data-tab="assistant"><svg width="20" height="20" aria-hidden="true"><use href="#i-mic"/></svg>Ассистент</a>
       <a href="#boot" data-tab="boot"><svg width="20" height="20" aria-hidden="true"><use href="#i-power"/></svg>Запуск</a>
       <a href="#apps" data-tab="apps"><svg width="20" height="20" aria-hidden="true"><use href="#i-box"/></svg>Приложения</a>
       <a href="#files" data-tab="files"><svg width="20" height="20" aria-hidden="true"><use href="#i-folder"/></svg>Файлы</a>
@@ -1241,6 +1259,109 @@
           </div>
         </div>
         <div class="apps-grid" id="yam-catalog"><div class="empty">Загрузка…</div></div>
+      </section>
+    </div>
+  </main>
+
+  <main id="tab-assistant" data-page hidden>
+    <header class="page-head">
+      <div><h1>Ассистент</h1><div class="sub">Свой голосовой помощник: «Алиса, спроси GPT …» уходит выбранной модели</div></div>
+      <div class="actions"><span class="badge" id="as-badge">—</span></div>
+    </header>
+
+    <section class="card" id="as-unsupported" hidden>
+      <h2>Пока только для Станции Лайт 2</h2>
+      <p class="hint">Помощник читает журнал Алисы и отменяет её ответ через отладочный CLI — это проверено только на Лайт 2.
+        Как проверить свою модель — в CONTRIBUTION.md.</p>
+    </section>
+
+    <section class="card" id="as-missing" hidden>
+      <h2>Помощник не установлен</h2>
+      <p class="hint">Небольшая программа ляжет на колонку в /data/quasar/webpanel/assistant и будет работать без компьютера.
+        Как это устроено: Алиса распознаёт фразу, помощник сразу отменяет её собственный ответ, отправляет вопрос модели
+        (любой OpenAI-совместимый API) и озвучивает ответ голосом Алисы или выбранным синтезатором.</p>
+      <p class="hint" id="as-nogo" hidden>Чтобы собрать программу, на этом компьютере нужен Go: <a href="https://go.dev/dl/" target="_blank" rel="noopener">go.dev/dl</a>.</p>
+      <div class="row"><button class="btn primary" id="as-install">Установить на колонку</button></div>
+    </section>
+
+    <div id="as-on" hidden>
+      <div class="cols" style="margin-bottom:14px">
+        <section class="card">
+          <div class="card-head"><h2>Помощник</h2>
+            <div class="actions"><button class="btn sm primary" id="as-update" hidden>Обновить программу</button>
+              <button class="btn sm" id="as-restart">Перезапустить</button></div></div>
+          <label class="toggle"><span>Отвечать на фразу <span class="meta" style="font-weight:500">— иначе Алиса работает как обычно</span></span>
+            <input type="checkbox" id="as-enabled"></label>
+          <div class="as-form" style="margin-top:12px">
+            <label for="as-triggers">Фразы</label>
+            <input class="field" id="as-triggers" placeholder="спроси gpt, спроси нейросеть">
+            <p class="hint">Через запятую. Говорите: «Алиса, спроси GPT, …». «Алиса, спроси GPT, новый разговор» — забыть контекст.</p>
+          </div>
+          <p class="hint" id="as-error" hidden></p>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Проверка</h2></div>
+          <textarea class="field" id="as-question" placeholder="Вопрос текстом — ответ прозвучит на колонке" aria-label="Вопрос"></textarea>
+          <div class="row" style="margin-top:8px">
+            <button class="btn primary" id="as-ask">Спросить</button>
+            <button class="btn" id="as-stop">Остановить</button>
+          </div>
+          <div class="as-hist" id="as-hist"></div>
+        </section>
+      </div>
+
+      <section class="card" style="margin-bottom:14px">
+        <div class="card-head"><h2>Модель</h2>
+          <select class="field" id="as-preset" aria-label="Готовые настройки">
+            <option value="">Готовые адреса…</option>
+            <option value="https://api.openai.com/v1">OpenAI</option>
+            <option value="https://openrouter.ai/api/v1">OpenRouter</option>
+            <option value="https://api.groq.com/openai/v1">Groq</option>
+            <option value="https://generativelanguage.googleapis.com/v1beta/openai">Google Gemini</option>
+            <option value="https://api.commandcode.ai/provider/v1">Command Code</option>
+            <option value="http://IP-компьютера:11434/v1">Ollama на компьютере</option>
+            <option value="http://IP-компьютера:1234/v1">LM Studio на компьютере</option>
+          </select></div>
+        <div class="as-form">
+          <label for="as-url">Адрес API</label><input class="field" id="as-url" placeholder="https://…/v1">
+          <p class="hint">OpenAI-совместимый: помощник обращается к …/chat/completions.</p>
+          <label for="as-key">Ключ</label><input class="field" id="as-key" type="password" autocomplete="off" placeholder="не задан">
+          <p class="hint">Хранится только на колонке, свой для каждого адреса API: при смене провайдера ключ прежнего остаётся.
+            Пустое поле — оставить сохранённый.</p>
+          <span></span><div class="as-keys" id="as-keys"></div>
+          <label for="as-model">Модель</label>
+          <span class="row" style="flex-wrap:nowrap;gap:8px"><input class="field" id="as-model" list="as-models" placeholder="например, gpt-4o-mini" style="flex:1;min-width:0">
+            <button class="btn sm" id="as-models-btn" type="button">Список</button></span>
+          <datalist id="as-models"></datalist>
+          <p class="hint" id="as-models-hint">Список моделей появится после ввода адреса и ключа.</p>
+          <label for="as-prompt">Системный промт</label><textarea class="field" id="as-prompt"></textarea>
+          <label for="as-tokens">Длина ответа</label><input class="field" id="as-tokens" type="number" min="50" max="4000" step="50" style="max-width:140px">
+          <label for="as-history">Помнить реплик</label><input class="field" id="as-history" type="number" min="0" max="20" style="max-width:140px">
+          <p class="hint">Пар «вопрос — ответ». Через 10 минут тишины разговор начинается заново.</p>
+          <label for="as-proxy">Прокси</label><input class="field" id="as-proxy" placeholder="socks5://адрес:порт или http://адрес:порт">
+          <p class="hint">Для запросов к модели и озвучке; остальной трафик колонки не меняется.</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>Озвучка</h2></div>
+        <div class="as-form">
+          <label for="as-tts">Чем читать</label>
+          <select class="field" id="as-tts">
+            <option value="alice">Голосом Алисы</option>
+            <option value="openai">OpenAI-совместимый синтезатор</option>
+          </select>
+          <p class="hint" id="as-tts-hint"></p>
+          <label for="as-tts-url" data-tts>Адрес API</label><input class="field" id="as-tts-url" data-tts placeholder="https://…/v1">
+          <label for="as-tts-key" data-tts>Ключ</label><input class="field" id="as-tts-key" data-tts type="password" autocomplete="off" placeholder="не задан">
+          <label for="as-tts-model" data-tts>Модель</label><input class="field" id="as-tts-model" data-tts placeholder="tts-1">
+          <label for="as-tts-voice" data-tts>Голос</label><input class="field" id="as-tts-voice" data-tts placeholder="например, alloy или ru_RU-irina-medium">
+          <label for="as-tts-speed" data-tts>Скорость</label><input class="field" id="as-tts-speed" data-tts type="number" min="0.5" max="2" step="0.1" style="max-width:140px">
+        </div>
+        <div class="row" style="margin-top:14px;justify-content:space-between">
+          <button class="btn primary" id="as-save">Сохранить настройки</button>
+          <button class="btn" id="as-remove">Удалить с колонки</button>
+        </div>
       </section>
     </div>
   </main>
@@ -2149,7 +2270,7 @@ const store = {
   get: k => { try { return localStorage.getItem(PanelContext.storageKey(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(PanelContext.storageKey(k), v); } catch {} },
 };
-const TABS = ['overview', 'player', 'alarm', 'charts', 'boot', 'apps', 'files', 'logs', 'console', 'settings'];
+const TABS = ['overview', 'player', 'alarm', 'assistant', 'charts', 'boot', 'apps', 'files', 'logs', 'console', 'settings'];
 let bootLoaded = false;
 let logsLoaded = false;
 let shownTab = null;
@@ -2175,6 +2296,7 @@ function showTab() {
   if (tab === 'boot' && !bootLoaded) { bootLoaded = true; loadBoot(); }
   if (tab === 'apps') loadYam();
   if (tab === 'alarm') loadAlarms();
+  asPoll(tab === 'assistant');
   if (tab === 'charts') loadCharts();
   if (tab === 'settings') { loadAccess(); loadFootprint(); loadPanelVersion().catch(() => {}); loadPanelModel(); }
   if (tab === 'overview') loadBt();
@@ -3152,6 +3274,137 @@ async function loadFootprint() {
   $('#fp-reset').disabled = !f.any;
   loadPrivacy();
 }
+// ---------- «Ассистент»: свой голосовой помощник на колонке ----------
+const AS_STATE = { idle: ['Слушает', 'ok'], thinking: ['Думает…', ''], speaking: ['Отвечает', 'ok'] };
+const AS_TTS_HINT = {
+  alice: 'Ответ читает сама Алиса («Окей, повторяю: …»). Бесплатно и без ключа, но интонация ровная, без знаков препинания.',
+  openai: 'Любой сервер с OpenAI-совместимым /audio/speech: OpenAI, Piper на компьютере через openedai-speech, голоса Edge через openai-edge-tts.',
+};
+let asTimer = null, asCfg = null;
+function asPoll(on) {
+  clearTimeout(asTimer);
+  if (on) loadAssistant(true);
+}
+async function loadAssistant(fill) {
+  clearTimeout(asTimer);
+  let st;
+  try { st = await api('/api/assistant'); } catch (e) { return e.offline || toast(e.message, true); }
+  $('#as-unsupported').hidden = st.supported !== false;
+  $('#as-missing').hidden = st.supported === false || st.installed;
+  $('#as-nogo').hidden = st.can_build !== false;
+  $('#as-on').hidden = !st.installed;
+  $('#as-update').hidden = !st.outdated;
+  const s = st.state || {}, c = st.config || {};
+  const [label, cls] = !st.installed ? ['Не установлен', ''] : !st.running ? ['Остановлен', 'bad']
+    : !c.enabled ? ['Выключен', ''] : AS_STATE[s.state] || ['—', ''];
+  $('#as-badge').textContent = label;
+  $('#as-badge').className = 'badge' + (cls ? ' ' + cls : '');
+  const err = s.config_error || s.error;
+  $('#as-error').hidden = !err;
+  $('#as-error').textContent = err ? 'Последняя ошибка: ' + err : '';
+  $('#as-hist').innerHTML = (s.history || []).slice().reverse().map(h => `<div><b>${esc(h.question)}</b>`
+    + (h.answer ? esc(h.answer) : `<span class="err">${esc(h.error || '')}</span>`)
+    + `<small>${new Date(h.at * 1000).toLocaleTimeString()} · ${h.source === 'voice' ? 'голосом' : 'из панели'}`
+    + `${h.ms ? ' · ' + (h.ms / 1000).toFixed(1) + ' с' : ''}</small></div>`).join('');
+  if (fill && st.installed) asFill(c);
+  if (!$('#tab-assistant').hidden) asTimer = setTimeout(loadAssistant, s.state && s.state !== 'idle' ? 1000 : 4000);
+}
+function asFill(c) {
+  asCfg = c;
+  const llm = c.llm || {}, tts = c.tts || {};
+  $('#as-enabled').checked = !!c.enabled;
+  $('#as-triggers').value = (c.triggers || ['спроси gpt', 'спроси джипити', 'спроси чат gpt', 'спроси нейросеть']).join(', ');
+  $('#as-url').value = llm.base_url || '';
+  $('#as-key').value = '';
+  $('#as-model').value = llm.model || '';
+  $('#as-prompt').value = llm.system_prompt || 'Ты эрудированный собеседник и отвечаешь на любые вопросы. Отвечай по-русски и коротко: '
+    + 'одно-три предложения разговорной речью. Ответ прочитают вслух, поэтому без списков, разметки, эмодзи, ссылок и формул.';
+  $('#as-tokens').value = llm.max_tokens || 500;
+  $('#as-history').value = llm.history ?? 6;
+  $('#as-proxy').value = llm.proxy || '';
+  if (llm.base_url && (c.keys || {})[asKeyId(llm.base_url)]) asModels(true);
+  $('#as-tts').value = tts.provider || 'alice';
+  $('#as-tts-url').value = tts.base_url || '';
+  $('#as-tts-key').value = '';
+  $('#as-tts-model').value = tts.model || 'tts-1';
+  $('#as-tts-voice').value = tts.voice || '';
+  $('#as-tts-speed').value = tts.speed || 1;
+  asTtsView();
+  asKeysView();
+}
+// Ключи хранятся по адресу API — как keyID в device/assistant
+const asKeyId = url => String(url || '').trim().replace(/\/+$/, '').toLowerCase();
+function asProvider(url) {
+  const opt = [...$('#as-preset').options].find(o => o.value && asKeyId(o.value) === url);
+  return opt ? opt.textContent : url.replace(/^https?:\/\//, '').split('/')[0];
+}
+function asKeysView() {
+  const keys = asCfg?.keys || {};
+  [['#as-url', '#as-key'], ['#as-tts-url', '#as-tts-key']].forEach(([u, k]) => {
+    const has = keys[asKeyId($(u).value)];
+    $(k).placeholder = has ? 'сохранён ' + has : 'не задан';
+  });
+  $('#as-keys').innerHTML = Object.entries(keys).map(([url, m]) =>
+    `<span title="${esc(url)}">${esc(asProvider(url))} ${esc(m)}<button type="button" data-url="${esc(url)}" aria-label="Удалить ключ ${esc(asProvider(url))}">×</button></span>`).join('');
+}
+['#as-url', '#as-tts-url'].forEach(id => $(id).addEventListener('input', asKeysView));
+$('#as-keys').onclick = e => {
+  const url = e.target.closest('button')?.dataset.url;
+  if (!url || !confirm(`Удалить с колонки ключ для ${asProvider(url)}?`)) return;
+  act(null, async () => asFill((await api('/api/assistant', { delete_key: url })).config), 'Ключ удалён');
+};
+function asTtsView() {
+  const v = $('#as-tts').value;
+  $$('[data-tts]').forEach(el => el.hidden = v !== 'openai');
+  $('#as-tts-hint').textContent = AS_TTS_HINT[v];
+}
+$('#as-tts').onchange = asTtsView;
+// Модели спрашивает сама колонка (её сеть и прокси); ключ — из поля или уже сохранённый
+let asModelsReq = 0;
+async function asModels(quiet) {
+  const url = $('#as-url').value.trim();
+  if (!url) return quiet || toast('Сначала укажите адрес API', true);
+  const req = ++asModelsReq, hint = $('#as-models-hint');
+  hint.textContent = 'Запрашиваю список моделей…';
+  try {
+    const r = await api('/api/assistant/models', { base_url: url, api_key: $('#as-key').value, proxy: $('#as-proxy').value.trim() });
+    if (req !== asModelsReq) return;
+    $('#as-models').innerHTML = r.models.map(m => `<option value="${esc(m)}">`).join('');
+    hint.textContent = r.models.length ? `Доступно моделей: ${r.models.length}. Начните вводить название или нажмите на поле.` : 'API не вернул ни одной модели.';
+  } catch (e) {
+    if (req === asModelsReq) hint.textContent = 'Список не получен: ' + e.message;
+  }
+}
+$('#as-models-btn').onclick = () => asModels();
+['#as-url', '#as-key', '#as-proxy'].forEach(id => $(id).addEventListener('change', () => asModels(true)));
+$('#as-update').onclick = e => act(e.currentTarget, async () => { await api('/api/assistant/install', {}); await loadAssistant(); }, 'Программа на колонке обновлена');
+$('#as-preset').onchange = e => { if (e.target.value) { $('#as-url').value = e.target.value; asKeysView(); asModels(true); } e.target.value = ''; };
+$('#as-install').onclick = e => act(e.currentTarget, async () => { await api('/api/assistant/install', {}); await loadAssistant(true); },
+  'Помощник установлен. Укажите модель и включите его');
+$('#as-restart').onclick = e => act(e.currentTarget, async () => { await api('/api/assistant/start', {}); await loadAssistant(); }, 'Перезапущен');
+$('#as-enabled').onchange = e => act(null, async () => { await api('/api/assistant', { enabled: e.target.checked }); await loadAssistant(); },
+  e.target.checked ? 'Помощник отвечает на фразу' : 'Помощник выключен');
+$('#as-save').onclick = e => act(e.currentTarget, async () => {
+  const num = (id, d) => Number($(id).value) || d;
+  const st = await api('/api/assistant', {
+    triggers: $('#as-triggers').value.split(',').map(s => s.trim()).filter(Boolean),
+    llm: { base_url: $('#as-url').value.trim(), api_key: $('#as-key').value, model: $('#as-model').value.trim(),
+      system_prompt: $('#as-prompt').value.trim(), max_tokens: num('#as-tokens', 500), history: Math.max(0, Number($('#as-history').value) || 0),
+      proxy: $('#as-proxy').value.trim() },
+    tts: { provider: $('#as-tts').value, base_url: $('#as-tts-url').value.trim(), api_key: $('#as-tts-key').value,
+      model: $('#as-tts-model').value.trim(), voice: $('#as-tts-voice').value.trim(), speed: num('#as-tts-speed', 1) },
+  });
+  asFill(st.config);
+}, 'Настройки сохранены');
+$('#as-ask').onclick = e => {
+  const text = $('#as-question').value.trim();
+  if (!text) return;
+  act(e.currentTarget, async () => { await api('/api/assistant/ask', { text }); setTimeout(loadAssistant, 500); }, 'Вопрос отправлен — ответ прозвучит на колонке');
+};
+$('#as-stop').onclick = e => act(e.currentTarget, async () => { await api('/api/assistant/stop', {}); await loadAssistant(); });
+$('#as-remove').onclick = e => confirm('Удалить помощника с колонки вместе с настройками и ключами?') &&
+  act(e.currentTarget, async () => { await api('/api/assistant/remove', {}); await loadAssistant(true); }, 'Помощник удалён');
+
 async function loadPrivacy() {
   let p;
   try { p = await api('/api/privacy'); } catch { return; }
@@ -3179,7 +3432,7 @@ $('#privacy-on').onchange = e => {
 };
 $('#fp-reset').onclick = e => {
   if (!confirm('Удалить с колонки всё, что поставила панель?\n\n• своя заставка и звук запуска — вернутся стандартные;\n'
-    + '• будильники и их звуки;\n• блокировка аналитики;\n• флаги автозапуска;\n• строка в rootkeeper.sh и копии оригиналов.\n\nКолонку перезагружать не нужно.')) return;
+    + '• будильники и их звуки;\n• голосовой помощник и его ключи;\n• блокировка аналитики;\n• флаги автозапуска;\n• строка в rootkeeper.sh и копии оригиналов.\n\nКолонку перезагружать не нужно.')) return;
   act(e.currentTarget, async () => {
     footprint = await api('/api/footprint/reset', {});
     await loadFootprint();

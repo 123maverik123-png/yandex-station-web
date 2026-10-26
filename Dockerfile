@@ -1,4 +1,11 @@
 # Веб-панель для Яндекс Станций: Python (только стандартная библиотека) + adb + ffmpeg + openssl.
+
+# Помощник для колонки (device/assistant) — статическая сборка под linux/arm64; Go в итоговом образе не нужен.
+FROM golang:1.26-alpine AS assistant
+WORKDIR /src
+COPY device/assistant/ ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o /out/assistantd .
+
 FROM python:3.14-slim
 
 RUN apt-get update \
@@ -9,6 +16,7 @@ WORKDIR /app
 COPY server.py access.py glagol.py profiles.py managed_yam.py multi.py speakers.example.json VERSION ./
 COPY static ./static
 COPY device ./device
+COPY --from=assistant /out/assistantd ./device/assistant/build/assistantd
 COPY LICENSE ./
 
 # /data — токен Яндекса, пароль панели, сертификаты, история графиков и ключ adb (HOME).

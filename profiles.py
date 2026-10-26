@@ -79,6 +79,7 @@ def install(s, model='lite2', auto=False):
         path = self.path.split('?')[0]
         disabled = (not profile['boot'] and (path.startswith('/api/clock/boot') or path.startswith('/api/boot/')) or
                     not profile['alarms'] and path.startswith('/api/alarms') or
+                    model != 'lite2' and path.startswith('/api/assistant') or
                     model != 'lite2' and path in ('/api/footprint/reset', '/api/backup/restore'))
         if disabled:
             if not self._guard(path):
@@ -140,6 +141,8 @@ def install(s, model='lite2', auto=False):
     for method in ('yam_install_daemon', 'yam_update_daemon', 'yam_autostart'):
         if hasattr(P, method):
             setattr(P, method, unsupported)
+    # Помощник опирается на журнал и CLI maind Лайт 2 и на её хук автозапуска
+    P.assistant_status = lambda self: dict(supported=False, installed=False, running=False, config={}, state={})
     P.boot_status = lambda self: dict(supported=False, custom=False, mounted=False, sound_supported=False,
                                     sound_custom=False, sound_mounted=False, hook=False, no_boot_sound=True, always=False)
 

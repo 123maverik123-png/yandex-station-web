@@ -159,6 +159,16 @@ ANALYTICS_HOSTS = ("clck.yandex.net", "report.appmetrica.yandex.net", "appmetric
 METRICA_BATCH = "/data/quasar/appmetrica/persistedBatch"
 ANALYTICS_PURGE = ("p=$(ps | grep '[m]aind --telemetry' | awk '{print $1}'); "
                    f"[ -n \"$p\" ] && kill -9 $p; rm -f {METRICA_BATCH}")
+# Свой голосовой помощник (device/assistant): «Алиса, спроси GPT …» уходит выбранной модели. Программа на Go
+# работает на самой колонке; панель кладёт её и config.json, проверяет текстом и читает состояние из /tmp.
+ASSIST_DIR = f"{WEB_DIR}/assistant"
+ASSISTD = f"{ASSIST_DIR}/assistantd"
+ASSIST_CONF = f"{ASSIST_DIR}/config.json"
+ASSIST_STATUS = "/tmp/webpanel_assistant.json"
+ASSIST_CMD = "/tmp/webpanel_assistant.cmd"
+ASSIST_SD = "/tmp/webpanel_assistant.sd"
+ASSIST_RUN = f"exec {ASSISTD} -dir {ASSIST_DIR} >{ASSIST_DIR}/assistant.log 2>&1"
+ASSIST_SRC = Path(__file__).resolve().parent / "device" / "assistant"
 
 BOOT_HOOK_SCRIPT = (
     "#!/bin/sh\n"
@@ -176,6 +186,7 @@ BOOT_HOOK_SCRIPT = (
     f"[ -f {YAM_AUTOSTART} ] && [ -x {YAMD} ] && ! pidof yamd >/dev/null && "
     f"start-stop-daemon -S -b -m -p /tmp/webpanel_yamd.sd -x /bin/sh -- -c {shlex.quote(YAMD_CMD)}\n"
     f"[ -f {ALARM_CONF} ] && [ -f {ALARMD} ] && start-stop-daemon -S -b -m -p {ALARM_SD} -x /bin/sh -- {ALARMD}\n"
+    f"[ -f {ASSIST_CONF} ] && [ -x {ASSISTD} ] && start-stop-daemon -S -b -m -p {ASSIST_SD} -x /bin/sh -- -c {shlex.quote(ASSIST_RUN)}\n"
     "exit 0\n"
 )
 ROOTKEEPER = "/data/quasar/rootkeeper.sh"
@@ -1324,7 +1335,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         # Хук нужен, пока есть хоть что-то своё; иначе возвращаем rootkeeper.sh к исходному виду.
         self.adb.shell(
             f"if [ ! -f {BOOT_CUSTOM} ] && [ ! -f {SOUND_CUSTOM} ] && [ ! -f {BOOT_ALWAYS} ] && [ ! -f {YAM_AUTOSTART} ] "
-            f"&& [ ! -f {ALARM_CONF} ] && [ ! -f {HOSTS_CUSTOM} ]; then "
+            f"&& [ ! -f {ALARM_CONF} ] && [ ! -f {HOSTS_CUSTOM} ] && [ ! -f {ASSIST_CONF} ]; then "
             f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; rm -f {BOOT_HOOK}; fi; true")
 
     def _install_override(self, data, custom, target, orig):
@@ -1441,6 +1452,188 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         time.sleep(2)   # launcher перезапускает телеметрию
         return self.privacy_status()
 
+    # ---------- свой голосовой помощник ----------
+    ASSIST_FIELDS = {"llm": ("base_url", "model", "system_prompt", "max_tokens", "history", "proxy"),
+                     "tts": ("provider", "base_url", "model", "voice", "speed")}
+
+    def _assist_binary(self):
+        """Собранный assistantd для колонки (linux/arm64). Есть Go — собираем из device/assistant сами."""
+        out = ASSIST_SRC / "build" / "assistantd"
+        sources = list(ASSIST_SRC.glob("*.go")) + [ASSIST_SRC / "go.mod"]
+        fresh = out.exists() and all(f.stat().st_mtime <= out.stat().st_mtime for f in sources if f.exists())
+        go = shutil.which("go")
+        if go and not fresh:
+            env = {**os.environ, "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": "arm64"}
+            r = subprocess.run([go, "build", "-trimpath", "-ldflags", f"-s -w -X main.version={VERSION}",
+                                "-o", str(out), "."], cwd=ASSIST_SRC, env=env, capture_output=True, text=True, timeout=300)
+            if r.returncode:
+                raise AdbError("не удалось собрать помощника: " + (r.stderr or r.stdout).strip()[-400:])
+        if not out.exists():
+            raise AdbError("нет собранного помощника: установите Go (go.dev/dl) — панель соберёт его сама")
+        return out
+
+    def _assist_config(self):
+        out, _, _ = self.adb.shell(f"cat {ASSIST_CONF} 2>/dev/null; true", check=False)
+        try:
+            return json.loads(strip_ansi(out).strip() or "{}")
+        except ValueError:
+            return {}
+
+    _assist_md5 = (0, None)
+
+    def _assist_local_md5(self):
+        """md5 сборки на компьютере — понять, что на колонке старая программа. Без Go и сборки — None."""
+        try:
+            out = self._assist_binary()
+        except AdbError:
+            return None
+        mtime = out.stat().st_mtime
+        if self._assist_md5[0] != mtime:
+            self._assist_md5 = (mtime, hashlib.md5(out.read_bytes()).hexdigest())
+        return self._assist_md5[1]
+
+    def assistant_status(self):
+        out, _, _ = self.adb.shell(
+            f"[ -x {ASSISTD} ] && echo @installed && md5sum {ASSISTD}; "
+            f"[ -f {ASSIST_SD} ] && kill -0 $(cat {ASSIST_SD}) 2>/dev/null "
+            f"&& echo @running; echo @status; cat {ASSIST_STATUS} 2>/dev/null; echo; true", check=False)
+        out = strip_ansi(out)
+        flags = set(re.findall(r"^@(\w+)$", out, re.M))
+        try:
+            state = json.loads(out.split("@status", 1)[1].strip() or "{}")
+        except (ValueError, IndexError):
+            state = {}
+        cfg = self._assist_keys_migrate(self._assist_config())
+        # ключи наружу не отдаём: только для каких адресов они есть и последние символы
+        mask = lambda k: ("…" + k[-4:]) if len(k) > 8 else "задан"
+        cfg["keys"] = {url: mask(k) for url, k in (cfg.get("keys") or {}).items() if k}
+        for part in ("llm", "tts"):
+            sec = cfg.setdefault(part, {})
+            sec["key"] = cfg["keys"].get(self._key_id(sec.get("base_url", "")), "")
+        running = "running" in flags
+        local = self._assist_local_md5() if "installed" in flags else None
+        return {"supported": True, "installed": "installed" in flags, "running": running, "config": cfg,
+                "outdated": bool(local) and local not in out,
+                "state": state if running else {}, "can_build": bool(shutil.which("go"))
+                or (ASSIST_SRC / "build" / "assistantd").exists()}
+
+    def assistant_install(self):
+        binary = self._assist_binary()
+        self.adb.shell(f"mkdir -p {ASSIST_DIR}; start-stop-daemon -K -p {ASSIST_SD} 2>/dev/null; true", check=False)
+        self.adb.push(binary, ASSISTD + ".new", timeout=300)
+        self.adb.shell(f"chmod 755 {ASSISTD}.new; mv {ASSISTD}.new {ASSISTD}")
+        if not self._assist_config():
+            self._assist_write({"enabled": False})
+        self._ensure_hook()
+        return self.assistant_start()
+
+    def _assist_write(self, cfg):
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "config.json"
+            write_unix(f, json.dumps(cfg, ensure_ascii=False, indent=1))
+            self.adb.push(f, ASSIST_CONF + ".new")
+        self.adb.shell(f"chmod 600 {ASSIST_CONF}.new; mv {ASSIST_CONF}.new {ASSIST_CONF}")
+
+    @staticmethod
+    def _key_id(base):
+        # как keyID в device/assistant: один провайдер при любом написании адреса
+        return str(base or "").strip().rstrip("/").lower()
+
+    def _assist_keys_migrate(self, cfg):
+        """Ключи хранятся по адресу API (cfg["keys"]); раньше лежали прямо в llm/tts — переносим."""
+        keys = cfg.setdefault("keys", {})
+        for part in ("llm", "tts"):
+            sec = cfg.get(part) or {}
+            key = sec.pop("api_key", None)
+            if key and sec.get("base_url") and not keys.get(self._key_id(sec["base_url"])):
+                keys[self._key_id(sec["base_url"])] = key
+        return cfg
+
+    def assistant_set(self, d):
+        """Меняет только переданные поля. Ключ пишется для адреса API своего раздела: новый — заменить,
+        пусто или нет поля — оставить. delete_key — удалить ключ указанного адреса."""
+        cfg = self._assist_keys_migrate(self._assist_config())
+        if "enabled" in d:
+            cfg["enabled"] = bool(d["enabled"])
+        if isinstance(d.get("triggers"), list):
+            cfg["triggers"] = [str(x).strip()[:60] for x in d["triggers"] if str(x).strip()][:10]
+        for part, fields in self.ASSIST_FIELDS.items():
+            src = d.get(part)
+            if not isinstance(src, dict):
+                continue
+            sec = cfg.setdefault(part, {})
+            for k in fields:
+                if k in src:
+                    sec[k] = src[k]
+            key = str(src.get("api_key") or "").strip()
+            if key:
+                if not sec.get("base_url"):
+                    raise AdbError("ключ сохраняется для адреса API — сначала укажите адрес")
+                cfg["keys"][self._key_id(sec["base_url"])] = key
+        if d.get("delete_key"):
+            cfg["keys"].pop(self._key_id(d["delete_key"]), None)
+        tts = cfg.get("tts", {})
+        if tts.get("provider") not in (None, "alice", "openai"):
+            raise AdbError("неизвестный способ озвучки")
+        if not self.assistant_status()["installed"]:
+            raise AdbError("помощник не установлен на колонке")
+        self._assist_write(cfg)
+        return self.assistant_status()
+
+    def assistant_models(self, d):
+        """Список моделей API — запрашивает сама колонка: её сеть и прокси, ключ из настроек или ещё не сохранённый."""
+        over = {k: str(d.get(k) or "").strip() for k in ("base_url", "api_key", "proxy")}
+        tmp = "/tmp/webpanel_assistant.models"
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "o.json"
+            write_unix(f, json.dumps(over, ensure_ascii=False))
+            self.adb.push(f, tmp)
+        try:
+            out, _, _ = self.adb.shell(f"chmod 600 {tmp}; {ASSISTD} -dir {ASSIST_DIR} -models {tmp}; true", timeout=60, check=False)
+        finally:
+            self.adb.shell(f"rm -f {tmp}", check=False)
+        line = next((l for l in strip_ansi(out).splitlines() if l.startswith("{")), "")
+        try:
+            res = json.loads(line)
+        except ValueError:
+            raise AdbError("программа на колонке старая — нажмите «Обновить программу»") from None
+        if res.get("error"):
+            raise AdbError(res["error"])
+        return {"models": res.get("models") or []}
+
+    def assistant_start(self):
+        self.adb.shell(f"start-stop-daemon -K -p {ASSIST_SD} 2>/dev/null; sleep 0.5; true", check=False)
+        self.detach("assistant", ASSIST_RUN)
+        for _ in range(10):
+            time.sleep(0.5)
+            st = self.assistant_status()
+            if st["running"]:
+                return st
+        out, _, _ = self.adb.shell(f"tail -5 {ASSIST_DIR}/assistant.log", check=False)
+        raise AdbError("помощник не запустился: " + strip_ansi(out).strip()[-400:])
+
+    def assistant_command(self, cmd):
+        if not self.assistant_status()["running"]:
+            raise AdbError("помощник не запущен")
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "cmd"
+            write_unix(f, json.dumps(cmd, ensure_ascii=False))
+            self.adb.push(f, ASSIST_CMD + ".new")
+        self.adb.shell(f"mv {ASSIST_CMD}.new {ASSIST_CMD}")
+        return {"ok": True}
+
+    def assistant_ask(self, text):
+        text = str(text or "").strip()
+        if not 1 <= len(text) <= 1000:
+            raise AdbError("вопрос — от 1 до 1000 символов")
+        return self.assistant_command({"ask": text})
+
+    def assistant_remove(self):
+        self.adb.shell(f"start-stop-daemon -K -p {ASSIST_SD} 2>/dev/null; sleep 0.5; "
+                       f"rm -rf {ASSIST_DIR}; rm -f {ASSIST_SD} {ASSIST_STATUS} {ASSIST_CMD}; true", check=False)
+        self._drop_hook_if_unused()
+        return self.assistant_status()
+
     def footprint(self):
         """Всё постоянное, что панель ставит на колонку. Временное (/tmp) исчезает само после перезагрузки."""
         q = lambda path: f"[ -e {path} ] && echo 1 || echo 0"
@@ -1454,9 +1647,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"[ -d {WEB_DIR} ] && du -sk {WEB_DIR} | cut -f1 || echo 0",
             f"[ -d {ALARM_DIR} ] && du -sk {ALARM_DIR} | cut -f1 || echo 0",
             q(YAMD),
-            f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && echo 1 || echo 0", q(HOSTS_CUSTOM)])
+            f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && echo 1 || echo 0", q(HOSTS_CUSTOM),
+            q(ASSISTD), f"[ -d {ASSIST_DIR} ] && du -sk {ASSIST_DIR} | cut -f1 || echo 0"])
         v = self.adb.shell(cmd, check=False)[0].split()
-        v = (v + ["0"] * 17)[:17]
+        v = (v + ["0"] * 19)[:19]
         b = [x == "1" for x in v]
         n = lambda x: int(x) if x.isdigit() else 0
         items = [
@@ -1465,6 +1659,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             {"key": "always", "name": "Заставка при каждой загрузке", "on": b[4]},
             {"key": "yamd", "name": "Автозапуск yamd", "on": b[5]},
             {"key": "privacy", "name": "Блокировка аналитики", "on": b[15] or b[16], "detail": "свой /etc/hosts"},
+            {"key": "assistant", "name": "Голосовой помощник", "on": b[17], "size_kb": n(v[18])},
             {"key": "alarm", "name": "Будильник", "on": b[6], "detail": f"будильников: {n(v[7])}", "size_kb": n(v[13])},
             {"key": "backup", "name": "Копии оригиналов", "on": b[8] or b[9] or b[10],
              "detail": "заставка, звук запуска, rootkeeper.sh — на случай отката"},
@@ -1478,7 +1673,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         и удаляет /data/quasar/webpanel. yam не трогаем — это отдельный проект со своим удалением."""
         self.adb.shell(
             f"grep -q ringing {ALARM_STATE} 2>/dev/null && echo stop > {ALARM_CMD} && sleep 3; "
-            f"start-stop-daemon -K -p {ALARM_SD} 2>/dev/null; killall aplay 2>/dev/null; "
+            f"start-stop-daemon -K -p {ALARM_SD} 2>/dev/null; start-stop-daemon -K -p {ASSIST_SD} 2>/dev/null; "
+            f"killall aplay 2>/dev/null; "
             f"grep -q ' {BOOT_TARGET} ' /proc/mounts && {{ umount {BOOT_TARGET} || umount -l {BOOT_TARGET}; }}; "
             f"grep -q ' {SOUND_TARGET} ' /proc/mounts && {{ umount {SOUND_TARGET} || umount -l {SOUND_TARGET}; }}; "
             f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && {{ umount {HOSTS_TARGET} || umount -l {HOSTS_TARGET}; }}; "
@@ -1487,7 +1683,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         out, _, _ = self.adb.shell(
             f"b={ROOTKEEPER}.webpanel.bak; if [ -f $b ]; then "
             f"if [ \"$(md5sum < {ROOTKEEPER})\" = \"$(md5sum < $b)\" ]; then rm -f $b; echo same; else echo differs; fi; fi; "
-            f"rm -rf {WEB_DIR}; rm -f /tmp/webpanel_alarm* {ALARM_SD}; true", check=False)
+            f"rm -rf {WEB_DIR}; rm -f /tmp/webpanel_alarm* {ALARM_SD} /tmp/webpanel_assistant*; true", check=False)
         self.ring_reset()
         res = self.footprint()
         if "differs" in out:
@@ -2652,6 +2848,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/alarms": p.alarms,
             "/api/footprint": p.footprint,
             "/api/privacy": p.privacy_status,
+            "/api/assistant": p.assistant_status,
             "/api/panel/version": lambda: self.updater.check(q.get("refresh") == "1"),
             "/api/bt": p.bt_state,
             "/api/metrics": lambda: p.metrics.get(q.get("range", 3600)),
@@ -2755,6 +2952,13 @@ class Handler(BaseHTTPRequestHandler):
             "/api/footprint/reset": p.footprint_reset,
             "/api/privacy": lambda: p.privacy_set(bool(d.get("enabled"))),
             "/api/privacy/purge": p.privacy_purge,
+            "/api/assistant": lambda: p.assistant_set(d),
+            "/api/assistant/install": p.assistant_install,
+            "/api/assistant/start": p.assistant_start,
+            "/api/assistant/ask": lambda: p.assistant_ask(d.get("text")),
+            "/api/assistant/stop": lambda: p.assistant_command({"stop": True}),
+            "/api/assistant/remove": p.assistant_remove,
+            "/api/assistant/models": lambda: p.assistant_models(d),
             "/api/panel/update": lambda: self.updater.update(),
             "/api/metrics/clear": lambda: p.metrics.clear(),
             "/api/alarms/uninstall": p.alarm_uninstall,
