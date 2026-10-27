@@ -78,3 +78,20 @@ func TestKeysPerProvider(t *testing.T) {
 		t.Fatal("адрес с другим регистром и «/» — тот же провайдер")
 	}
 }
+
+func TestRingFrame(t *testing.T) {
+	r, g, b, ok := parseColor("#ff8a00")
+	if !ok || r != 0xff || g != 0x8a || b != 0 {
+		t.Fatal(r, g, b, ok)
+	}
+	if _, _, _, ok := parseColor("red"); ok {
+		t.Fatal("не цвет")
+	}
+	f := ringFrame(r, g, b, 1)
+	if len(f) != 9 || f[0] != 0 || f[1] != 0x8a || f[2] != 0xff { // B, G, R на каждый из 3 пикселей
+		t.Fatalf("% x", f)
+	}
+	if ringFrame(r, g, b, 0)[2] != 0 {
+		t.Fatal("нулевая яркость гасит кольцо")
+	}
+}

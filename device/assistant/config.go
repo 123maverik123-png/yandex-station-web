@@ -31,6 +31,7 @@ type Config struct {
 	Triggers []string          `json:"triggers"`
 	LLM      LLM               `json:"llm"`
 	TTS      TTS               `json:"tts"`
+	LED      LED               `json:"led"`
 	Keys     map[string]string `json:"keys"` // ключ на каждый адрес API: сменили провайдера — ключ прежнего остался
 }
 
@@ -56,6 +57,7 @@ func defaults() Config {
 		Triggers: []string{"спроси gpt", "спроси джипити", "спроси чат gpt", "спроси нейросеть"},
 		LLM:      LLM{SystemPrompt: defaultPrompt, MaxTokens: 500, History: 6},
 		TTS:      TTS{Provider: "alice", Model: "tts-1", Speed: 1},
+		LED:      LED{Enabled: true, Color: "#ff8a00"},
 	}
 }
 

@@ -136,8 +136,14 @@ func (d *Daemon) ask(question, source string) {
 			d.set("idle", e.Error)
 		}
 		d.set("thinking", "")
+		glowCtx, stopGlow := context.WithCancel(ctx)
+		glowDone := make(chan struct{})
+		go glow(glowCtx, c.LED, glowDone)
+		unglow := func() { stopGlow(); <-glowDone }
+		defer unglow()
 		answer, err := chat(ctx, c.LLM, msgs)
 		if err != nil {
+			unglow()
 			finish(err)
 			return
 		}
@@ -150,7 +156,12 @@ func (d *Daemon) ask(question, source string) {
 		d.lastTurn = time.Now()
 		d.mu.Unlock()
 		d.set("speaking", "")
-		finish(d.speak(ctx, c, answer))
+		if c.TTS.Provider != "openai" {
+			unglow() // дальше кольцом управляет сама Алиса: она читает ответ со своей анимацией
+		}
+		err = d.speak(ctx, c, answer)
+		unglow()
+		finish(err)
 	}()
 }
 

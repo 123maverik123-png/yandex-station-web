@@ -1455,7 +1455,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
 
     # ---------- свой голосовой помощник ----------
     ASSIST_FIELDS = {"llm": ("base_url", "model", "system_prompt", "max_tokens", "history", "proxy"),
-                     "tts": ("provider", "base_url", "model", "voice", "speed")}
+                     "tts": ("provider", "base_url", "model", "voice", "speed"),
+                     "led": ("enabled", "color")}
 
     def _assist_binary(self):
         """Собранный assistantd для колонки (linux/arm64). Есть Go — собираем из device/assistant сами."""
@@ -1573,6 +1574,9 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 cfg["keys"][self._key_id(sec["base_url"])] = key
         if d.get("delete_key"):
             cfg["keys"].pop(self._key_id(d["delete_key"]), None)
+        led = cfg.get("led", {})
+        if "color" in led and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(led["color"])):
+            raise AdbError("цвет подсветки — в виде #rrggbb")
         tts = cfg.get("tts", {})
         if tts.get("provider") not in (None, "alice", "openai"):
             raise AdbError("неизвестный способ озвучки")
@@ -2650,8 +2654,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         for k, v in headers:
             self.send_header(k, v)
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # вкладку закрыли или перезагрузили, пока колонка отвечала: ответ некому отдать, это не ошибка
+            self.close_connection = True
 
     # ---------- доступ ----------
     @property
