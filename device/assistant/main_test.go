@@ -116,7 +116,7 @@ func TestModePhrases(t *testing.T) {
 
 func TestRadioHelpers(t *testing.T) {
 	stations := []Station{{"Groove Salad", "http://ice1.somafm.com/groovesalad-128-mp3"}, {"Радио Рекорд", "https://radiorecord.hostingradio.ru/rr_main96.aacp"}}
-	for said, want := range map[string]string{"groove salad": "Groove Salad", "грув салад": "", "рекорд": "Радио Рекорд", "радио рекорд": "Радио Рекорд"} {
+	for said, want := range map[string]string{"groove salad": "Groove Salad", "грув салад": "Groove Salad", "рекорд": "Радио Рекорд", "радио рекорд": "Радио Рекорд", "погода": ""} {
 		st, ok := findStation(said, stations)
 		if (want == "") == ok || st.Name != want {
 			t.Errorf("%q → %q %v", said, st.Name, ok)
@@ -154,5 +154,17 @@ func TestAliceMusicStartEvent(t *testing.T) {
 	}
 	if ev, _ := parseLine("routeDirective (xx2)alice_request.music_thin_client_on_stopped via AliceCapability"); ev.kind == "music" {
 		t.Fatal("остановка — не начало музыки")
+	}
+}
+
+func TestSpokenStationNames(t *testing.T) {
+	stations := []Station{{"Relax FM Chillout", "http://a/1"}, {"FLUX", "http://a/2"}, {"Lofi", "http://a/3"},
+		{"Несуществующая Радиостанция", "http://a/4"}}
+	for said, want := range map[string]string{"lo fi": "Lofi", "флакс": "FLUX", "лофи": "Lofi",
+		"несуществующей радиостанции": "Несуществующая Радиостанция", "релакс": "Relax FM Chillout", "джаз": ""} {
+		st, ok := findStation(said, stations)
+		if (want == "") == ok || st.Name != want {
+			t.Errorf("%q → %q %v, want %q", said, st.Name, ok, want)
+		}
 	}
 }

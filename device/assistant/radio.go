@@ -266,38 +266,99 @@ func parseStreamTitle(meta string) string {
 	return strings.TrimSpace(strings.TrimRight(s, "\x00"))
 }
 
-// findStation — станция по названию, сказанному голосом: точное совпадение, затем вхождение, затем больше общих слов.
+// findStation — станция по названию, сказанному голосом. Алиса пишет распознанное как слышит: «флакс» вместо FLUX,
+// «lo fi» вместо Lofi, другой падеж. Поэтому сравниваем без пробелов, латиницу переводим в кириллицу и прощаем
+// несколько букв; точное совпадение и вхождение — по-прежнему главнее.
 func findStation(said string, stations []Station) (Station, bool) {
-	said = normalize(said)
-	if said == "" {
+	if normalize(said) == "" {
 		return Station{}, false
 	}
-	best, score := -1, 0
+	saidKeys := spokenKeys(said)
+	best, bestScore := -1, 0.0
 	for i, st := range stations {
-		name := normalize(st.Name)
-		switch {
-		case name == said:
-			return st, true
-		case strings.Contains(name, said) || strings.Contains(said, name):
-			if score < 100 {
-				best, score = i, 100
-			}
-		default:
-			common := 0
-			for _, w := range strings.Fields(said) {
-				if len([]rune(w)) > 1 && strings.Contains(" "+name+" ", " "+w+" ") {
-					common++
+		score := 0.0
+		for _, a := range saidKeys {
+			for _, b := range spokenKeys(st.Name) {
+				switch {
+				case a == b:
+					return st, true
+				case strings.Contains(a, b) || strings.Contains(b, a):
+					score = max(score, 0.9)
+				default:
+					la, lb := len([]rune(a)), len([]rune(b))
+					if d := float64(levenshtein(a, b)) / float64(max(la, lb)); d <= 0.3 {
+						score = max(score, 0.8-d)
+					}
 				}
 			}
-			if common > score {
-				best, score = i, common
-			}
+		}
+		if score > bestScore {
+			best, bestScore = i, score
 		}
 	}
 	if best < 0 {
 		return Station{}, false
 	}
 	return stations[best], true
+}
+
+// spokenKeys — варианты написания названия для сравнения: без пробелов и знаков, и то же кириллицей.
+func spokenKeys(s string) []string {
+	plain := strings.ReplaceAll(normalize(s), " ", "")
+	if plain == "" {
+		return nil
+	}
+	cyr := translit(plain)
+	if cyr == plain {
+		return []string{plain}
+	}
+	return []string{plain, cyr}
+}
+
+var latinDigraphs = []struct{ from, to string }{
+	{"sch", "щ"}, {"sh", "ш"}, {"ch", "ч"}, {"zh", "ж"}, {"kh", "х"}, {"ts", "ц"}, {"ya", "я"}, {"yu", "ю"},
+	{"yo", "е"}, {"ph", "ф"}, {"th", "т"}, {"oo", "у"}, {"ee", "и"}, {"ck", "к"},
+}
+
+var latinLetters = map[rune]string{'a': "а", 'b': "б", 'c': "к", 'd': "д", 'e': "е", 'f': "ф", 'g': "г", 'h': "х",
+	'i': "и", 'j': "дж", 'k': "к", 'l': "л", 'm': "м", 'n': "н", 'o': "о", 'p': "п", 'q': "к", 'r': "р", 's': "с",
+	't': "т", 'u': "у", 'v': "в", 'w': "в", 'x': "кс", 'y': "и", 'z': "з"}
+
+// translit — латиница как её прочитал бы русский: «flux» → «флукс», «lofi» → «лофи».
+func translit(s string) string {
+	for _, d := range latinDigraphs {
+		s = strings.ReplaceAll(s, d.from, d.to)
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if v, ok := latinLetters[r]; ok {
+			b.WriteString(v)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func levenshtein(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	prev := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		cur := make([]int, len(rb)+1)
+		cur[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(rb)]
 }
 
 // alicePlayback — просьба к Алисе что-то включить: после неё своё радио не возобновляем, иначе заиграют оба.
