@@ -219,7 +219,8 @@ def install(s, model='lite2', auto=False):
             setattr(P, method, unsupported)
     # Помощник проверен только на Лайт 2: здесь — на пробу, без хука автозапуска Лайт 2 (до перезагрузки колонки)
     original_assistant_status = P.assistant_status
-    P.assistant_status = lambda self: {**original_assistant_status(self), 'experimental': True, 'autostart': False}
+    P.assistant_status = lambda self: {**original_assistant_status(self), 'experimental': True, 'autostart': False,
+                                         'model_name': profile['name']}
     original_radio_status = P.radio_status
     P.radio_status = lambda self: {**original_radio_status(self), 'supported': False}
     P.boot_status = lambda self: dict(supported=False, custom=False, mounted=False, sound_supported=False,
