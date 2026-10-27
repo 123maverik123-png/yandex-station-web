@@ -398,6 +398,8 @@
   .as-form .hint { grid-column: 2; margin: -4px 0 0; }
   .as-form textarea.field, #as-question { width: 100%; min-height: 96px; padding: 10px 12px; font: inherit; resize: vertical; }
   .as-http { color: var(--danger); }
+  .as-warn { margin: 12px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--danger-soft); border: 1px solid var(--danger-line); color: var(--text-2); font-size: 13px; line-height: 1.5; }
+  .as-warn b { color: var(--danger); }
   .as-keys { display: flex; flex-wrap: wrap; gap: 6px; }
   .as-keys:empty { display: none; }
   .as-keys span { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--field); font-size: 12.5px; }
@@ -1344,7 +1346,7 @@
             <p class="hint">Через запятую. Говорите: «Алиса, спроси GPT, …». «Алиса, спроси GPT, новый разговор» — забыть контекст.</p>
           </div>
           <p class="hint" id="as-error" hidden></p>
-          <p class="set-note" id="as-privacy" style="margin:12px 0 0"></p>
+          <p class="as-warn" id="as-privacy" role="note"></p>
         </section>
         <section class="card">
           <div class="card-head"><h2>Проверка</h2></div>
@@ -3470,11 +3472,11 @@ function asTtsView() {
   $('#as-tts-hint').textContent = AS_TTS_HINT[v];
   asHttpWarning();
   // что при этом всё равно уходит Яндексу — зависит от способа озвучки
-  $('#as-privacy').textContent = 'Яндекс по-прежнему получает голосовые вопросы: «Алиса, спроси GPT, …» распознаёт её облако, '
+  $('#as-privacy').innerHTML = '<b>Обратите внимание!</b> ' + esc('Яндекс по-прежнему получает голосовые вопросы: «Алиса, спроси GPT, …» распознаёт её облако, '
     + 'звук и текст фразы уходят на серверы Яндекса, как обычный запрос к Алисе. '
     + (v === 'alice' ? 'Ответ модели тоже уходит Яндексу: Алиса озвучивает его запросом «Повтори за мной».'
       : 'Ответ модели Яндекс не получает — его озвучивает выбранный синтезатор.')
-    + ' Вопросы из «Проверки» Яндекс не видит.' + (v === 'alice' ? ' Только ответ на них.' : '');
+    + ' Вопросы из «Проверки» Яндекс не видит.' + (v === 'alice' ? ' Только ответ на них.' : ''));
 }
 $('#as-tts').onchange = asTtsView;
 const asLed = () => act(null, async () => asFill((await api('/api/assistant', { led: { enabled: $('#as-led').checked, color: $('#as-led-color').value } })).config));
