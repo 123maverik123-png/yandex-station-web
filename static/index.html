@@ -691,7 +691,8 @@
     <nav class="side" aria-label="Разделы">
       <a href="#overview" data-tab="overview"><svg width="20" height="20" aria-hidden="true"><use href="#i-grid"/></svg>Обзор</a>
       <a href="#player" data-tab="player"><svg width="20" height="20" aria-hidden="true"><use href="#i-music"/></svg>Плеер</a>
-      <a href="#radio" data-tab="radio"><svg width="20" height="20" aria-hidden="true"><use href="#i-radio"/></svg>Радио</a>
+      <!-- «Радио» временно скрыто: проигрыватель своих станций ломал общий микшер звука колонки (см. radio.go) -->
+      <a href="#radio" data-tab="radio" hidden><svg width="20" height="20" aria-hidden="true"><use href="#i-radio"/></svg>Радио</a>
       <div class="nav-group" role="presentation">Колонка</div>
       <a href="#alarm" data-tab="alarm"><svg width="20" height="20" aria-hidden="true"><use href="#i-alarm"/></svg>Будильник</a>
       <a href="#assistant" data-tab="assistant"><svg width="20" height="20" aria-hidden="true"><use href="#i-mic"/></svg>Ассистент</a>
@@ -2444,7 +2445,8 @@ const store = {
   get: k => { try { return localStorage.getItem(PanelContext.storageKey(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(PanelContext.storageKey(k), v); } catch {} },
 };
-const TABS = ['overview', 'player', 'radio', 'alarm', 'assistant', 'charts', 'boot', 'apps', 'files', 'logs', 'console', 'settings'];
+// 'radio' временно убрана из списка вкладок вместе с пунктом меню; код вкладки остаётся
+const TABS = ['overview', 'player', 'alarm', 'assistant', 'charts', 'boot', 'apps', 'files', 'logs', 'console', 'settings'];
 let bootLoaded = false;
 let logsLoaded = false;
 let shownTab = null;
