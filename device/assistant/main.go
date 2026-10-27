@@ -196,6 +196,9 @@ func (d *Daemon) speak(ctx context.Context, c Config, text string) error {
 			return err
 		}
 		cmd := exec.CommandContext(ctx, "/usr/bin/aplay", "-q", "-")
+		// при отмене — мягко: aplay тоже пишет в общий микшер dmix, и SIGKILL может оставить его захваченным
+		cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+		cmd.WaitDelay = 3 * time.Second
 		cmd.Stdin = bytes.NewReader(wav)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("aplay: %v %s", err, bytes.TrimSpace(out))
@@ -587,7 +590,7 @@ func main() {
 		}
 	}()
 	d.follow(ctx, maindLog)
-	d.radio.Stop()
+	d.radio.Shutdown()
 	d.alice.Close()
 	os.Remove(d.statusPath)
 }

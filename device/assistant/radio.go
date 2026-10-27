@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -197,9 +198,25 @@ func (p *player) spawnLocked() error {
 
 func (p *player) killLocked() {
 	if p.cmd != nil {
-		p.cmd.Process.Kill()
+		go stopGently(p.cmd.Process)
 		p.cmd = nil
 	}
+}
+
+// stopGently завершает проигрыватель так, чтобы он отпустил общий микшер ALSA (dmix). При SIGKILL он мог умереть,
+// держа семафор микшера, — и тогда звук на колонке пропадал у всех, включая саму Алису, до перезагрузки.
+func stopGently(proc *os.Process) {
+	alive := func() bool { return proc.Signal(syscall.Signal(0)) == nil }
+	for _, sig := range []os.Signal{os.Interrupt, syscall.SIGTERM} {
+		proc.Signal(sig)
+		for i := 0; i < 30 && alive(); i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !alive() {
+			return
+		}
+	}
+	proc.Kill() // не завершился за 6 с — значит, завис совсем
 }
 
 func (p *player) Stop() {
@@ -209,6 +226,18 @@ func (p *player) Stop() {
 	p.station, p.paused, p.title, p.err = Station{}, false, "", ""
 	p.retries, p.retrying = 0, false
 	p.gen++
+}
+
+// Shutdown — при выходе программы: дожидаемся, пока проигрыватель отпустит микшер, иначе он останется сиротой.
+func (p *player) Shutdown() {
+	p.mu.Lock()
+	cmd := p.cmd
+	p.cmd, p.retrying = nil, false
+	p.gen++
+	p.mu.Unlock()
+	if cmd != nil {
+		stopGently(cmd.Process)
+	}
 }
 
 // Pause — на время разговора с Алисой, как она сама приглушает свою музыку.
