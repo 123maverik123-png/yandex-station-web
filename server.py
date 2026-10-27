@@ -1705,6 +1705,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 "play": radio.get("play") or ["включи станцию", "включи радиостанцию", "поставь станцию"],
                 "stop": radio.get("stop") or ["выключи станцию", "выключи радиостанцию", "останови станцию"],
                 "now": (st.get("state") or {}).get("radio") or {},
+                "miss": (st.get("state") or {}).get("radio_miss"),
                 "alice": [{"id": k, **v} for k, v in self.fm_stations().items()]}
 
     def _radio_station(self, s):
@@ -1712,7 +1713,11 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         url = str((s or {}).get("url") or "").strip()
         if not name or not self.RADIO_URL.fullmatch(url):
             raise AdbError("у станции нужны название и адрес потока http(s)://… без кавычек и пробелов")
-        return {"name": name, "url": url}
+        station = {"name": name, "url": url}
+        aliases = [str(a).strip()[:40] for a in ((s or {}).get("aliases") or []) if str(a).strip()][:8]
+        if aliases:
+            station["aliases"] = aliases
+        return station
 
     def radio_set(self, d):
         cfg = self._assist_keys_migrate(self._assist_config())
@@ -3266,6 +3271,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/radio": lambda: p.radio_set(d),
             "/api/radio/play": lambda: p.radio_play(d),
             "/api/radio/stop": p.radio_stop,
+            "/api/radio/miss-seen": lambda: p.assistant_command({"radio_miss_seen": True}),
             "/api/radio/alice": lambda: p.radio_alice(d.get("name")),
             "/api/assistant/remove": p.assistant_remove,
             "/api/assistant/models": lambda: p.assistant_models(d),

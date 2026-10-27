@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,8 +22,9 @@ import (
 )
 
 type Station struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name    string   `json:"name"`
+	URL     string   `json:"url"`
+	Aliases []string `json:"aliases,omitempty"` // как название слышит Алиса: «флакс» для FLUX
 }
 
 type Radio struct {
@@ -277,8 +279,12 @@ func findStation(said string, stations []Station) (Station, bool) {
 	best, bestScore := -1, 0.0
 	for i, st := range stations {
 		score := 0.0
+		var keys []string
+		for _, n := range append([]string{st.Name}, st.Aliases...) {
+			keys = append(keys, spokenKeys(n)...)
+		}
 		for _, a := range saidKeys {
-			for _, b := range spokenKeys(st.Name) {
+			for _, b := range keys {
 				switch {
 				case a == b:
 					return st, true
@@ -302,8 +308,14 @@ func findStation(said string, stations []Station) (Station, bool) {
 	return stations[best], true
 }
 
+// служебный хвост названий из каталога: «SomaFM Groove Salad (128k MP3)» → «SomaFM Groove Salad»
+var nameNoise = regexp.MustCompile(`(?i)\([^)]*\)|\[[^\]]*\]|\b\d+\s*k(bps|bit)?\b|\b(mp3|aac\+?|aacp|ogg|flac|hd|hq|stream)\b`)
+
 // spokenKeys — варианты написания названия для сравнения: без пробелов и знаков, и то же кириллицей.
 func spokenKeys(s string) []string {
+	if cleaned := strings.TrimSpace(nameNoise.ReplaceAllString(s, " ")); cleaned != "" {
+		s = cleaned
+	}
 	plain := strings.ReplaceAll(normalize(s), " ", "")
 	if plain == "" {
 		return nil

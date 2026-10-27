@@ -91,3 +91,13 @@ class StationLogos(unittest.TestCase):
         with patch.object(server.urllib.request, "urlopen", return_value=io.BytesIO(json.dumps(found).encode())):
             panel._fetch_logo("Маяк", panel._radio_key("Маяк"))
         self.assertEqual(seen, ["https://a.example/mayak.png"])
+
+
+class StationAliases(unittest.TestCase):
+    def test_aliases_are_kept_and_trimmed(self):
+        panel = Radio.panel(Radio())
+        st = panel.radio_set({"stations": [{"name": "FLUX", "url": "http://a.example/x.mp3",
+                                            "aliases": [" флакс ", "", "x" * 60] + ["a"] * 10}]})
+        aliases = st["stations"][0]["aliases"]
+        self.assertEqual(aliases[:2], ["флакс", "x" * 40])
+        self.assertLessEqual(len(aliases), 8)

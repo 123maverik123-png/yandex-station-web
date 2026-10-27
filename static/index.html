@@ -1455,6 +1455,16 @@
       <div><h1>Радио</h1><div class="sub">Станции Алисы и свои интернет-радиостанции</div></div>
     </header>
 
+    <section class="card" id="rd-miss" style="margin-bottom:14px" hidden>
+      <div class="row" style="gap:10px;align-items:center">
+        <div style="flex:1 1 260px;min-width:0"><b>Алиса услышала «<span id="rd-miss-phrase"></span>», но такой станции нет.</b>
+          <div class="hint" style="margin:2px 0 0">Привяжите это название к станции — в следующий раз она найдётся сразу.</div></div>
+        <select class="field" id="rd-miss-station" aria-label="Станция"></select>
+        <button class="btn sm primary" id="rd-miss-bind">Привязать</button>
+        <button class="btn sm" id="rd-miss-skip">Не нужно</button>
+      </div>
+    </section>
+
     <section class="card" id="rd-now" style="margin-bottom:14px" hidden>
       <div class="rd-now">
         <svg width="28" height="28" aria-hidden="true"><use href="#i-radio"/></svg>
@@ -3636,6 +3646,14 @@ async function loadRadio() {
   let st;
   try { st = await api('/api/radio'); } catch (e) { return e.offline || toast(e.message, true); }
   rd.st = st;
+  // промах голосом: предлагаем привязать услышанное название к станции
+  const miss = st.miss?.phrase && st.stations.length ? st.miss : null;
+  $('#rd-miss').hidden = !miss;
+  if (miss && rd.missShown !== miss.at) {
+    rd.missShown = miss.at;
+    $('#rd-miss-phrase').textContent = miss.phrase;
+    $('#rd-miss-station').innerHTML = st.stations.map((s, i) => `<option value="${i}">${esc(s.name)}</option>`).join('');
+  }
   if (JSON.stringify(st.alice) !== rd.alice) { rd.alice = JSON.stringify(st.alice); rdAliceView(st.alice || []); }
   $('#rd-missing').hidden = st.installed;
   $('#rd-unsupported').hidden = st.supported !== false;
@@ -3651,7 +3669,8 @@ async function loadRadio() {
   $('#rd-count').textContent = st.stations.length ? `${st.stations.length}` : '';
   $('#rd-list').innerHTML = st.stations.length ? st.stations.map((s, i) => `<div class="rd-row${now.url === s.url && now.playing ? ' on' : ''}">
       <button class="btn sm icon" data-rd-play="${i}" aria-label="Слушать ${esc(s.name)}"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg></button>
-      <div class="rd-name"><b>${esc(s.name)}</b><small>${esc(s.url)}</small></div>
+      <div class="rd-name"><b>${esc(s.name)}</b><small>${s.aliases?.length ? 'голосом: ' + s.aliases.map(esc).join(', ') + ' · ' : ''}${esc(s.url)}</small></div>
+      <button class="btn sm icon" data-rd-voice="${i}" aria-label="Как называть голосом ${esc(s.name)}" title="Как называть голосом">🗣</button>
       <button class="btn sm icon" data-rd-ren="${i}" aria-label="Переименовать ${esc(s.name)}" title="Переименовать">✎</button>
       <button class="btn sm icon" data-rd-del="${i}" aria-label="Удалить ${esc(s.name)}">×</button></div>`).join('')
     : '<div class="empty">Добавьте станцию ниже или найдите в каталоге.</div>';
@@ -3681,6 +3700,12 @@ const rdSave = (btn, stations, msg) => act(btn, async () => { rd.st = await api(
 $('#rd-list').onclick = e => {
   const play = e.target.closest('[data-rd-play]'), del = e.target.closest('[data-rd-del]'), ren = e.target.closest('[data-rd-ren]');
   if (play) rdPlay(play, rd.st.stations[+play.dataset.rdPlay]);
+  const voice = e.target.closest('[data-rd-voice]');
+  if (voice) {
+    const i = +voice.dataset.rdVoice, s = rd.st.stations[i];
+    const v = prompt(`Как вы называете «${s.name}» голосом? Несколько вариантов — через запятую:`, (s.aliases || []).join(', '));
+    if (v !== null) rdSave(voice, rd.st.stations.map((x, k) => k === i ? { ...x, aliases: v.split(',').map(a => a.trim()).filter(Boolean) } : x), 'Сохранено');
+  }
   if (ren) {
     const i = +ren.dataset.rdRen, name = prompt('Название — как вы будете называть станцию голосом:', rd.st.stations[i].name)?.trim();
     if (name) rdSave(ren, rd.st.stations.map((s, k) => k === i ? { ...s, name } : s), 'Название изменено');
@@ -3695,6 +3720,15 @@ $('#rd-add').onsubmit = e => {
   const f = e.target.elements, s = { name: f.name.value.trim(), url: f.url.value.trim() };
   rdSave(e.submitter, [...(rd.st?.stations || []), s], 'Станция добавлена').then(() => { f.name.value = ''; f.url.value = ''; });
 };
+$('#rd-miss-bind').onclick = e => {
+  const i = +$('#rd-miss-station').value, phrase = $('#rd-miss-phrase').textContent;
+  act(e.currentTarget, async () => {
+    await api('/api/radio', { stations: rd.st.stations.map((s, k) => k === i ? { ...s, aliases: [...new Set([...(s.aliases || []), phrase])] } : s) });
+    await api('/api/radio/miss-seen', {});
+    await loadRadio();
+  }, `«${phrase}» теперь включает «${rd.st.stations[i].name}»`);
+};
+$('#rd-miss-skip').onclick = e => act(e.currentTarget, async () => { await api('/api/radio/miss-seen', {}); await loadRadio(); });
 $('#rd-stop').onclick = e => act(e.currentTarget, async () => { await api('/api/radio/stop', {}); setTimeout(loadRadio, 500); });
 $('#rd-voice').onchange = e => act(null, async () => { await api('/api/radio', { voice: e.target.checked }); await loadRadio(); });
 $('#rd-install').onclick = e => act(e.currentTarget, async () => { await api('/api/assistant/install', {}); await loadRadio(); }, 'Программа установлена');

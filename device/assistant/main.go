@@ -65,6 +65,8 @@ type Daemon struct {
 	// состояние самой Алисы по журналу: idle, listening, busy, speaking
 	aliceState string
 	lastRadio  string
+	// последняя станция, которую не нашли по голосу, — панель предложит привязать это название
+	radioMiss map[string]any
 }
 
 func (d *Daemon) reload() {
@@ -104,7 +106,7 @@ func (d *Daemon) writeStatus() {
 	d.dirty = false
 	s := map[string]any{"pid": os.Getpid(), "version": version, "state": d.state, "error": d.err,
 		"config_error": d.cfgErr, "enabled": d.cfg.Enabled, "history": d.history, "at": time.Now().Unix(),
-		"mode": d.mode, "radio": d.radio.Status()}
+		"mode": d.mode, "radio": d.radio.Status(), "radio_miss": d.radioMiss}
 	if d.mode {
 		s["mode_until"] = d.modeAt.Add(time.Duration(d.cfg.Mode.TimeoutMin) * time.Minute).Unix()
 	}
@@ -319,7 +321,10 @@ func (d *Daemon) onRadio(ev logEvent, c Config, ours bool) bool {
 			d.resume = false
 			d.mu.Unlock()
 			if !found {
-				d.speak(context.Background(), c, "Такой станции нет в списке.")
+				d.mu.Lock()
+				d.radioMiss, d.dirty = map[string]any{"phrase": name, "at": time.Now().Unix()}, true
+				d.mu.Unlock()
+				d.speak(context.Background(), c, "Такой станции нет в списке. Привяжите это название в панели.")
 				return true
 			}
 			log.Printf("радио голосом: %s", st.Name)
@@ -446,6 +451,7 @@ func (d *Daemon) command() {
 		Mode      *bool    `json:"mode"`
 		Radio     *Station `json:"radio"`
 		RadioStop bool     `json:"radio_stop"`
+		MissSeen  bool     `json:"radio_miss_seen"`
 	}
 	if json.Unmarshal(b, &cmd) != nil {
 		return
@@ -467,7 +473,12 @@ func (d *Daemon) command() {
 			log.Printf("радио: %v", err)
 		}
 	}
-	if cmd.RadioStop || cmd.Radio != nil {
+	if cmd.MissSeen {
+		d.mu.Lock()
+		d.radioMiss = nil
+		d.mu.Unlock()
+	}
+	if cmd.RadioStop || cmd.Radio != nil || cmd.MissSeen {
 		d.mu.Lock()
 		d.dirty = true
 		d.mu.Unlock()
