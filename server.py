@@ -407,7 +407,7 @@ class Adb:
         with self._transfer():
             p = subprocess.run(self._base() + ["pull", "-a", remote, str(local)], capture_output=True, timeout=timeout)
         if p.returncode != 0:
-            raise AdbError((p.stderr or p.stdout).decode("utf-8", "replace").strip())
+            raise AdbError(adb_usage_error((p.stderr or p.stdout).decode("utf-8", "replace").strip(), "pull -a"))
 
     def read_bytes(self, remote, timeout=120):
         with tempfile.TemporaryDirectory() as td:
@@ -432,7 +432,7 @@ class Adb:
         with self._transfer():
             p = subprocess.run(self._base() + ["push", str(local), remote], capture_output=True, timeout=timeout)
         if p.returncode != 0:
-            raise AdbError(p.stderr.decode("utf-8", "replace").strip())
+            raise AdbError(adb_usage_error(p.stderr.decode("utf-8", "replace").strip(), "push"))
 
     def devices(self):
         p = subprocess.run([self.adb, "devices", "-l"], capture_output=True, timeout=10)
@@ -443,7 +443,7 @@ class Adb:
         p = subprocess.run(self._base() + ["forward", "tcp:0", f"tcp:{remote_port}"], capture_output=True, timeout=10)
         out = p.stdout.decode().strip()
         if p.returncode != 0 or not out.isdigit():
-            raise AdbError("adb forward: " + (p.stderr.decode().strip() or out))
+            raise AdbError("adb forward: " + adb_usage_error(p.stderr.decode("utf-8", "replace").strip() or out, "forward tcp:0"))
         return int(out)
 
 
@@ -923,6 +923,30 @@ class LedStream:
                 self.running = False
 
 
+# pull -a и forward tcp:0 появились в новых adb; 1.0.31 вместо ответа печатает справку. 1.0.39 — platform-tools 28 (2018).
+ADB_MIN = (1, 0, 39)
+ADB_OLD = ("adb {got} слишком старый ({path}): панели нужен adb {need} или новее (Android platform-tools 28+).\n"
+           "Скачайте свежий: https://developer.android.com/tools/releases/platform-tools — и положите папку platform-tools\n"
+           "рядом с server.py, укажите путь в переменной ADB или уберите старый adb из PATH.")
+
+
+def adb_version(path):
+    """(1, 0, 41) из «Android Debug Bridge version 1.0.41»; None — не удалось узнать."""
+    try:
+        out = subprocess.run([path, "version"], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.search(r"version (\d+)\.(\d+)\.(\d+)", out)
+    return tuple(map(int, m.groups())) if m else None
+
+
+def adb_usage_error(text, what):
+    """Старый adb на незнакомую команду отвечает простынёй справки — показываем вместо неё понятную причину."""
+    if "Android Debug Bridge version" in text and len(text) > 300:
+        return f"adb не понял команду «{what}» — похоже, он слишком старый, нужен platform-tools 28+"
+    return text
+
+
 def find_adb():
     exe = "adb.exe" if os.name == "nt" else "adb"
     cands = [os.environ.get("ADB"), shutil.which("adb"), str(ROOT / "platform-tools" / exe),
@@ -934,9 +958,15 @@ def find_adb():
         cands.append(str(Path.home() / "Library/Android/sdk/platform-tools/adb"))
     if os.name == "nt":
         cands.append(str(Path(os.environ.get("LOCALAPPDATA", "")) / "Android/Sdk/platform-tools/adb.exe"))
+    old = None
     for cand in cands:
         if cand and Path(cand).is_file():
-            return cand
+            version = adb_version(cand)
+            if version is None or version >= ADB_MIN:
+                return cand
+            old = old or (cand, version)
+    if old:
+        raise SystemExit(ADB_OLD.format(got=".".join(map(str, old[1])), path=old[0], need=".".join(map(str, ADB_MIN))))
     raise SystemExit("adb не найден. Установите Android platform-tools (https://developer.android.com/tools/releases/platform-tools)\n"
                      "и добавьте в PATH, положите папку platform-tools рядом с server.py или укажите путь в переменной ADB.")
 

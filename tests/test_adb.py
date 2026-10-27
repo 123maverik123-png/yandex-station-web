@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 
 import server
 
@@ -56,3 +57,23 @@ class TransferTests(unittest.TestCase):
             run.assert_not_called()
             self.assertFalse(conn._alive())
         self.assertEqual(adb.transfers, 0)
+
+
+class AdbVersionTests(unittest.TestCase):
+    def test_old_adb_is_skipped_and_reported(self):
+        import subprocess as sp
+        versions = {"/old/adb": "Android Debug Bridge version 1.0.31\n", "/new/adb": "Android Debug Bridge version 1.0.41\n"}
+        run = lambda args, **kw: SimpleNamespace(stdout=versions.get(args[0], ""), returncode=0)
+        with patch.object(server.subprocess, "run", side_effect=run), patch.object(server.Path, "is_file", return_value=True), \
+             patch.dict(os.environ, {"ADB": "/old/adb"}), patch.object(server.shutil, "which", return_value="/new/adb"):
+            self.assertEqual(server.find_adb(), "/new/adb")
+        with patch.object(server.subprocess, "run", side_effect=run), patch.object(server.Path, "is_file", side_effect=[True] + [False] * 20), \
+             patch.dict(os.environ, {"ADB": "/old/adb"}), patch.object(server.shutil, "which", return_value=None):
+            with self.assertRaises(SystemExit) as e:
+                server.find_adb()
+            self.assertIn("1.0.31", str(e.exception))
+
+    def test_usage_dump_becomes_a_short_message(self):
+        dump = "Android Debug Bridge version 1.0.31\n\n" + " -a - directs adb to listen on all interfaces\n" * 20
+        self.assertIn("слишком старый", server.adb_usage_error(dump, "pull -a"))
+        self.assertEqual(server.adb_usage_error("error: device offline", "pull -a"), "error: device offline")

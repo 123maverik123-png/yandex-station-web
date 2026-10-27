@@ -98,7 +98,7 @@
 
 - Яндекс Станция Лайт 2 с **root-доступом по adb** — по сети (`adb connect <IP>:5555`) или по USB.
 - Компьютер или сервер в той же сети:
-  - **Python 3.9+** (только стандартная библиотека) и **adb** ([Android platform-tools](https://developer.android.com/tools/releases/platform-tools));
+  - **Python 3.9+** (только стандартная библиотека) и **adb** ([Android platform-tools](https://developer.android.com/tools/releases/platform-tools) 28 или новее — старый adb, например 1.0.31 из старых дистрибутивов, панель не примет);
   - для заставки и анимаций часов (формат zstd) — **Python 3.14+** или программа **zstd**;
   - по желанию **ffmpeg** — чтобы играть mp3/ogg/opus и менять звуки (без него — только WAV) и **openssl** — для HTTPS;
   - или **Docker** — там всё уже есть.
