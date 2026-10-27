@@ -1265,7 +1265,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         return {"v": v[:len(CLOCK_LEDS)], "ring": [r[0:3], r[3:6], r[6:9]]}
 
     def ring_frames(self, name):
-        """Кадры анимации кольца (.led): «loop» в первой строке, далее «RRGGBB RRGGBB RRGGBB мс»."""
+        """Кадры анимации кольца (.led): «loop» в первой строке, далее «RRGGBB … мс» (3 цвета у Лайт 2, 6 у Мини 2)."""
         if name not in self.patterns()["ring"]:
             raise AdbError("нет такого паттерна")
         text = self.adb.read_bytes(f"{PATTERNS['ring']}/{name}").decode("utf-8", "replace")
@@ -1274,10 +1274,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             parts = line.split()
             if parts == ["loop"]:
                 loop = True
-            elif len(parts) == 4:
+            elif len(parts) >= 2:
                 try:
-                    frames.append({"c": [[int(h[i:i + 2], 16) for i in (0, 2, 4)] for h in parts[:3]],
-                                   "ms": int(parts[3])})
+                    frames.append({"c": [[int(h[i:i + 2], 16) for i in (0, 2, 4)] for h in parts[:-1]],
+                                   "ms": int(parts[-1])})
                 except ValueError:
                     continue
         return {"loop": loop, "frames": frames}

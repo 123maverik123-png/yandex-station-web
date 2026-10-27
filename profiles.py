@@ -65,6 +65,11 @@ def mini2_encode_clock_pattern(s, frames):
     return bytes(out)
 
 
+# led_util, запущенный панелью для анимации кольца
+MINI2_STOP_RING = ('for f in /tmp/webpanel_ring.pid /tmp/webpanel_ring.sd; do '
+                   '[ -f $f ] && kill $(cat $f) 2>/dev/null; rm -f $f; done; true')
+
+
 def mini2_ring_script(rgb=None, leds='/sys/class/leds', state='/tmp/webpanel_ring.before'):
     """Кольцо Мини 2 — 6 RGB без триггеров: Quasar сам пишет brightness. Перед своим цветом запоминаем
     прежний, сброс возвращает его."""
@@ -224,10 +229,18 @@ def install(s, model='lite2', auto=False):
         if model not in ('mini3pro', 'mini2'):
             return {'ring': [], 'clock': []}
         out, _, _ = self.adb.shell(f'find {s.QUASAR}/ledpatterns/clock -maxdepth 1 -type f 2>/dev/null; true')
-        return {'ring': [], 'clock': [Path(line).name for line in out.splitlines()]}
+        result = {'ring': [], 'clock': [Path(line).name for line in out.splitlines()]}
+        if model == 'mini2':   # кольцо Мини 2 штатный led_util рисует сам
+            out, _, _ = self.adb.shell(f"find {s.PATTERNS['ring']} -maxdepth 1 -name '*.led' -type f 2>/dev/null; true")
+            result['ring'] = sorted(Path(line).name for line in out.splitlines())
+        return result
     P.patterns = patterns
 
+    original_play = P.play_pattern
+
     def play_pattern(self, kind, name, seconds):
+        if kind == 'ring' and model == 'mini2':
+            return original_play(self, kind, name, seconds)
         if kind != 'clock' or model not in ('mini3pro', 'mini2'):
             return unsupported()
         if name not in self.patterns()['clock']:
@@ -289,7 +302,7 @@ def install(s, model='lite2', auto=False):
         if model == 'mini3pro':
             self.adb.shell(mini3pro_ring_script(rgb))
         elif model == 'mini2':
-            self.adb.shell(mini2_ring_script(rgb))
+            self.adb.shell(MINI2_STOP_RING + '\n' + mini2_ring_script(rgb))
         else:
             self.adb.shell('test "$(cat /sys/class/graphics/fb0/virtual_size)" = "89,1" && '
                            'test "$(cat /sys/class/graphics/fb0/bits_per_pixel)" = 32 || exit 1; '
@@ -317,6 +330,8 @@ def install(s, model='lite2', auto=False):
     original_stop = P.stop_pattern
     def stop(self, kind=None):
         if kind in (None, 'ring'):
+            if model == 'mini2':
+                self.adb.shell(MINI2_STOP_RING)
             self.ring_reset()
         if kind in (None, 'clock') and profile['clock']:
             original_stop(self, 'clock')
