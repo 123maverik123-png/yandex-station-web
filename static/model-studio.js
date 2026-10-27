@@ -3,11 +3,11 @@ import * as T from 'three';
 import { OrbitControls } from './vendor/three/OrbitControls.js';
 import {modelSettings} from './model-settings.js';
 export function createModel(profile){
-const view=document.getElementById('model-view'),lite=profile.id==='lite',mini=lite||profile.id==='mini3pro'||profile.id==='mini3';
+const view=document.getElementById('model-view'),lite=profile.id==='lite',mini2=profile.id==='mini2',mini=lite||mini2||profile.id==='mini3pro'||profile.id==='mini3';
 view.setAttribute('role','group');view.setAttribute('aria-label','3D-модель: вращайте мышью или пальцем');view.classList.add('studio-view');
 // Preserve upstream visualizer canvas and the references held by its animation loop.
 // Лайт первого поколения: цвета как в её ledconfigs (purple, yellow, green, pink, red, beige).
-const palette=lite?{purple:['Фиолетовый','#6a3fe6'],yellow:['Жёлтый','#f0c43a'],green:['Зелёный','#59b96d'],pink:['Розовый','#ec2c7c'],red:['Красный','#d9473f'],beige:['Бежевый','#d8c6ab']}:profile.id==='mini3'?{black:['Чёрный','#34343a'],grey:['Серый','#a0a2a8'],violet:['Лиловый','#9b8eaa'],teal:['Бирюзовый','#6aa6a7']}:mini?{black:['Графит','#34343a'],grey:['Серый','#888b91'],blue:['Синий','#355d82']}:{black:['Антрацит','#3b3c40'],blue:['Кобальт','#485c85'],copper:['Медный','#a66d5d'],sand:['Песочный','#c5baaa'],red:['Рубин','#8c3447']};
+const palette=lite?{purple:['Фиолетовый','#6a3fe6'],yellow:['Жёлтый','#f0c43a'],green:['Зелёный','#59b96d'],pink:['Розовый','#ec2c7c'],red:['Красный','#d9473f'],beige:['Бежевый','#d8c6ab']}:profile.id==='mini3'?{black:['Чёрный','#34343a'],grey:['Серый','#a0a2a8'],violet:['Лиловый','#9b8eaa'],teal:['Бирюзовый','#6aa6a7']}:profile.id==='mini2'?{black:['Чёрный','#34343a'],blue:['Синий','#355d82'],red:['Красный','#a8423f']}:mini?{black:['Графит','#34343a'],grey:['Серый','#888b91'],blue:['Синий','#355d82']}:{black:['Антрацит','#3b3c40'],blue:['Кобальт','#485c85'],copper:['Медный','#a66d5d'],sand:['Песочный','#c5baaa'],red:['Рубин','#8c3447']};
 let renderer;
 try{renderer=new T.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});}catch(e){view.insertAdjacentHTML('beforeend','<p class="studio-error">Для объёмной модели включите WebGL в браузере.</p>');throw e;}
 renderer.domElement.className='studio-canvas';renderer.domElement.setAttribute('aria-label',profile.name+' — вращаемая 3D-модель');
@@ -66,6 +66,25 @@ if(lite){
   const usbDecal=mesh(new T.PlaneGeometry(9.6,9.6),new T.MeshStandardMaterial({map:usb,transparent:true,roughness:.5,metalness:.3,polygonOffset:true,polygonOffsetFactor:-1}),0,-9,-44.03);
   usbDecal.rotation.y=Math.PI;
   topY=28;baseY=-28;
+}else if(mini2){
+  // Мини 2 по фото: прямой тканевый цилиндр 97 × 54 мм, плоская чёрная крышка с перфорацией по краю,
+  // «−» и «+», четыре микрофона. Светится только кольцо логотипа Алисы в центре (6 RGB), сбоку — бирка «Я».
+  mesh(new T.LatheGeometry([[0,-27],[46.6,-27],[48,-26.5],[48.5,-25.2],[48.5,24.8],[48.1,25.4],[0,25.4]].map(p=>new T.Vector2(...p)),192),fabric);
+  const capTex=canvasTexture(1024,(c,n)=>{const R=n/2;c.fillStyle='#1d1e22';c.fillRect(0,0,n,n);c.translate(R,R);c.fillStyle='#050506';
+    for(let ring=0;ring<4;ring++){const r=R*(.86+ring*.035),count=Math.round(150+ring*8);
+      for(let i=0;i<count;i++){const a=(i+(ring%2)/2)/count*Math.PI*2;c.beginPath();c.arc(r*Math.cos(a),r*Math.sin(a),3.2,0,7);c.fill();}}
+    c.strokeStyle='#b9bac0';c.lineWidth=6;c.lineCap='round';const k=R*.5;
+    c.beginPath();c.moveTo(-k-22,0);c.lineTo(-k+22,0);c.moveTo(k-22,0);c.lineTo(k+22,0);c.moveTo(k,-22);c.lineTo(k,22);c.stroke();   // − и +
+    c.fillStyle='#08080a';for(const[x,y]of[[-.27,-.3],[.27,-.3],[-.27,.3],[.27,.3]]){c.beginPath();c.arc(x*R,y*R,7,0,7);c.fill();}});
+  capTex.center.set(.5,.5);capTex.rotation=Math.PI/2;   // UV крышки цилиндра повёрнуты: «−» слева, «+» справа
+  mesh(new T.CylinderGeometry(48.1,48.1,1.2,192),[new T.MeshStandardMaterial({color:'#1d1e22',roughness:.6}),new T.MeshStandardMaterial({map:capTex,roughness:.6}),new T.MeshStandardMaterial({color:'#1d1e22'})],0,25.4);
+  for(let i=0;i<6;i++){const arc=mesh(new T.RingGeometry(3.4,5.4,16,1,Math.PI/2-(i+1)*Math.PI/3,Math.PI/3+.01),ledMaterial(),0,26.05);arc.rotation.x=-Math.PI/2;}
+  const tagTex=canvasTexture(128,(c,n)=>{c.fillStyle='#2a2b30';c.fillRect(0,0,n,n);c.font='300 64px "Helvetica Neue", Arial, sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillStyle='#55565c';c.fillText('Я',n/2,n/2+4);});
+  const side=.62,tag=new T.Group();tag.position.set(48.9*Math.sin(side),20.5,48.9*Math.cos(side));tag.rotation.y=side;group.add(tag);
+  const tagMat=new T.MeshStandardMaterial({color:'#2a2b30',roughness:.7});
+  mesh(new T.BoxGeometry(7.5,11,.9),[tagMat,tagMat,tagMat,tagMat,new T.MeshStandardMaterial({map:tagTex,roughness:.7}),tagMat],0,0,0,tag);
+  mesh(new T.BoxGeometry(7.5,.9,3.2),tagMat,0,5.3,-1.6,tag);   // загнута на крышку
+  topY=26;baseY=-27;port(-20,-48.6);
 }else if(mini){
   const points=[[0,-35],[43,-35],[47,-34],[49.4,-31],[50.4,-26],[51,-18],[51,20],[50.8,28],[49.6,31],[0,31]].map(p=>new T.Vector2(...p));
   const shell=new T.LatheGeometry(points,192),shellUV=shell.attributes.uv,shellPosition=shell.attributes.position;
@@ -98,14 +117,18 @@ const liteTex=lite&&canvasTexture(1024,(c,n)=>{const R=n/2;c.translate(R,R);
   c.save();c.translate(0,-k);c.scale(1.5,1.5);c.lineWidth=4.6;c.beginPath();c.roundRect(-11,-34,22,38,11);c.moveTo(-19,-8);c.quadraticCurveTo(-19,16,0,16);c.quadraticCurveTo(19,16,19,-8);
   c.moveTo(0,16);c.lineTo(0,28);c.moveTo(-13,28);c.lineTo(13,28);c.moveTo(-22,12);c.lineTo(22,-30);c.stroke();c.restore();            // микрофон выключен
 });
+if(!mini2){
 const topMarks=mesh(lite?new T.CircleGeometry(43.5,128):new T.PlaneGeometry(mini?98:117,mini?98:93),lite?new T.MeshBasicMaterial({map:liteTex,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}):new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.renderOrder=1;   // прозрачные слои крышки — всегда в одном порядке, иначе мерцают при вращении
 topMarks.castShadow=false;
+}
 if(mini&&!lite){
   const white=new T.MeshStandardMaterial({color:'#fff9e8',emissive:'#fff2d6',emissiveIntensity:2,roughness:.8,toneMapped:false});
   function horizontal(){const s=new T.Shape();s.moveTo(-3.5,0);s.lineTo(-2.5,1);s.lineTo(2.5,1);s.lineTo(3.5,0);s.lineTo(2.5,-1);s.lineTo(-2.5,-1);s.closePath();return new T.ShapeGeometry(s);}
   const positions=[[0,10,0],[4.2,5,1],[4.2,-5,1],[0,-10,0],[-4.2,-5,1],[-4.2,5,1],[0,0,0]];
-  for(let digit=0;digit<4;digit++)for(let j=0;j<8;j++){const[dx,dy,vertical]=positions[j]||[0,3,0],x=[-19,-7,7,19][digit]+dx,theta=x/51;const seg=mesh(j===7?new T.CircleGeometry(.7,12):horizontal(),white,51.3*Math.sin(theta),dy-3,51.3*Math.cos(theta));seg.rotation.y=theta;if(vertical){seg.geometry.scale(1.25,.8,1);seg.rotateZ(Math.PI/2);}seg.castShadow=false;seg.visible=false;clockSegments.push(seg);}
-  for(const[x,y]of[[29,10],[0,1],[0,-7],[0,-3]]){const theta=x/51,geometry=clockSegments.length===32?new T.RingGeometry(.9,1.4,20):clockSegments.length===35?new T.PlaneGeometry(3,1):new T.CircleGeometry(.9,16),s=mesh(geometry,white,51.3*Math.sin(theta),y,51.3*Math.cos(theta));s.rotation.y=theta;s.visible=false;s.castShadow=false;clockSegments.push(s);}
+  // у Мини 2 цифры крупнее и корпус уже: радиус, шаг и масштаб цифр свои
+  const R=mini2?48.8:51.3,DX=mini2?[-21,-8,8,21]:[-19,-7,7,19],K=mini2?1.1:1,Y=mini2?-2:-3;
+  for(let digit=0;digit<4;digit++)for(let j=0;j<8;j++){const[dx,dy,vertical]=positions[j]||[0,3,0],x=DX[digit]+dx*K,theta=x/R;const seg=mesh(j===7?new T.CircleGeometry(.7,12):horizontal(),white,(R+.3)*Math.sin(theta),dy*K+Y,(R+.3)*Math.cos(theta));seg.rotation.y=theta;seg.geometry.scale(K,K,1);if(vertical){seg.geometry.scale(1.25,.8,1);seg.rotateZ(Math.PI/2);}seg.castShadow=false;seg.visible=false;clockSegments.push(seg);}
+  for(const[x,y]of[[mini2?32:29,10*K+Y+3],[0,1*K+Y+3],[0,-7*K+Y+3],[0,-3*K+Y+3]]){const theta=x/R,geometry=clockSegments.length===32?new T.RingGeometry(.9,1.4,20):clockSegments.length===35?new T.PlaneGeometry(3,1):new T.CircleGeometry(.9,16),s=mesh(geometry,white,(R+.3)*Math.sin(theta),y,(R+.3)*Math.cos(theta));s.rotation.y=theta;s.visible=false;s.castShadow=false;clockSegments.push(s);}
 }
 let dirty=true;
 window.modelShow=values=>{clockSegments.forEach((s,i)=>{s.visible=Number(values?.[i])>0;});dirty=true;};

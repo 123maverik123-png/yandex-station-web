@@ -93,6 +93,15 @@ except OSError:
     VERSION = "0.0.0"
 REPO = "dimap/yandex-station-web"
 LED_PREFIX = "plum"
+# Каталог сегментов часов, если он не {LEDS}/{LED_PREFIX}:white:clock: у Мини 2 сегменты называются иначе,
+# и профиль раскладывает их по именам Лайт 2 ссылками в /tmp (см. profiles.py).
+CLOCK_PATH = None
+
+
+def clock_path():
+    return CLOCK_PATH or f"{LEDS}/{LED_PREFIX}:white:clock"
+
+
 GLAGOL_PLATFORM = "plum"   # так Лайт 2 называет себя в запросах check_updates
 # Где панель хранит своё (токен Яндекса, пароль, сертификаты, история графиков). По умолчанию — рядом с server.py;
 # --data-dir / PANEL_DATA_DIR меняет это (в Docker — том /data). Пути пересчитываются в set_data_dir().
@@ -315,7 +324,7 @@ def clock_player_script(frames):
     names = " ".join(CLOCK_LEDS)
     lines = [
         "#!/bin/sh",
-        f"L={LEDS}/{LED_PREFIX}:white:clock",
+        f"L={clock_path()}",
         f"for n in {names}; do echo \"$n $(cat $L$n/brightness)\"; done > {snap}",
         f"restore() {{ while read n v; do echo $v > $L$n/brightness; done < {snap}; rm -f {snap}; exit 0; }}",
         "trap restore TERM INT",
@@ -581,10 +590,10 @@ def clock_restore_sh():
     draw = " ".join(f"{ch}) S={segs};;" for ch, segs in SEGMENTS.items() if ch.isdigit())
     return "\n".join([
         f"snap_save() {{ {{ echo \"t $(date +%s)\"; for n in {' '.join(CLOCK_LEDS)}; do "
-        f"echo \"$n $(cat {LEDS}/{LED_PREFIX}:white:clock$n/brightness)\"; done; }} > \"$1\"; }}",
+        f"echo \"$n $(cat {clock_path()}$n/brightness)\"; done; }} > \"$1\"; }}",
         "clock_restore() {",
         "  [ -f \"$1\" ] || return 0",
-        f"  while read n v; do [ \"$n\" = t ] || echo $v > {LEDS}/{LED_PREFIX}:white:clock$n/brightness; done < \"$1\"",
+        f"  while read n v; do [ \"$n\" = t ] || echo $v > {clock_path()}$n/brightness; done < \"$1\"",
         "  t0=$(sed -n 's/^t //p' \"$1\"); [ -n \"$t0\" ] || return 0",
         "  el=$(( $(date +%s) / 60 - t0 / 60 )); [ $el -gt 0 ] || return 0",
         "  hm=''; B=0",
@@ -607,7 +616,7 @@ def clock_restore_sh():
         "  p=0",
         "  for c in $(echo \"$new\" | sed 's/./& /g'); do",
         f"    case \"$c\" in {draw} *) S='';; esac",
-        f"    for g in A B C D E F G; do case \"$S\" in *$g*) v=$B;; *) v=0;; esac; echo $v > {LEDS}/{LED_PREFIX}:white:clock$g$p/brightness; done",
+        f"    for g in A B C D E F G; do case \"$S\" in *$g*) v=$B;; *) v=0;; esac; echo $v > {clock_path()}$g$p/brightness; done",
         "    p=$((p + 1))",
         "  done",
         "}",
@@ -624,7 +633,7 @@ def display_script(mode, frame=None, seconds=0, bright=160):
     """
     lines = [
         "#!/bin/sh",
-        f"L={LEDS}/{LED_PREFIX}:white:clock",
+        f"L={clock_path()}",
         f"B={bright}",
         clock_restore_sh(),
         # если перед этим был «один раз», в его снимке — настоящие часы; иначе снимаем сейчас
@@ -1232,7 +1241,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 raise AdbError(f"нужно {len(CLOCK_LEDS)} значений")
             self.stop_pattern("clock")
             self.display_stop()
-            self.adb.shell(self._once_snapshot() + "; ".join(f"echo {val} > {LEDS}/{LED_PREFIX}:white:clock{n}/brightness"
+            self.adb.shell(self._once_snapshot() + "; ".join(f"echo {val} > {clock_path()}{n}/brightness"
                                                              for n, val in zip(CLOCK_LEDS, v)))
             return {"ok": True}
         text = str(data.get("text", "")).upper()
@@ -1249,10 +1258,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         for pos, (ch, dot) in enumerate(cells):
             on = set(SEGMENTS.get(ch, "")) | ({"H"} if dot else set())
             for seg in "ABCDEFGH":
-                cmds.append(f"echo {bright if seg in on else 0} > {LEDS}/{LED_PREFIX}:white:clock{seg}{pos}/brightness")
+                cmds.append(f"echo {bright if seg in on else 0} > {clock_path()}{seg}{pos}/brightness")
         for extra in ("DEGREE", "DH", "DL", "DM"):
             v = bright if data.get(extra.lower()) else 0
-            cmds.append(f"echo {v} > {LEDS}/{LED_PREFIX}:white:clock{extra}/brightness")
+            cmds.append(f"echo {v} > {clock_path()}{extra}/brightness")
         self.adb.shell(self._once_snapshot() + "; ".join(cmds))
         return {"ok": True}
 
@@ -1268,7 +1277,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         return {"v": v[:len(CLOCK_LEDS)], "ring": [r[0:3], r[3:6], r[6:9]]}
 
     def ring_frames(self, name):
-        """Кадры анимации кольца (.led): «loop» в первой строке, далее «RRGGBB RRGGBB RRGGBB мс»."""
+        """Кадры анимации кольца (.led): «loop» в первой строке, далее «RRGGBB … мс» (3 цвета у Лайт 2, 6 у Мини 2)."""
         if name not in self.patterns()["ring"]:
             raise AdbError("нет такого паттерна")
         text = self.adb.read_bytes(f"{PATTERNS['ring']}/{name}").decode("utf-8", "replace")
@@ -1277,10 +1286,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             parts = line.split()
             if parts == ["loop"]:
                 loop = True
-            elif len(parts) == 4:
+            elif len(parts) >= 2:
                 try:
-                    frames.append({"c": [[int(h[i:i + 2], 16) for i in (0, 2, 4)] for h in parts[:3]],
-                                   "ms": int(parts[3])})
+                    frames.append({"c": [[int(h[i:i + 2], 16) for i in (0, 2, 4)] for h in parts[:-1]],
+                                   "ms": int(parts[-1])})
                 except ValueError:
                     continue
         return {"loop": loop, "frames": frames}
@@ -3109,7 +3118,8 @@ class PanelUpdater:
 
 # Платформа в device-tree (compatible «yandex,plum», модель «Yandex Plum EVT2») → профиль колонки.
 # Имя хоста тут не годится: владелец мог его переименовать.
-PLATFORM_MODELS = {"plum": "lite2", "pickle": "mini3pro", "bergamot": "mini3", "yandexmidi": "station2"}
+PLATFORM_MODELS = {"plum": "lite2", "pickle": "mini3pro", "bergamot": "mini3", "yandexmidi": "station2",
+                   "station-mini2": "mini2"}
 
 
 def detect_model(adb):
@@ -3299,7 +3309,7 @@ def main():
                     help="где хранить токен, пароль, сертификаты и историю (по умолчанию — рядом с server.py) [PANEL_DATA_DIR]")
     ap.add_argument("--open", action="store_true", help="открыть панель в браузере после запуска")
     ap.add_argument("--model", choices=[*profiles.PROFILES, "auto"], default=env("PANEL_MODEL", "auto"),
-                    help="профиль колонки: lite2, mini3pro, mini3, station2 или auto — определить по плате [PANEL_MODEL]")
+                    help="профиль колонки: lite2, mini3pro, mini3, mini2, station2 или auto — определить по плате [PANEL_MODEL]")
     args = ap.parse_args()
     for stream in (sys.stdout, sys.stderr):   # консоль Windows: русский текст не должен ронять сервер
         try:
