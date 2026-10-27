@@ -95,3 +95,21 @@ func TestRingFrame(t *testing.T) {
 		t.Fatal("нулевая яркость гасит кольцо")
 	}
 }
+
+func TestModePhrases(t *testing.T) {
+	path := t.TempDir() + "/config.json"
+	os.WriteFile(path, []byte(`{"mode":{"follow_up":false}}`), 0600)
+	c, _ := loadConfig(path)
+	if c.Mode.TimeoutMin != 10 || len(c.Mode.Enter) == 0 || len(c.Mode.Exit) == 0 || c.Mode.FollowUp {
+		t.Fatalf("%+v", c.Mode)
+	}
+	if _, ok := matchTrigger("Переключись на GPT, пожалуйста", c.Mode.Enter); !ok {
+		t.Fatal("фраза включения")
+	}
+	if _, ok := matchTrigger("Верни Алису", c.Mode.Exit); !ok {
+		t.Fatal("фраза выключения")
+	}
+	if _, ok := matchTrigger("включи музыку", c.Mode.Enter); ok {
+		t.Fatal("обычная просьба не включает режим")
+	}
+}

@@ -65,6 +65,9 @@ func (a *aliceCLI) send(lines ...string) error {
 // Warm запускает CLI заранее: на отмену у нас около секунды, а сам запуск CLI занимает полторы.
 func (a *aliceCLI) Warm() error { return a.send() }
 
+// Listen открывает микрофон Алисы, как будто её позвали: так продолжают беседу без «Алисы».
+func (a *aliceCLI) Listen() error { return a.send("s") }
+
 // Cancel — то же, что «Алиса, хватит»: обрывает текущий диалог и ответ из облака.
 func (a *aliceCLI) Cancel() error { return a.send("c") }
 

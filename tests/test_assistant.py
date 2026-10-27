@@ -48,6 +48,17 @@ class AssistantKeys(unittest.TestCase):
         with self.assertRaises(server.AdbError):
             panel.assistant_set({"tts": {"provider": "rm -rf"}})
 
+    def test_mode_phrases_and_timeout_are_sanitized(self):
+        panel = self.panel({})
+        panel.assistant_set({"mode": {"enter": ["  Переключись на GPT ", "", "x" * 100], "exit": ["верни алису"],
+                                      "timeout_min": 100000, "follow_up": False, "evil": 1}})
+        mode = panel.stored["mode"]
+        self.assertEqual(mode["enter"], ["Переключись на GPT", "x" * 60])
+        self.assertEqual(mode["exit"], ["верни алису"])
+        self.assertEqual(mode["timeout_min"], 240)
+        self.assertIs(mode["follow_up"], False)
+        self.assertNotIn("evil", mode)
+
     def test_question_length_checked_before_device(self):
         panel = self.panel({})
         for text in ("", "   ", "я" * 1001):

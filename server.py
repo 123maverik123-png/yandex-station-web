@@ -1456,7 +1456,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     # ---------- свой голосовой помощник ----------
     ASSIST_FIELDS = {"llm": ("base_url", "model", "system_prompt", "max_tokens", "history", "proxy"),
                      "tts": ("provider", "base_url", "model", "voice", "speed"),
-                     "led": ("enabled", "color")}
+                     "led": ("enabled", "color"),
+                     "mode": ("timeout_min", "follow_up")}
 
     def _assist_binary(self):
         """Собранный assistantd для колонки (linux/arm64). Есть Go — собираем из device/assistant сами."""
@@ -1557,8 +1558,12 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         cfg = self._assist_keys_migrate(self._assist_config())
         if "enabled" in d:
             cfg["enabled"] = bool(d["enabled"])
+        phrases = lambda xs: [str(x).strip()[:60] for x in xs if str(x).strip()][:10]
         if isinstance(d.get("triggers"), list):
-            cfg["triggers"] = [str(x).strip()[:60] for x in d["triggers"] if str(x).strip()][:10]
+            cfg["triggers"] = phrases(d["triggers"])
+        for k in ("enter", "exit"):
+            if isinstance((d.get("mode") or {}).get(k), list):
+                cfg.setdefault("mode", {})[k] = phrases(d["mode"][k])
         for part, fields in self.ASSIST_FIELDS.items():
             src = d.get(part)
             if not isinstance(src, dict):
@@ -1574,6 +1579,9 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 cfg["keys"][self._key_id(sec["base_url"])] = key
         if d.get("delete_key"):
             cfg["keys"].pop(self._key_id(d["delete_key"]), None)
+        mode = cfg.get("mode", {})
+        if "timeout_min" in mode:
+            mode["timeout_min"] = max(1, min(240, int(mode["timeout_min"])))
         led = cfg.get("led", {})
         if "color" in led and not re.fullmatch(r"#[0-9a-fA-F]{6}", str(led["color"])):
             raise AdbError("цвет подсветки — в виде #rrggbb")
@@ -2971,6 +2979,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/assistant/start": p.assistant_start,
             "/api/assistant/ask": lambda: p.assistant_ask(d.get("text")),
             "/api/assistant/stop": lambda: p.assistant_command({"stop": True}),
+            "/api/assistant/mode": lambda: p.assistant_command({"mode": bool(d.get("on"))}),
             "/api/assistant/remove": p.assistant_remove,
             "/api/assistant/models": lambda: p.assistant_models(d),
             "/api/panel/update": lambda: self.updater.update(),

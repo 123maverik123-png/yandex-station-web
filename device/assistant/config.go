@@ -32,7 +32,16 @@ type Config struct {
 	LLM      LLM               `json:"llm"`
 	TTS      TTS               `json:"tts"`
 	LED      LED               `json:"led"`
+	Mode     Mode              `json:"mode"`
 	Keys     map[string]string `json:"keys"` // ключ на каждый адрес API: сменили провайдера — ключ прежнего остался
+}
+
+// Mode — режим ассистента: после фразы включения все вопросы к «Алисе» уходят модели, без «спроси GPT».
+type Mode struct {
+	Enter      []string `json:"enter"`       // фразы включения
+	Exit       []string `json:"exit"`        // фразы выключения
+	TimeoutMin int      `json:"timeout_min"` // минут тишины до автоотключения
+	FollowUp   bool     `json:"follow_up"`   // после ответа слушать продолжение без «Алисы»
 }
 
 // keyID — один и тот же провайдер при любом написании адреса: без хвостового «/» и регистра хоста.
@@ -58,6 +67,9 @@ func defaults() Config {
 		LLM:      LLM{SystemPrompt: defaultPrompt, MaxTokens: 500, History: 6},
 		TTS:      TTS{Provider: "alice", Model: "tts-1", Speed: 1},
 		LED:      LED{Enabled: true, Color: "#ff8a00"},
+		Mode: Mode{Enter: []string{"переключись на gpt", "переключись на ассистента", "включи ассистента"},
+			Exit:       []string{"отключись от ассистента", "выключи ассистента", "верни алису", "вернись к алисе"},
+			TimeoutMin: 10, FollowUp: true},
 	}
 }
 
@@ -72,6 +84,15 @@ func loadConfig(path string) (Config, error) {
 	}
 	c.LLM.APIKey = c.keyFor(c.LLM.BaseURL, c.LLM.APIKey)
 	c.TTS.APIKey = c.keyFor(c.TTS.BaseURL, c.TTS.APIKey)
+	if len(c.Mode.Enter) == 0 {
+		c.Mode.Enter = defaults().Mode.Enter
+	}
+	if len(c.Mode.Exit) == 0 {
+		c.Mode.Exit = defaults().Mode.Exit
+	}
+	if c.Mode.TimeoutMin <= 0 {
+		c.Mode.TimeoutMin = 10
+	}
 	if len(c.Triggers) == 0 {
 		c.Triggers = defaults().Triggers
 	}

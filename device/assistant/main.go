@@ -56,6 +56,9 @@ type Daemon struct {
 	sayAt    time.Time
 	ours     bool
 	wokeUser bool
+	// режим ассистента: все вопросы к «Алисе» — модели; modeAt — последний разговор (для автоотключения)
+	mode   bool
+	modeAt time.Time
 }
 
 func (d *Daemon) reload() {
@@ -89,7 +92,11 @@ func (d *Daemon) writeStatus() {
 	}
 	d.dirty = false
 	s := map[string]any{"pid": os.Getpid(), "version": version, "state": d.state, "error": d.err,
-		"config_error": d.cfgErr, "enabled": d.cfg.Enabled, "history": d.history, "at": time.Now().Unix()}
+		"config_error": d.cfgErr, "enabled": d.cfg.Enabled, "history": d.history, "at": time.Now().Unix(),
+		"mode": d.mode}
+	if d.mode {
+		s["mode_until"] = d.modeAt.Add(time.Duration(d.cfg.Mode.TimeoutMin) * time.Minute).Unix()
+	}
 	d.mu.Unlock()
 	b, _ := json.Marshal(s)
 	tmp := d.statusPath + ".tmp"
@@ -162,6 +169,10 @@ func (d *Daemon) ask(question, source string) {
 		err = d.speak(ctx, c, answer)
 		unglow()
 		finish(err)
+		// беседа без «Алисы»: синтезатор не открывает микрофон сам, как это делает Алиса после своей речи
+		if err == nil && c.TTS.Provider == "openai" && c.Mode.FollowUp && d.inMode() {
+			d.alice.Listen()
+		}
 	}()
 }
 
@@ -184,6 +195,49 @@ func (d *Daemon) speak(ctx context.Context, c Config, text string) error {
 	return d.alice.Say(forSpeech(text, sayLimit))
 }
 
+func (d *Daemon) inMode() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.mode
+}
+
+// setMode включает и выключает режим ассистента; сообщает голосом и вспышкой кольца.
+func (d *Daemon) setMode(on bool, announce bool) {
+	d.mu.Lock()
+	changed := d.mode != on
+	d.mode, d.modeAt, d.dirty = on, time.Now(), true
+	c := d.cfg
+	d.mu.Unlock()
+	if !changed || !announce {
+		return
+	}
+	log.Printf("режим ассистента: %v", on)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 900*time.Millisecond)
+		done := make(chan struct{})
+		glow(ctx, c.LED, done)
+		cancel()
+		text := "Возвращаю Алису."
+		if on {
+			text = "Переключаюсь на ассистента. Спрашивайте."
+		}
+		if err := d.speak(context.Background(), c, text); err != nil {
+			log.Printf("не удалось сообщить о режиме: %v", err)
+		}
+	}()
+}
+
+// stopAnswer обрывает текущий ответ модели (запрос, озвучку и речь Алисы).
+func (d *Daemon) stopAnswer() {
+	d.mu.Lock()
+	if d.cancel != nil {
+		d.cancel()
+	}
+	d.mu.Unlock()
+	d.alice.Cancel()
+	d.set("idle", "")
+}
+
 func (d *Daemon) onEvent(ev logEvent) {
 	d.mu.Lock()
 	c := d.cfg
@@ -198,6 +252,9 @@ func (d *Daemon) onEvent(ev logEvent) {
 	case "listening":
 		if d.ours && !d.wokeUser {
 			d.ours = false
+			if d.mode && c.Mode.FollowUp {
+				break // беседа: Алиса договорила ответ и слушает продолжение — оно тоже уйдёт модели
+			}
 			d.mu.Unlock()
 			d.alice.Cancel() // Алиса договорила наш ответ и ждёт продолжения — не ждём
 			return
@@ -209,14 +266,37 @@ func (d *Daemon) onEvent(ev logEvent) {
 	if ev.kind != "phrase" || !c.Enabled {
 		return
 	}
-	question, ok := matchTrigger(ev.phrase, c.Triggers)
-	if !ok {
+	if _, ok := matchTrigger(ev.phrase, c.Mode.Enter); ok {
+		d.alice.Cancel()
+		d.setMode(true, true)
 		return
 	}
+	if _, ok := matchTrigger(ev.phrase, c.Mode.Exit); ok {
+		d.alice.Cancel()
+		d.stopAnswer()
+		d.setMode(false, true)
+		return
+	}
+	question, ok := matchTrigger(ev.phrase, c.Triggers)
+	mode := d.inMode()
+	if !ok && !mode {
+		return
+	}
+	if !ok {
+		question = ev.phrase // режим ассистента: модели уходит вся фраза
+	}
 	d.alice.Cancel() // до того, как Алиса начнёт отвечать сама: у неё на это около секунды
+	if mode {
+		d.mu.Lock()
+		d.modeAt = time.Now()
+		d.mu.Unlock()
+	}
 	log.Printf("вопрос голосом (%d симв.)", len([]rune(question)))
 	switch normalize(question) {
 	case "":
+		return
+	case "стоп", "хватит", "замолчи", "тихо", "отмена", "помолчи":
+		d.stopAnswer()
 		return
 	case "новый разговор", "забудь", "забудь все":
 		d.mu.Lock()
@@ -228,7 +308,7 @@ func (d *Daemon) onEvent(ev logEvent) {
 	d.ask(question, "voice")
 }
 
-// command — запрос из панели: {"ask": "текст"} (проверка без голоса) или {"stop": true}.
+// command — запрос из панели: {"ask": "текст"} (проверка без голоса), {"stop": true}, {"mode": true|false}.
 func (d *Daemon) command() {
 	b, err := os.ReadFile(d.cmdPath)
 	if err != nil {
@@ -238,21 +318,30 @@ func (d *Daemon) command() {
 	var cmd struct {
 		Ask  string `json:"ask"`
 		Stop bool   `json:"stop"`
+		Mode *bool  `json:"mode"`
 	}
 	if json.Unmarshal(b, &cmd) != nil {
 		return
 	}
 	if cmd.Stop {
-		d.mu.Lock()
-		if d.cancel != nil {
-			d.cancel()
-		}
-		d.mu.Unlock()
-		d.alice.Cancel()
-		d.set("idle", "")
+		d.stopAnswer()
+	}
+	if cmd.Mode != nil {
+		d.setMode(*cmd.Mode, true)
 	}
 	if cmd.Ask != "" {
 		d.ask(cmd.Ask, "panel")
+	}
+}
+
+// modeTimeout выключает режим ассистента после долгой тишины — чтобы не застрять в нём, забыв.
+func (d *Daemon) modeTimeout() {
+	d.mu.Lock()
+	expired := d.mode && d.state == "idle" && time.Since(d.modeAt) > time.Duration(d.cfg.Mode.TimeoutMin)*time.Minute
+	d.mu.Unlock()
+	if expired {
+		log.Printf("режим ассистента выключен по тишине")
+		d.setMode(false, false)
 	}
 }
 
@@ -274,6 +363,7 @@ func (d *Daemon) follow(ctx context.Context, path string) {
 		}
 		d.reload()
 		d.command()
+		d.modeTimeout()
 		d.writeStatus()
 		st, err := os.Stat(path)
 		if err != nil {

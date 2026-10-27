@@ -1357,6 +1357,23 @@
       </div>
 
       <section class="card" style="margin-bottom:14px">
+        <div class="card-head"><h2>Режим ассистента</h2>
+          <div class="actions"><span class="meta" id="as-mode-state">—</span><button class="btn sm primary" id="as-mode-btn">Включить</button></div></div>
+        <p class="hint" style="margin-top:0">Скажите «Алиса, переключись на GPT» — и дальше всё, что вы говорите Алисе, уходит модели, без «спроси GPT».
+          «Алиса, верни Алису» — обратно. Быстрые команды — «стоп», «громче», «тише», «пауза» — работают как обычно, а просьбы вроде
+          «включи музыку» в этом режиме тоже уходят модели.</p>
+        <div class="as-form">
+          <label for="as-mode-enter">Включить фразой</label><input class="field" id="as-mode-enter">
+          <label for="as-mode-exit">Выключить фразой</label><input class="field" id="as-mode-exit">
+          <p class="hint">Через запятую. Сохраняются кнопкой «Сохранить настройки» внизу.</p>
+          <label for="as-mode-timeout">Автоотключение</label>
+          <span class="row" style="gap:8px;flex-wrap:nowrap"><input class="field" id="as-mode-timeout" type="number" min="1" max="240" style="max-width:110px"><span class="meta">мин тишины</span></span>
+        </div>
+        <label class="toggle" style="margin-top:8px"><span>Беседа без «Алисы» <span class="meta" style="font-weight:500">— после ответа колонка несколько секунд слушает следующий вопрос</span></span>
+          <input type="checkbox" id="as-mode-follow"></label>
+      </section>
+
+      <section class="card" style="margin-bottom:14px">
         <div class="card-head"><h2>Модель</h2>
           <select class="field" id="as-preset" aria-label="Готовые настройки">
             <option value="">Готовые адреса…</option>
@@ -3369,6 +3386,13 @@ async function loadAssistant(fill) {
     + (h.answer ? esc(h.answer) : `<span class="err">${esc(h.error || '')}</span>`)
     + `<small>${new Date(h.at * 1000).toLocaleTimeString()} · ${h.source === 'voice' ? 'голосом' : 'из панели'}`
     + `${h.ms ? ' · ' + (h.ms / 1000).toFixed(1) + ' с' : ''}</small></div>`).join('');
+  const until = s.mode_until ? new Date(s.mode_until * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  $('#as-mode-state').textContent = s.mode ? 'включён' + (until ? ` · отключится в ${until}, если молчать` : '') : 'выключен';
+  $('#as-mode-btn').textContent = s.mode ? 'Выключить' : 'Включить';
+  $('#as-mode-btn').className = 'btn sm' + (s.mode ? '' : ' primary');
+  $('#as-mode-btn').dataset.on = s.mode ? '1' : '';
+  $('#as-mode-btn').disabled = !st.running || !c.enabled;
+  if (s.mode && st.running && c.enabled) { $('#as-badge').textContent = 'Режим ассистента'; $('#as-badge').className = 'badge ok'; }
   if (fill && st.installed) asFill(c);
   if (!$('#tab-assistant').hidden) asTimer = setTimeout(loadAssistant, s.state && s.state !== 'idle' ? 1000 : 4000);
 }
@@ -3379,6 +3403,11 @@ function asFill(c) {
   $('#as-led').checked = c.led?.enabled ?? true;
   $('#as-led-color').value = c.led?.color || '#ff8a00';
   $('#as-triggers').value = (c.triggers || ['спроси gpt', 'спроси джипити', 'спроси чат gpt', 'спроси нейросеть']).join(', ');
+  const mode = c.mode || {};
+  $('#as-mode-enter').value = (mode.enter || ['переключись на gpt', 'переключись на ассистента', 'включи ассистента']).join(', ');
+  $('#as-mode-exit').value = (mode.exit || ['отключись от ассистента', 'выключи ассистента', 'верни алису', 'вернись к алисе']).join(', ');
+  $('#as-mode-timeout').value = mode.timeout_min || 10;
+  $('#as-mode-follow').checked = mode.follow_up ?? true;
   $('#as-url').value = llm.base_url || '';
   $('#as-key').value = '';
   $('#as-model').value = llm.model || '';
@@ -3455,6 +3484,12 @@ $('#as-update').onclick = e => act(e.currentTarget, async () => { await api('/ap
 $('#as-preset').onchange = e => { if (e.target.value) { $('#as-url').value = e.target.value; asKeysView(); asModels(true); } e.target.value = ''; };
 $('#as-install').onclick = e => act(e.currentTarget, async () => { await api('/api/assistant/install', {}); await loadAssistant(true); },
   'Помощник установлен. Укажите модель и включите его');
+$('#as-mode-btn').onclick = e => {
+  const on = !e.currentTarget.dataset.on;
+  act(e.currentTarget, async () => { await api('/api/assistant/mode', { on }); setTimeout(loadAssistant, 400); },
+    on ? 'Режим ассистента включён — колонка скажет об этом' : 'Режим ассистента выключен');
+};
+$('#as-mode-follow').onchange = e => act(null, async () => asFill((await api('/api/assistant', { mode: { follow_up: e.target.checked } })).config));
 $('#as-restart').onclick = e => act(e.currentTarget, async () => { await api('/api/assistant/start', {}); await loadAssistant(); }, 'Перезапущен');
 $('#as-enabled').onchange = e => act(null, async () => { await api('/api/assistant', { enabled: e.target.checked }); await loadAssistant(); },
   e.target.checked ? 'Помощник отвечает на фразу' : 'Помощник выключен');
@@ -3462,6 +3497,9 @@ $('#as-save').onclick = e => act(e.currentTarget, async () => {
   const num = (id, d) => Number($(id).value) || d;
   const st = await api('/api/assistant', {
     triggers: $('#as-triggers').value.split(',').map(s => s.trim()).filter(Boolean),
+    mode: { enter: $('#as-mode-enter').value.split(',').map(s => s.trim()).filter(Boolean),
+      exit: $('#as-mode-exit').value.split(',').map(s => s.trim()).filter(Boolean),
+      timeout_min: Math.max(1, Math.min(240, Number($('#as-mode-timeout').value) || 10)), follow_up: $('#as-mode-follow').checked },
     llm: { base_url: $('#as-url').value.trim(), api_key: $('#as-key').value, model: $('#as-model').value.trim(),
       system_prompt: $('#as-prompt').value.trim(), max_tokens: num('#as-tokens', 500), history: Math.max(0, Number($('#as-history').value) || 0),
       proxy: $('#as-proxy').value.trim() },
