@@ -58,6 +58,7 @@ type player struct {
 	retries  int
 	retrying bool
 	started  time.Time
+	short    int // подряд сессий короче 20 с: сервер отдаёт пару секунд и замолкает
 }
 
 const radioRetries = 5
@@ -79,7 +80,7 @@ func (p *player) Start(st Station) error {
 	p.mu.Lock()
 	p.killLocked()
 	p.station, p.paused, p.title, p.err = st, false, "", ""
-	p.retries, p.retrying = 0, false
+	p.retries, p.retrying, p.short = 0, false, 0
 	p.gen++
 	gen := p.gen
 	err := p.spawnLocked()
@@ -133,8 +134,19 @@ func (p *player) spawnLocked() error {
 		if p.err == "" {
 			p.err = "поток прервался"
 		}
-		if time.Since(p.started) > time.Minute {
+		played := time.Since(p.started)
+		if played > time.Minute {
 			p.retries = 0 // долго играло — это новый обрыв, а не цепочка неудач
+		}
+		if played < 20*time.Second {
+			p.short++
+		} else {
+			p.short = 0
+		}
+		if p.short >= 3 {
+			p.err = "станция почти не отдаёт поток: играет пару секунд и замолкает. Похоже, её сервер перегружен " +
+				"или ограничивает слушателей — выберите другую"
+			return
 		}
 		if fatalStreamError(p.err) || p.retries >= radioRetries {
 			return
