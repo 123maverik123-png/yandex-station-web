@@ -397,6 +397,7 @@
   .as-form > label { font-weight: 600; font-size: 14px; }
   .as-form .hint { grid-column: 2; margin: -4px 0 0; }
   .as-form textarea.field, #as-question { width: 100%; min-height: 96px; padding: 10px 12px; font: inherit; resize: vertical; }
+  .as-http { color: var(--danger); }
   .as-keys { display: flex; flex-wrap: wrap; gap: 6px; }
   .as-keys:empty { display: none; }
   .as-keys span { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--field); font-size: 12.5px; }
@@ -1392,6 +1393,7 @@
           <p class="hint">Хранится только на колонке, свой для каждого адреса API: при смене провайдера ключ прежнего остаётся.
             Пустое поле — оставить сохранённый.</p>
           <span></span><div class="as-keys" id="as-keys"></div>
+          <p class="hint as-http" hidden></p>
           <label for="as-model">Модель</label>
           <span class="row" style="flex-wrap:nowrap;gap:8px"><input class="field" id="as-model" list="as-models" placeholder="например, gpt-4o-mini" style="flex:1;min-width:0">
             <button class="btn sm" id="as-models-btn" type="button">Список</button></span>
@@ -1417,6 +1419,7 @@
           <p class="hint" id="as-tts-hint"></p>
           <label for="as-tts-url" data-tts>Адрес API</label><input class="field" id="as-tts-url" data-tts placeholder="https://…/v1">
           <label for="as-tts-key" data-tts>Ключ</label><input class="field" id="as-tts-key" data-tts type="password" autocomplete="off" placeholder="не задан">
+          <p class="hint as-http" data-tts hidden></p>
           <label for="as-tts-model" data-tts>Модель</label><input class="field" id="as-tts-model" data-tts placeholder="tts-1">
           <label for="as-tts-voice" data-tts>Голос</label><input class="field" id="as-tts-voice" data-tts placeholder="например, alloy или ru_RU-irina-medium">
           <label for="as-tts-speed" data-tts>Скорость</label><input class="field" id="as-tts-speed" data-tts type="number" min="0.5" max="2" step="0.1" style="max-width:140px">
@@ -3447,10 +3450,25 @@ $('#as-keys').onclick = e => {
   if (!url || !confirm(`Удалить с колонки ключ для ${asProvider(url)}?`)) return;
   act(null, async () => asFill((await api('/api/assistant', { delete_key: url })).config), 'Ключ удалён');
 };
+// Панель открыта по HTTP с другого устройства: ключ уйдёт по сети открытым текстом. Не запрещаем — в домашней сети
+// это обычный случай, — но предупреждаем и даём ссылку на HTTPS, если он включён.
+function asHttpWarning() {
+  const plain = location.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  const port = accessInfo?.ports?.https;
+  const url = port && Object.assign(new URL(location.href), { protocol: 'https:', port: String(port) }).href;
+  $$('.as-http').forEach(el => {
+    if (el.matches('[data-tts]') && $('#as-tts').value !== 'openai') { el.hidden = true; return; }
+    el.hidden = !plain;
+    el.innerHTML = 'Панель открыта по HTTP: ключ уйдёт до компьютера с панелью открытым текстом. В своей домашней сети риск '
+      + 'невелик, в чужой или общей — заметнее. ' + (url ? `Безопаснее <a href="${esc(url)}">открыть панель по HTTPS</a>.`
+      : 'Безопаснее включить HTTPS («Настройки» → «Доступ»).');
+  });
+}
 function asTtsView() {
   const v = $('#as-tts').value;
   $$('[data-tts]').forEach(el => el.hidden = v !== 'openai');
   $('#as-tts-hint').textContent = AS_TTS_HINT[v];
+  asHttpWarning();
   // что при этом всё равно уходит Яндексу — зависит от способа озвучки
   $('#as-privacy').textContent = 'Яндекс по-прежнему получает голосовые вопросы: «Алиса, спроси GPT, …» распознаёт её облако, '
     + 'звук и текст фразы уходят на серверы Яндекса, как обычный запрос к Алисе. '
