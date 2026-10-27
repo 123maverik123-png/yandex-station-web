@@ -67,6 +67,8 @@ type Daemon struct {
 	lastRadio  string
 	// последняя станция, которую не нашли по голосу, — панель предложит привязать это название
 	radioMiss map[string]any
+	// когда включили своё радио: в первые секунды отклики плеера Алисы на паузу не считаем её новой музыкой
+	radioAt time.Time
 }
 
 func (d *Daemon) reload() {
@@ -295,7 +297,10 @@ func (d *Daemon) onRadio(ev logEvent, c Config, ours bool) bool {
 		}
 	case "music":
 		// своё радио и музыка Алисы одновременно звучат кашей — уступаем Алисе
-		if d.radio.Active() {
+		d.mu.Lock()
+		fresh := time.Since(d.radioAt) < 4*time.Second
+		d.mu.Unlock()
+		if d.radio.Active() && !fresh {
 			log.Printf("радио выключено: Алиса включила музыку")
 			d.radio.Stop()
 			d.mu.Lock()
@@ -331,9 +336,14 @@ func (d *Daemon) onRadio(ev logEvent, c Config, ours bool) bool {
 				return true
 			}
 			log.Printf("радио голосом: %s", st.Name)
+			d.mu.Lock()
+			d.radioAt = time.Now()
+			d.mu.Unlock()
 			if err := d.radio.Start(st, c.Radio.Proxy); err != nil {
 				log.Printf("радио: %v", err)
 			}
+			// музыка Алисы на время разговора только приглушена и после отмены заиграла бы поверх станции
+			go func() { time.Sleep(700 * time.Millisecond); d.alice.PausePlayer() }()
 			return true
 		}
 		_, stop := matchTrigger(ev.phrase, c.Radio.Stop)
@@ -474,6 +484,7 @@ func (d *Daemon) command() {
 	if cmd.Radio != nil {
 		d.mu.Lock()
 		proxy := d.cfg.Radio.Proxy
+		d.radioAt = time.Now()
 		d.mu.Unlock()
 		if err := d.radio.Start(*cmd.Radio, proxy); err != nil {
 			log.Printf("радио: %v", err)

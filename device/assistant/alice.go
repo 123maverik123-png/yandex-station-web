@@ -68,6 +68,9 @@ func (a *aliceCLI) Warm() error { return a.send() }
 // Listen открывает микрофон Алисы, как будто её позвали: так продолжают беседу без «Алисы».
 func (a *aliceCLI) Listen() error { return a.send("s") }
 
+// PausePlayer ставит на паузу плеер Алисы («Моя волна», треки) — перед своим радио.
+func (a *aliceCLI) PausePlayer() error { return a.send("o") }
+
 // Cancel — то же, что «Алиса, хватит»: обрывает текущий диалог и ответ из облака.
 func (a *aliceCLI) Cancel() error { return a.send("c") }
 
