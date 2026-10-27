@@ -36,7 +36,8 @@ class Radio(unittest.TestCase):
     def test_search_keeps_only_playable_streams(self):
         found = [{"name": "Jazz", "url_resolved": "https://jazz.example/stream.mp3", "codec": "MP3", "bitrate": 128},
                  {"name": "HLS", "url_resolved": "https://x.example/a.m3u8", "hls": 1},
-                 {"name": "Bad", "url_resolved": "http://x.example/a b"}]
+                 {"name": "Bad", "url_resolved": "http://x.example/a b"},
+                 {"name": "Vorbis", "url_resolved": "http://x.example/rp_192m.ogg", "codec": "OGG"}]
         with patch.object(server.urllib.request, "urlopen", return_value=io.BytesIO(json.dumps(found).encode())) as get:
             r = self.panel().radio_search("jazz", "ru")
         self.assertEqual([s["name"] for s in r["stations"]], ["Jazz"])

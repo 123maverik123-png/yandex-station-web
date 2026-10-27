@@ -1779,8 +1779,11 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         out = []
         for it in items if isinstance(items, list) else []:
             url = str(it.get("url_resolved") or it.get("url") or "").strip()
+            codec = str(it.get("codec") or "").upper()
             if it.get("hls") or not self.RADIO_URL.fullmatch(url):
                 continue   # HLS (.m3u8) прошивка не проверена, странные адреса не пройдут в конвейер
+            if codec in ("OGG", "VORBIS") or url.lower().split("?")[0].endswith(".ogg"):
+                continue   # декодера Vorbis в прошивке нет
             out.append({"name": str(it.get("name") or "").strip()[:80] or url, "url": url,
                         "codec": str(it.get("codec") or "")[:12], "bitrate": int(it.get("bitrate") or 0),
                         "country": str(it.get("countrycode") or "")[:2], "tags": str(it.get("tags") or "")[:80]})
