@@ -18,21 +18,20 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
   let active = null, loop = null, available = ready();
   const forms = Array.from(root.querySelectorAll('.mu-ask-form'));
   const voiceForms = forms.filter(form => form.querySelector('.voice-mic'));
-  let blocked = false;
-  try { blocked = (store ? store.get('ui.voice.unavailable') : win.localStorage?.getItem('ui.voice.unavailable')) === '1'; } catch {}
+  const load = key => { try { return (store ? store.get(key) : win.localStorage?.getItem(key)) === '1'; } catch { return false; } };
+  const save = (key, value) => { try { if (store) store.set(key, value ? '1' : '0'); else win.localStorage?.setItem(key, value ? '1' : '0'); } catch {} };
+  // blocked — браузер отказал в распознавании; dismissed — заметку об этом закрыли и больше не показываем
+  let blocked = load('ui.voice.unavailable'), dismissed = load('ui.voice.notice-hidden');
   function support() {
     voiceForms.forEach(form => {
       form.querySelector('.voice-mic').hidden = form.querySelector('.voice-auto').hidden = !Recognition || blocked;
-      form.querySelector('.voice-support').hidden = !!Recognition && !blocked;
+      form.querySelector('.voice-support').hidden = (!!Recognition && !blocked) || dismissed;
       form.querySelector('.voice-retry').hidden = !Recognition;
     });
   }
   function remember(value) {
     blocked = value;
-    try {
-      if (store) store.set('ui.voice.unavailable', value ? '1' : '0');
-      else win.localStorage?.setItem('ui.voice.unavailable', value ? '1' : '0');
-    } catch {}
+    save('ui.voice.unavailable', value);
     support();
   }
   function update(connected = ready()) {
@@ -63,6 +62,10 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
       const button = form.querySelector('.voice-auto');
       button.setAttribute('aria-pressed', String(!!loop));
       button.textContent = loop ? 'Стоп' : 'Авто';
+      // в «Авто» фразы уходят сами: вместо «Отправить» — выбор паузы
+      const pause = form.querySelector('.voice-pause');
+      if (pause) pause.hidden = !loop;
+      form.querySelector('button[type=submit], button:not([type])').hidden = !!loop;
       form.querySelector('.voice-mic').disabled = !available || !!loop;
       button.disabled = !available;
     });
@@ -173,8 +176,9 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
       if (active !== s) return;
       if (source === 'auto' && event.error === 'no-speech') return;
       if (['network', 'service-not-allowed'].includes(event.error)) {
-        if (loop) cancel('Распознавание речи в этом браузере недоступно.');
-        else close(s, 'Распознавание речи в этом браузере недоступно.', true);
+        // объяснение — в заметке под полем, в строке состояния его не дублируем
+        if (loop) cancel('');
+        else close(s, '', true);
         remember(true); return;
       }
       const messages = { 'not-allowed': 'Разрешите браузеру доступ к микрофону и распознаванию речи.', 'audio-capture': 'Микрофон недоступен.', 'no-speech': 'Речь не услышана. Попробуйте ещё раз.' };
@@ -209,6 +213,7 @@ export function bindVoiceInput(root, { httpsPort = () => null, send = form => fo
     const button = form.querySelector('.voice-mic');
     if (!button) return;
     form.querySelector('.voice-retry').addEventListener('click', () => { remember(false); form.querySelector('.voice-status').textContent = ''; });
+    form.querySelector('.voice-dismiss').addEventListener('click', () => { dismissed = true; save('ui.voice.notice-hidden', true); support(); });
     form.querySelector('.voice-auto').addEventListener('click', () => {
       if (loop || active) { cancel('Микрофон выключен.'); return; }
       loop = { form }; showMode(); start(button, form, 'auto');

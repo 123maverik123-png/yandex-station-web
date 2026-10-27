@@ -162,7 +162,20 @@
   .voice-mic:hover, .voice-mic:focus-visible { color: var(--accent); background: var(--accent-soft); }
   .voice-mic[aria-pressed=true] { color: var(--danger); background: var(--accent-soft); }
   .voice-auto[aria-pressed="true"] { background:var(--danger); color:white; border-color:var(--danger) }
-  .voice-status, .voice-support { flex-basis: 100%; margin: 0; }
+  .voice-status { flex-basis: 100%; margin: 0; }
+  /* пауза «Авто» — только пока режим включён */
+  .voice-pause { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .voice-pause[hidden] { display: none; }
+  .voice-pause select { width: auto; padding: 0 8px; }
+  .voice-auto { min-width: 5.5em; justify-content: center; }  /* «Авто» и «Стоп» одной ширины — кнопка не прыгает */
+  /* браузер без распознавания речи: небольшая заметка под полем, закрывается насовсем */
+  .voice-notice { flex-basis: 100%; display: flex; align-items: flex-start; gap: 6px; margin: 0; padding: 8px 6px 8px 12px; border-radius: 10px; background: var(--danger-soft); border: 1px solid var(--danger-line); color: var(--danger); font-size: 13px; line-height: 1.45; }
+  .voice-notice[hidden] { display: none; }
+  .voice-notice span { flex: 1; }
+  .voice-notice button { border: 0; background: none; color: inherit; font: inherit; cursor: pointer; padding: 0 4px; border-radius: 6px; }
+  .voice-notice .voice-retry { text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+  .voice-notice .voice-dismiss { font-size: 17px; line-height: 1; opacity: .7; }
+  .voice-notice button:hover, .voice-notice button:focus-visible { opacity: 1; background: var(--danger-line); }
   .voice-status:empty { display: none; }
   .field.mono { font-family: var(--mono); font-size: 14px; }
   .search { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 12px; border-radius: 12px; background: var(--field); color: var(--muted); }
@@ -735,10 +748,16 @@
                 <button class="voice-mic" type="button" aria-label="Удерживайте для голосовой команды" aria-pressed="false" title="Удерживайте и говорите; отпустите — отправить. Space / Enter вне полей ввода — тоже микрофон. Escape — отменить."><svg width="20" height="20" aria-hidden="true"><use href="#i-mic"/></svg></button>
               </div>
               <button class="btn sm" style="min-height:42px">Отправить</button>
-              <button class="btn sm voice-auto" type="button" aria-label="Постоянное прослушивание" aria-pressed="false" title="Включить прослушивание: все фразы после паузы из настроек отправляются Алисе. Стоп / Escape — выключить.">Авто</button>
+              <label class="voice-pause" hidden title="Сколько ждать тишины, прежде чем отправить фразу">пауза
+                <select class="field" id="alice-pause" aria-label="Пауза перед отправкой, секунд">
+                  <option value="0">0 с</option><option value="0.5">0,5 с</option><option value="1">1 с</option><option value="1.5">1,5 с</option>
+                  <option value="2">2 с</option><option value="2.5">2,5 с</option><option value="3">3 с</option>
+                </select></label>
+              <button class="btn sm voice-auto" type="button" aria-label="Постоянное прослушивание" aria-pressed="false" title="Включить прослушивание: все фразы после паузы отправляются Алисе. Стоп / Escape — выключить.">Авто</button>
               <span class="voice-count" id="alice-command-count">0 / 1024</span>
               <span class="hint voice-status" role="status" aria-live="polite"></span>
-              <span class="hint voice-support" hidden>Этот браузер не предоставляет распознавание речи. Используйте Chrome, Edge или Safari; текстовый ввод доступен. <button class="voice-retry btn sm" type="button">Попробовать снова</button></span>
+              <div class="voice-notice voice-support" role="note" hidden><span>Распознавание речи в этом браузере недоступно — подойдут Chrome, Edge или Safari. Команду можно ввести текстом.</span>
+                <button class="voice-retry" type="button">Попробовать снова</button><button class="voice-dismiss" type="button" aria-label="Скрыть сообщение" title="Скрыть">×</button></div>
             </form>
         </section>
 
@@ -918,11 +937,6 @@
           <div class="set-ctl"><button class="btn sm" id="set-layout-edit">Настроить «Обзор»</button><button class="btn sm" id="set-layout-reset">По умолчанию</button></div></div>
         <div class="set-item"><div class="set-label"><b>Галерея 3D-моделей</b><small>Все корпуса, которые знает панель, — без подключения к колонке</small></div>
           <div class="set-ctl"><a class="btn sm" id="model-gallery" href="./static/model-preview.html" target="_blank" rel="noopener">Открыть ↗</a></div></div>
-      </section>
-
-      <section class="card set-card">
-        <div class="set-head"><span class="set-ic"><svg width="18" height="18" aria-hidden="true"><use href="#i-mic"/></svg></span><div><h2>Управление Алисой</h2><p>Голосовые команды и автопрослушивание</p></div></div>
-        <label class="set-item"><div class="set-label"><b>Пауза перед отправкой</b><small>Сколько ждать тишины в режиме «Авто», от 0,5 до 10 секунд</small></div><div class="set-ctl"><input class="field" id="set-alice-pause" type="number" min="0.5" max="10" step="0.1" style="width:95px" aria-label="Пауза перед отправкой, секунд"><span>с</span></div></label>
       </section>
 
       <section class="card set-card">
@@ -3826,11 +3840,12 @@ document.addEventListener('DOMContentLoaded',()=>{if(online&&!$('#tab-console').
 </script>
 <script type="module">
 import { bindVoiceInput } from './static/voice-input.js';
-const pause = document.querySelector('#set-alice-pause');
-const pauseMs = () => Math.round(Math.max(0.5, Math.min(10, Number(pause.value) || 1.5)) * 10) * 100;
-pause.value = store.get('ui.alice.pause') ?? '1.5';
-pause.addEventListener('input', () => store.set('ui.alice.pause', String(pauseMs() / 1000)));
-pause.addEventListener('change', () => { pause.value = pauseMs() / 1000; });
+// Пауза «Авто»: 0–3 с с шагом 0,5; сохранённое раньше значение вне списка — к ближайшему
+const pause = document.querySelector('#alice-pause');
+const saved = Number(store.get('ui.alice.pause') ?? 1.5);
+pause.value = String(Math.round(Math.max(0, Math.min(3, Number.isFinite(saved) ? saved : 1.5)) * 2) / 2);
+const pauseMs = () => Number(pause.value) * 1000;
+pause.addEventListener('change', () => store.set('ui.alice.pause', pause.value));
 voiceInput = bindVoiceInput(document, { store, ready: () => !!(online && mu.info?.auth?.logged_in && mu.info?.glagol?.connected), getGlagol: () => mu.info?.glagol, httpsPort: () => accessInfo?.ports?.https, send: form => sendAlice(form), pauseMs });
 </script>
 <script src="static/vendor/qrcode.js"></script>

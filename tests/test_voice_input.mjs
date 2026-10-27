@@ -23,7 +23,7 @@ function setup({secure=true,supported=true,sendResult,pause=1500,storage=new Map
  const win=Object.assign(new Target(),{isSecureContext:secure,location:{href:'http://panel.local:8765/speaker/mini3pro/#player'},setTimeout:(fn,delay)=>{fn.delay=delay;timers.set(++sequence,fn);return sequence;},clearTimeout:id=>timers.delete(id)});
  if(supported)win.SpeechRecognition=Recognition;
  const glagol={connected,state:{aliceState:'IDLE'},updated:1};let available=connected;
- const forms=[0,1].map(index=>{const button=new Target(),auto=new Target(),status=new Target(),support=new Target(),retry=new Target(),submit=new Target(),counter=Object.assign(new Target(),{classList:{toggle(){}}}),input=Object.assign(new Target(),{value:'старый текст',readOnly:false,style:{},scrollHeight:40,setCustomValidity(v){this.validityMessage=v;}});return {button,auto,status,support,retry,submit,elements:{text:input},querySelector:s=>s==='.voice-mic'?(textOnly&&index===1?null:button):s==='.voice-auto'?auto:s==='.voice-count'?counter:s==='.voice-status'?status:s==='.voice-support'?support:s==='.voice-retry'?retry:submit,requestSubmit(){sent.push([index,input.value]);return sendResult;}};});
+ const forms=[0,1].map(index=>{const button=new Target(),auto=new Target(),status=new Target(),support=new Target(),retry=new Target(),dismiss=new Target(),submit=new Target(),counter=Object.assign(new Target(),{classList:{toggle(){}}}),input=Object.assign(new Target(),{value:'старый текст',readOnly:false,style:{},scrollHeight:40,setCustomValidity(v){this.validityMessage=v;}});return {button,auto,status,support,retry,dismiss,submit,elements:{text:input},querySelector:s=>s==='.voice-mic'?(textOnly&&index===1?null:button):s==='.voice-auto'?auto:s==='.voice-count'?counter:s==='.voice-status'?status:s==='.voice-support'?support:s==='.voice-retry'?retry:s==='.voice-dismiss'?dismiss:submit,requestSubmit(){sent.push([index,input.value]);return sendResult;}};});
  const root=Object.assign(new Target(),{defaultView:win,querySelectorAll:()=>forms,createElement:()=>new Target()});
  const controller=bindVoiceInput(root,{httpsPort:()=>8766,pauseMs:()=>pause,ready:()=>available,getGlagol:()=>glagol,store:{get:k=>storage.get(k),set:(k,v)=>storage.set(k,v)}});
  const state=(aliceState,advance=true)=>{glagol.state={aliceState};if(advance)glagol.updated++;controller.update();};
@@ -46,7 +46,9 @@ for(const cancel of [h=>h.root.emit('pointercancel',{pointerId:7}),h=>h.root.emi
  const h=setup();h.down();h.up();h.instances[0].onstart();assert(h.instances[0].aborted);assert.deepEqual(h.sent,[]);assert.equal(h.timers.size,0);
 }
 for(const error of ['not-allowed','network','no-speech']){
- const h=setup();h.down();h.instances[0].onerror({error});h.up();h.instances[0].onend();assert.deepEqual(h.sent,[]);assert(h.forms[0].status.textContent);
+ const h=setup();h.down();h.instances[0].onerror({error});h.up();h.instances[0].onend();assert.deepEqual(h.sent,[]);
+ // отказ службы распознавания объясняет заметка под полем, остальные ошибки — строка состояния
+ if(error==='network')assert.equal(h.forms[0].support.hidden,false);else assert(h.forms[0].status.textContent);
 }
 {
  const h=setup();h.down();h.instances[0].result([['включи',true],['не завершено',false]]);h.up();h.instances[0].onend();assert.deepEqual(h.sent,[]);assert.equal(h.forms[0].elements.text.value,'включи не завершено');
@@ -160,3 +162,21 @@ for (const options of [{supported:false},{connected:false},{storage:new Map([['u
  h.root.emit('keydown',{key:' ',code:'Space'});h.instances[0].result([['отменить при уходе']]);h.win.emit('blur');h.root.emit('keyup',{key:' '});assert(h.instances[0].aborted);assert.equal(h.sent.length,1);
 }
 console.log('Global keyboard: body Space/Enter hold/release, repeat, changed-focus keyup, editable/modifier/dialog exclusions, ordinary text input and blur cancellation passed');
+{
+ // Браузер без распознавания: заметка видна; закрыли — скрыта и не возвращается после перезагрузки
+ const storage=new Map(),h=setup({supported:false,storage});
+ assert.equal(h.forms[0].support.hidden,false);assert.equal(h.forms[0].button.hidden,true);
+ h.forms[0].dismiss.emit('click');
+ assert.equal(h.forms[0].support.hidden,true);assert.equal(storage.get('ui.voice.notice-hidden'),'1');
+ const again=setup({supported:false,storage});assert.equal(again.forms[0].support.hidden,true);
+ // отказ службы распознавания: заметка вместо строки состояния, без дубля
+ const v=setup();v.down();v.instances[0].onerror({error:'network'});
+ assert.equal(v.forms[0].support.hidden,false);assert.equal(v.forms[0].status.textContent,'');
+}
+console.log('Unavailable speech notice: shown, dismissed for good, no duplicate status passed');
+{
+ // «Авто»: «Отправить» прячется, пока режим включён, и возвращается после «Стоп»
+ const h=setup();h.forms[0].auto.emit('click');assert.equal(h.forms[0].submit.hidden,true);
+ h.forms[0].auto.emit('click');assert.equal(h.forms[0].submit.hidden,false);
+}
+console.log('Auto mode hides the send button passed');
