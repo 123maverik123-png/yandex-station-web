@@ -2,12 +2,13 @@
 import * as T from 'three';
 import { OrbitControls } from './vendor/three/OrbitControls.js';
 import {modelSettings} from './model-settings.js';
+import {CONCEPTS} from './model-concepts.js';
 export function createModel(profile){
-const view=document.getElementById('model-view'),lite=profile.id==='lite',mini2=profile.id==='mini2',mini=lite||mini2||profile.id==='mini3pro'||profile.id==='mini3';
+const view=document.getElementById('model-view'),concept=CONCEPTS[profile.id],lite=profile.id==='lite',mini2=profile.id==='mini2',mini=lite||mini2||profile.id==='mini3pro'||profile.id==='mini3';
 view.setAttribute('role','group');view.setAttribute('aria-label','3D-модель: вращайте мышью или пальцем');view.classList.add('studio-view');
 // Preserve upstream visualizer canvas and the references held by its animation loop.
 // Лайт первого поколения: цвета как в её ledconfigs (purple, yellow, green, pink, red, beige).
-const palette=lite?{purple:['Фиолетовый','#6a3fe6'],yellow:['Жёлтый','#f0c43a'],green:['Зелёный','#59b96d'],pink:['Розовый','#ec2c7c'],red:['Красный','#d9473f'],beige:['Бежевый','#d8c6ab']}:profile.id==='mini3'?{black:['Чёрный','#34343a'],grey:['Серый','#a0a2a8'],violet:['Лиловый','#9b8eaa'],teal:['Бирюзовый','#6aa6a7']}:profile.id==='mini2'?{black:['Чёрный','#34343a'],blue:['Синий','#355d82'],red:['Красный','#a8423f']}:mini?{black:['Графит','#34343a'],grey:['Серый','#888b91'],blue:['Синий','#355d82']}:{black:['Антрацит','#3b3c40'],blue:['Кобальт','#485c85'],copper:['Медный','#a66d5d'],sand:['Песочный','#c5baaa'],red:['Рубин','#8c3447']};
+const palette=concept?concept.colors:lite?{purple:['Фиолетовый','#6a3fe6'],yellow:['Жёлтый','#f0c43a'],green:['Зелёный','#59b96d'],pink:['Розовый','#ec2c7c'],red:['Красный','#d9473f'],beige:['Бежевый','#d8c6ab']}:profile.id==='mini3'?{black:['Чёрный','#34343a'],grey:['Серый','#a0a2a8'],violet:['Лиловый','#9b8eaa'],teal:['Бирюзовый','#6aa6a7']}:profile.id==='mini2'?{black:['Чёрный','#34343a'],blue:['Синий','#355d82'],red:['Красный','#a8423f']}:mini?{black:['Графит','#34343a'],grey:['Серый','#888b91'],blue:['Синий','#355d82']}:{black:['Антрацит','#3b3c40'],blue:['Кобальт','#485c85'],copper:['Медный','#a66d5d'],sand:['Песочный','#c5baaa'],red:['Рубин','#8c3447']};
 let renderer;
 try{renderer=new T.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});}catch(e){view.insertAdjacentHTML('beforeend','<p class="studio-error">Для объёмной модели включите WebGL в браузере.</p>');throw e;}
 renderer.domElement.className='studio-canvas';renderer.domElement.setAttribute('aria-label',profile.name+' — вращаемая 3D-модель');
@@ -36,7 +37,8 @@ const ledMaterials=[];
 function ledMaterial(){const m=new T.MeshStandardMaterial({color:'#181820',emissive:'#000000',emissiveIntensity:0,roughness:.28,metalness:.05});ledMaterials.push(m);return m;}
 function port(y,z){mesh(roundedBox(10,4,1.5,1.9,.3),rubber,0,y,z);mesh(roundedBox(6,1.5,1.8,.7,.2),new T.MeshStandardMaterial({color:'#727078',metalness:.7,roughness:.5}),0,y,z-.15);}
 let topY,baseY,clockSegments=[];
-if(lite){
+if(concept)({topY,baseY}=concept.build({T,group,mesh,roundedBox,canvasTexture,fabric,plastic,rubber,glass,ledMaterial}));
+else if(lite){
   // По фото: прямой цилиндр 88 мм с острым верхним краем (корпус ~44 мм) на чёрном основании ~12 мм,
   // которое сужается книзу и изрезано наклонными канавками.
   mesh(new T.LatheGeometry([[0,-16],[43.7,-16],[44,-15.7],[44,27.6],[43.6,28]].map(p=>new T.Vector2(...p)),160),fabric);
@@ -117,7 +119,7 @@ const liteTex=lite&&canvasTexture(1024,(c,n)=>{const R=n/2;c.translate(R,R);
   c.save();c.translate(0,-k);c.scale(1.5,1.5);c.lineWidth=4.6;c.beginPath();c.roundRect(-11,-34,22,38,11);c.moveTo(-19,-8);c.quadraticCurveTo(-19,16,0,16);c.quadraticCurveTo(19,16,19,-8);
   c.moveTo(0,16);c.lineTo(0,28);c.moveTo(-13,28);c.lineTo(13,28);c.moveTo(-22,12);c.lineTo(22,-30);c.stroke();c.restore();            // микрофон выключен
 });
-if(!mini2){
+if(!mini2&&!concept){
 const topMarks=mesh(lite?new T.CircleGeometry(43.5,128):new T.PlaneGeometry(mini?98:117,mini?98:93),lite?new T.MeshBasicMaterial({map:liteTex,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1}):new T.MeshBasicMaterial({map:controlsTex,transparent:true,depthWrite:false,opacity:.72}),0,topY+.05);topMarks.rotation.x=-Math.PI/2;topMarks.renderOrder=1;   // прозрачные слои крышки — всегда в одном порядке, иначе мерцают при вращении
 topMarks.castShadow=false;
 }
@@ -139,7 +141,12 @@ function paint(key){key=palette[key]?key:fallback;fabric.color.set(palette[key][
 let preference=null;
 window.modelColor=key=>{if(!preference)paint(key);};
 paint(window.__deviceColor||fallback);
-function home(){if(lite)camera.position.set(60,115,215);else camera.position.set(mini?55:240,mini?83:155,mini?258:420);controls.target.set(0,mini?-4:0,0);controls.update();dirty=true;}home();
+// Gallery-only bodies differ widely in size: frame each one by its bounding sphere.
+if(concept?.lying)group.rotation.z=Math.PI/2;
+const bounds=concept&&new T.Box3().setFromObject(group).getBoundingSphere(new T.Sphere());
+if(bounds){controls.minDistance=bounds.radius*1.6;controls.maxDistance=bounds.radius*6;controls.maxPolarAngle=Math.PI;}
+function home(){if(bounds){camera.position.copy(bounds.center).add(new T.Vector3(.38,.42,1).setLength(bounds.radius*4.3));controls.target.copy(bounds.center);}
+  else{if(lite)camera.position.set(60,115,215);else camera.position.set(mini?55:240,mini?83:155,mini?258:420);controls.target.set(0,mini?-4:0,0);}controls.update();dirty=true;}home();
 modelSettings(profile.id,palette,{color:key=>{preference=key;paint(key||window.__deviceColor||fallback);},home,spin:value=>{controls.autoRotate=value;dirty=true;}});
 controls.addEventListener('change',()=>{dirty=true;});controls.addEventListener('start',()=>{view.classList.add('studio-used');});
 let visible=true;new IntersectionObserver(entries=>{visible=entries[0].isIntersecting;dirty=true;}).observe(view);

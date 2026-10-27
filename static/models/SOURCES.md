@@ -9,6 +9,20 @@
   model-studio.js (MIT), based on the manufacturer's public product photographs.
   They are not official CAD, downloaded commercial meshes, or manufacturing drawings.
 
+- Gallery placeholders (Max, Station 3, Midi, Street, Duo Max, Station, Mini 2 with/without clock, Mini gen 1,
+  all TV Station models and Drops): simplified original shapes in model-concepts.js (MIT) after the
+  manufacturer's public photographs. They only help future contributors start; hardware support is not implied.
+  Lite 2 without clock reuses lite2.stl with the display off.
+  Dimensions, colours and visible features follow the official specification pages:
+  https://alice.yandex.ru/support/ru/station/meet/characteristics-max (141 x 141 x 231 mm),
+  characteristics-gen3 (132 x 132 x 201 mm), characteristics-midi (96 x 96 x 110 mm),
+  characteristics-street (83 mm diameter, 202 mm), characteristics-duo-max (256 x 118 x 240 mm),
+  characteristics-gen1 (141 x 141 x 231 mm), characteristics-mini2 (97 x 54 mm), characteristics-mini1 (90 x 45 mm).
+  TVs: https://alice.yandex.ru/support/ru/tv/specs/tv-station-led, tv-station-qled, tv-station-miniled,
+  tv-station-pro-miniled, tv-station-basic-led, tv-station-basic-qled (size with and without feet, feet spacing).
+  Photos: https://alice.yandex.ru/station-max, station-gen3, station-midi, station-street, station-duo-max, station-mini.
+  Drops: retailer photos (DNS) of the white 2026 case.
+
 References:
 - https://alice.yandex.ru/station-gen2
 - https://alice.yandex.ru/station-mini-gen3-pro
