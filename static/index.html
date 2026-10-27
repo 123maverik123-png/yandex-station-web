@@ -3620,6 +3620,7 @@ $('#as-remove').onclick = e => confirm('Удалить помощника с к�
   act(e.currentTarget, async () => { await api('/api/assistant/remove', {}); await loadAssistant(true); }, 'Помощник удалён');
 
 // ---------- «Радио»: станции Алисы и свои потоки (играет программа панели на колонке) ----------
+// Атрибуты кнопок — data-rd-*: data-play и data-mu уже заняты общими обработчиками плеера Алисы.
 const RD_ALICE = ['Европа Плюс', 'Русское радио', 'Авторадио', 'Радио Рекорд', 'Наше радио', 'Ретро FM', 'DFM', 'Love Radio',
   'Хит FM', 'Радио Energy', 'Маяк', 'Дорожное радио', 'Радио Шансон', 'Relax FM', 'Монте-Карло', 'Business FM', 'Детское радио'];
 let rd = { st: null, timer: null };
@@ -3640,13 +3641,16 @@ async function loadRadio() {
   const now = st.now || {};
   $('#rd-now').hidden = !(now.playing || now.paused || now.error && now.name);
   $('#rd-now-name').textContent = now.name || '—';
-  $('#rd-now-title').textContent = now.error ? 'Ошибка: ' + now.error : now.paused ? 'пауза, пока вы говорите с Алисой' : now.title || 'играет';
+  // «souphttpsrc0: Bad Request» → понятная причина: поток отклонил сервер станции, а не колонка
+  const err = now.error && (/^souphttpsrc\d*:\s*(.*)$/.exec(now.error)?.[1] || now.error);
+  $('#rd-now-title').textContent = err ? (/souphttpsrc/.test(now.error) ? `Станция не отдаёт поток (сервер ответил: ${err}). Попробуйте другой адрес потока.` : 'Ошибка: ' + err)
+    : now.paused ? 'пауза, пока вы говорите с Алисой' : now.title || 'играет';
   $('#rd-count').textContent = st.stations.length ? `${st.stations.length}` : '';
   $('#rd-list').innerHTML = st.stations.length ? st.stations.map((s, i) => `<div class="rd-row${now.url === s.url && now.playing ? ' on' : ''}">
-      <button class="btn sm icon" data-play="${i}" aria-label="Слушать ${esc(s.name)}"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg></button>
+      <button class="btn sm icon" data-rd-play="${i}" aria-label="Слушать ${esc(s.name)}"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg></button>
       <div class="rd-name"><b>${esc(s.name)}</b><small>${esc(s.url)}</small></div>
-      <button class="btn sm icon" data-ren="${i}" aria-label="Переименовать ${esc(s.name)}" title="Переименовать">✎</button>
-      <button class="btn sm icon" data-del="${i}" aria-label="Удалить ${esc(s.name)}">×</button></div>`).join('')
+      <button class="btn sm icon" data-rd-ren="${i}" aria-label="Переименовать ${esc(s.name)}" title="Переименовать">✎</button>
+      <button class="btn sm icon" data-rd-del="${i}" aria-label="Удалить ${esc(s.name)}">×</button></div>`).join('')
     : '<div class="empty">Добавьте станцию ниже или найдите в каталоге.</div>';
   $('#rd-voice').checked = st.voice;
   $('#rd-voice-hint').textContent = `— «Алиса, ${st.play[0]} <название>», «Алиса, ${st.stop[0]}»`;
@@ -3672,15 +3676,15 @@ $('#rd-alice-form').onsubmit = e => { e.preventDefault(); const n = e.target.ele
 const rdPlay = (btn, s) => act(btn, async () => { await api('/api/radio/play', s); setTimeout(loadRadio, 1500); }, `Включаю «${s.name}»`);
 const rdSave = (btn, stations, msg) => act(btn, async () => { rd.st = await api('/api/radio', { stations }); await loadRadio(); }, msg);
 $('#rd-list').onclick = e => {
-  const play = e.target.closest('[data-play]'), del = e.target.closest('[data-del]'), ren = e.target.closest('[data-ren]');
-  if (play) rdPlay(play, rd.st.stations[+play.dataset.play]);
+  const play = e.target.closest('[data-rd-play]'), del = e.target.closest('[data-rd-del]'), ren = e.target.closest('[data-rd-ren]');
+  if (play) rdPlay(play, rd.st.stations[+play.dataset.rdPlay]);
   if (ren) {
-    const i = +ren.dataset.ren, name = prompt('Название — как вы будете называть станцию голосом:', rd.st.stations[i].name)?.trim();
+    const i = +ren.dataset.rdRen, name = prompt('Название — как вы будете называть станцию голосом:', rd.st.stations[i].name)?.trim();
     if (name) rdSave(ren, rd.st.stations.map((s, k) => k === i ? { ...s, name } : s), 'Название изменено');
   }
   if (del) {
-    const s = rd.st.stations[+del.dataset.del];
-    if (confirm(`Удалить станцию «${s.name}»?`)) rdSave(del, rd.st.stations.filter((_, i) => i !== +del.dataset.del), 'Станция удалена');
+    const s = rd.st.stations[+del.dataset.rdDel];
+    if (confirm(`Удалить станцию «${s.name}»?`)) rdSave(del, rd.st.stations.filter((_, i) => i !== +del.dataset.rdDel), 'Станция удалена');
   }
 };
 $('#rd-add').onsubmit = e => {
@@ -3699,17 +3703,17 @@ $('#rd-search').onsubmit = e => {
     const r = await api(`/api/radio/search?q=${encodeURIComponent(f.q.value.trim())}&country=${f.country.value}`);
     rdFound = r.stations;
     $('#rd-results').innerHTML = rdFound.length ? rdFound.map((s, i) => `<div class="rd-row">
-        <button class="btn sm icon" data-try="${i}" aria-label="Слушать ${esc(s.name)}"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg></button>
+        <button class="btn sm icon" data-rd-try="${i}" aria-label="Слушать ${esc(s.name)}"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg></button>
         <div class="rd-name"><b>${esc(s.name)}</b><small>${[s.codec, s.bitrate ? s.bitrate + ' кбит/с' : '', s.country, s.tags].filter(Boolean).map(esc).join(' · ')}</small></div>
-        <button class="btn sm" data-add="${i}">Добавить</button></div>`).join('') : '<div class="empty">Ничего не нашлось.</div>';
+        <button class="btn sm" data-rd-add="${i}">Добавить</button></div>`).join('') : '<div class="empty">Ничего не нашлось.</div>';
   });
 };
 $('#rd-results').onclick = e => {
-  const t = e.target.closest('[data-try]'), a = e.target.closest('[data-add]');
-  if (t) { if (!rd.st?.installed) return toast('Сначала установите программу на колонку', true); rdPlay(t, rdFound[+t.dataset.try]); }
+  const t = e.target.closest('[data-rd-try]'), a = e.target.closest('[data-rd-add]');
+  if (t) { if (!rd.st?.installed) return toast('Сначала установите программу на колонку', true); rdPlay(t, rdFound[+t.dataset.rdTry]); }
   if (a) {
     if (!rd.st?.installed) return toast('Сначала установите программу на колонку', true);
-    const s = rdFound[+a.dataset.add];
+    const s = rdFound[+a.dataset.rdAdd];
     if (rd.st.stations.some(x => x.url === s.url)) return toast('Эта станция уже в списке');
     rdSave(a, [...rd.st.stations, { name: s.name, url: s.url }], `«${s.name}» добавлена. Для голоса задайте название, как вы его произносите (✎)`);
   }
