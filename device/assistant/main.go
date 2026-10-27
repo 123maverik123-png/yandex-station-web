@@ -592,6 +592,14 @@ func main() {
 	d := &Daemon{cfgPath: *dir + "/config.json", statusPath: "/tmp/webpanel_assistant.json",
 		cmdPath: "/tmp/webpanel_assistant.cmd", state: "idle", cfg: defaults(), dirty: true}
 	d.reload()
+	// станция так и не заиграла — объясняем голосом, а не молчим (подробности — в панели)
+	d.radio.onFail = func(spoken string) {
+		d.mu.Lock()
+		c := d.cfg
+		d.mu.Unlock()
+		log.Printf("радио: %s", spoken)
+		d.speak(context.Background(), c, spoken)
+	}
 	log.Printf("assistantd %s запущен", version)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()

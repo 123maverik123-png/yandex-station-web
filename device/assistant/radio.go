@@ -64,7 +64,8 @@ func validStreamURL(raw string) bool {
 }
 
 type player struct {
-	proxy   string // HTTP-прокси для потоков; souphttpsrc умеет только HTTP
+	proxy   string              // HTTP-прокси для потоков; souphttpsrc умеет только HTTP
+	onFail  func(spoken string) // станция так и не заиграла: что сказать голосом
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	station Station
@@ -173,11 +174,21 @@ func (p *player) spawnLocked() error {
 			p.short = 0
 		}
 		if p.short >= 3 {
-			p.err = "станция почти не отдаёт поток: играет пару секунд и замолкает. Похоже, её сервер перегружен " +
-				"или ограничивает слушателей — выберите другую"
+			p.err = "станция почти не отдаёт поток: играет пару секунд и замолкает. Похоже на блокировку провайдера " +
+				"или перегруженный сервер"
+			p.failed("Похоже, эта станция заблокирована. Укажите прокси для радио в веб-панели.")
 			return
 		}
-		if fatalStreamError(p.err) || p.retries >= radioRetries {
+		if fatalStreamError(p.err) {
+			if strings.Contains(p.err, "plug-in") || strings.Contains(p.err, "Missing") {
+				p.failed("Формат этой станции колонка не поддерживает.")
+			} else {
+				p.failed("Сервер этой станции не отдаёт поток.")
+			}
+			return
+		}
+		if p.retries >= radioRetries {
+			p.failed("Станция перестала отвечать.")
 			return
 		}
 		p.retries++
@@ -194,6 +205,13 @@ func (p *player) spawnLocked() error {
 		}()
 	}()
 	return nil
+}
+
+// failed — вызывается под p.mu: сообщаем об отказе станции в отдельной горутине, чтобы не держать замок.
+func (p *player) failed(spoken string) {
+	if p.onFail != nil {
+		go p.onFail(spoken)
+	}
 }
 
 func (p *player) killLocked() {
