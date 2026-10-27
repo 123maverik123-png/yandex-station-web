@@ -27,6 +27,25 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(previous, [s.Panel.clock, s.Panel.ring, s.Panel._ensure_hook, s.Adb.shell, s.LedStream])
         self.assertEqual(s.GLAGOL_PLATFORM, 'plum')
 
+    def test_assistant_is_experimental_on_other_models(self):
+        s = fresh_server()
+        profiles.install(s, 'mini2')
+        p = s.Panel(Mock())
+        calls = []
+        p.adb.shell = lambda cmd, *a, **k: (calls.append(cmd), ('armv7l\n' if cmd == 'uname -m' else '@status\n{}\n', '', 0))[1]
+        p._assist_config = lambda: {}
+        st = p.assistant_status()
+        self.assertTrue(st['experimental'])
+        self.assertFalse(st['autostart'])
+        with self.assertRaisesRegex(s.AdbError, '64-битное'):
+            p.assistant_install()   # 32-битное ядро: программу не кладём
+        self.assertEqual(calls[-1], 'uname -m')
+        p.assistant_start = lambda: 'started'
+        p.adb.shell = lambda cmd, *a, **k: ('aarch64\n' if cmd == 'uname -m' else '', '', 0)
+        p._assist_binary = lambda: Path('assistantd')
+        p._assist_write = lambda cfg: None
+        self.assertEqual(p.assistant_install(), 'started')   # хук Лайт 2 не ставится, но установка проходит
+
     def test_pro_clock_scripts_use_pickle_without_altering_ring_count(self):
         s = fresh_server()
         profiles.install(s, 'mini3pro')

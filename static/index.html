@@ -1334,10 +1334,12 @@
       <div class="actions"><span class="badge" id="as-badge">—</span></div>
     </header>
 
-    <section class="card" id="as-unsupported" hidden>
-      <h2>Пока только для Станции Лайт 2</h2>
-      <p class="hint">Помощник читает журнал Алисы и отменяет её ответ через отладочный CLI — это проверено только на Лайт 2.
-        Как проверить свою модель — в CONTRIBUTION.md.</p>
+    <section class="card" id="as-experimental" hidden>
+      <h2>Проверено только на Станции Лайт 2</h2>
+      <p class="hint">На этой модели помощник — на пробу: он читает журнал Алисы и отменяет её ответ через отладочный CLI,
+        а здесь это может быть устроено иначе. Автозапуска нет — после перезагрузки колонки запустите помощника здесь снова.
+        Заработало или нет — напишите, пожалуйста, в <a href="https://github.com/dimap/yandex-station-web/issues" target="_blank" rel="noopener">Issues</a>
+        с моделью и версией прошивки.</p>
     </section>
 
     <section class="card" id="as-missing" hidden>
@@ -3482,8 +3484,8 @@ async function loadAssistant(fill) {
   clearTimeout(asTimer);
   let st;
   try { st = await api('/api/assistant'); } catch (e) { return e.offline || toast(e.message, true); }
-  $('#as-unsupported').hidden = st.supported !== false;
-  $('#as-missing').hidden = st.supported === false || st.installed;
+  $('#as-experimental').hidden = !st.experimental;
+  $('#as-missing').hidden = st.installed;
   $('#as-on').hidden = !st.installed;
   $('#as-update').hidden = !st.outdated;
   const s = st.state || {}, c = st.config || {};

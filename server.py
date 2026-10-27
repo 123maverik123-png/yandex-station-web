@@ -1613,13 +1613,20 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 "state": state if running else {}}
 
     def assistant_install(self):
+        arch, _, _ = self.adb.shell("uname -m", check=False)
+        if strip_ansi(arch).strip() not in ("aarch64", "arm64"):
+            raise AdbError(f"ядро колонки {strip_ansi(arch).strip() or '?'}: программа помощника пока собрана "
+                           "только под 64-битное (aarch64)")
         binary = self._assist_binary()
         self.adb.shell(f"mkdir -p {ASSIST_DIR}; start-stop-daemon -K -p {ASSIST_SD} 2>/dev/null; true", check=False)
         self.adb.push(binary, ASSISTD + ".new", timeout=300)
         self.adb.shell(f"chmod 755 {ASSISTD}.new; mv {ASSISTD}.new {ASSISTD}")
         if not self._assist_config():
             self._assist_write({"enabled": False})
-        self._ensure_hook()
+        try:
+            self._ensure_hook()
+        except AdbError:
+            pass   # не Лайт 2: её хук не ставим, помощник работает до перезагрузки колонки
         return self.assistant_start()
 
     def _assist_write(self, cfg):
