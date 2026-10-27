@@ -1961,12 +1961,22 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                     return found
         return None
 
+    class _PublicRedirects(urllib.request.HTTPRedirectHandler):
+        """Перенаправление проверяем так же, как исходный адрес: иконка из каталога не должна увести в домашнюю сеть."""
+        max_redirections = 3
+
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            if not Panel._public_url(newurl):
+                raise urllib.error.HTTPError(newurl, code, "перенаправление на непубличный адрес", headers, fp)
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
     def _download_image(self, url):
         if not self._public_url(url):
             return None
+        opener = urllib.request.build_opener(self._PublicRedirects)
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": f"yandex-station-web/{VERSION}"}),
-                                        timeout=8) as r:
+            with opener.open(urllib.request.Request(url, headers={"User-Agent": f"yandex-station-web/{VERSION}"}),
+                             timeout=8) as r:
                 data = r.read(300 * 1024 + 1)
         except (OSError, ValueError):
             return None

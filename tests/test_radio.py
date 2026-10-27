@@ -79,7 +79,9 @@ class StationLogos(unittest.TestCase):
         with patch.object(server.Panel, "_public_url", return_value=True):
             for body, ok in ((b"<svg onload=alert(1)>", False), (b"<!DOCTYPE html>", False),
                              (b"\x89PNG\r\n\x1a\n...", True), (b"RIFF\x00\x00\x00\x00WEBPVP8 ", True)):
-                with patch.object(server.urllib.request, "urlopen", return_value=io.BytesIO(body)):
+                opener = Mock()
+                opener.open.return_value = io.BytesIO(body)
+                with patch.object(server.urllib.request, "build_opener", return_value=opener):
                     self.assertEqual(bool(panel._download_image("https://radio.example/logo")), ok, body)
 
     def test_regional_stations_are_not_taken_for_the_main_one(self):
@@ -157,3 +159,12 @@ class StationCheck(unittest.TestCase):
         for bad in ("socks5://a:1", 'http://a"b:1', "http://u:%22x@a:1"):
             with self.assertRaises(server.AdbError):
                 panel.radio_set({"proxy": bad})
+
+
+class LogoRedirects(unittest.TestCase):
+    def test_redirect_into_home_network_is_refused(self):
+        import urllib.error
+        handler = server.Panel._PublicRedirects()
+        with patch.object(server.Panel, "_public_url", side_effect=lambda u: not u.startswith("http://192.168.")):
+            with self.assertRaises(urllib.error.HTTPError):
+                handler.redirect_request(Mock(), None, 302, "Found", {}, "http://192.168.1.1/router.png")
