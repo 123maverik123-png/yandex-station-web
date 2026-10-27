@@ -7,6 +7,17 @@ import access
 
 
 class OpenSSLTests(unittest.TestCase):
+    def test_vpn_and_public_sans_do_not_invalidate_lan_certificate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tls = Path(directory)
+            with patch.object(access.socket,'gethostname',return_value='long-runner-hostname.' * 5), patch.object(access, 'local_names', return_value=(['localhost'], ['127.0.0.1','10.11.0.209','100.127.115.50','203.0.113.1','169.254.1.2'])):
+                crt, key = access.ensure_certs(tls)
+                access._openssl('verify', '-CAfile', str(tls/'ca.crt'), '-verify_ip', '10.11.0.209', str(crt), cwd=tls)
+                self.assertEqual((tls/'server.sans').read_text(), 'DNS:localhost,IP:127.0.0.1,IP:10.11.0.209')
+                previous = crt.read_bytes()
+                self.assertEqual(access.ensure_certs(tls), (crt, key))
+                self.assertEqual(crt.read_bytes(), previous)
+
     def test_explicit_path_can_contain_spaces(self):
         with tempfile.TemporaryDirectory(prefix='openssl test ') as directory:
             executable=Path(directory)/'openssl.exe';executable.touch()

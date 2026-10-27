@@ -224,13 +224,16 @@ def ensure_certs(tls_dir: Path):
     ca_key, ca_crt = tls_dir / "ca.key", tls_dir / "ca.crt"
     key, crt, sans_file = tls_dir / "server.key", tls_dir / "server.crt", tls_dir / "server.sans"
     names, ips = local_names()
+    # Every SAN must fit the CA constraints, including on hosts with VPN/public interfaces.
+    networks = [ipaddress.ip_network(n) for n in ('127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')]
+    ips = [a for a in ips if any(ipaddress.ip_address(a) in n for n in networks)]
     sans = ",".join([f"DNS:{n}" for n in names] + [f"IP:{a}" for a in ips])
     if not ca_crt.exists() or not ca_key.exists():
         permitted = ["IP:127.0.0.0/255.0.0.0", "IP:10.0.0.0/255.0.0.0", "IP:172.16.0.0/255.240.0.0",
                      "IP:192.168.0.0/255.255.0.0", "DNS:localhost", "DNS:local"] + [f"DNS:{n}" for n in names]
         with tempfile.NamedTemporaryFile("w", suffix=".cnf", delete=False) as f:
             f.write("[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n"
-                    f"[dn]\nCN=Stantsiya Lite 2 panel CA ({socket.gethostname()})\n"
+                    "[dn]\nCN=Yandex Station panel CA\n"
                     "[ext]\nbasicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\n"
                     "subjectKeyIdentifier=hash\n"
                     f"nameConstraints=critical,{','.join('permitted;' + p for p in permitted)}\n")
@@ -251,7 +254,7 @@ def ensure_certs(tls_dir: Path):
     csr = tls_dir / "server.csr"
     try:
         _openssl("req", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", str(key),
-                 "-out", str(csr), "-subj", "/CN=" + socket.gethostname(), cwd=tls_dir)
+                 "-out", str(csr), "-subj", "/CN=" + socket.gethostname()[:64], cwd=tls_dir)
         # 397 дней — дольше браузеры (Safari, Chrome) не принимают
         _openssl("x509", "-req", "-in", str(csr), "-CA", str(ca_crt), "-CAkey", str(ca_key), "-CAcreateserial",
                  "-out", str(crt), "-days", "397", "-extfile", ext, cwd=tls_dir)

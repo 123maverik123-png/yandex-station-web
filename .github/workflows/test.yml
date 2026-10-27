@@ -35,6 +35,7 @@ jobs:
       - run: node tests/test_paths.mjs
       - run: node tests/test_catalog.cjs
       - run: node tests/test_update_ui.cjs
+      - run: node tests/test_voice_input.mjs
 
   assistant:
     runs-on: ubuntu-latest
