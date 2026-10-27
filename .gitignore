@@ -4,6 +4,7 @@
 .panel_settings.json
 .metrics.json
 .radio_alice.json
+.radio_logos
 .tls/
 data/
 speakers.json

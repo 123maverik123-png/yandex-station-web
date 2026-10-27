@@ -1741,6 +1741,109 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                         "country": str(it.get("countrycode") or "")[:2], "tags": str(it.get("tags") or "")[:80]})
         return {"stations": out}
 
+    # Логотипы станций Алисы — из каталога radio-browser.info. Панель скачивает их сама и хранит у себя
+    # (.radio_logos), браузер к сайтам станций не ходит. Берём только точное совпадение названия.
+    RADIO_LOGO_QUERY = {"маяк": "Радио Маяк", "энерджи": "Energy", "монтекарло": "Радио Монте-Карло",
+                        "детское": "Детское радио", "шансон": "Радио Шансон", "loveradio": "Love Radio"}
+    # официальные сайты: у части станций в каталоге нет иконки или она чужая (значок холдинга, белая на прозрачном)
+    RADIO_LOGO_SITE = {"авторадио": "https://www.avtoradio.ru", "рекорд": "https://www.radiorecord.ru",
+                       "energy": "https://www.energyfm.ru", "маяк": "https://radiomayak.ru",
+                       "дорожноерадио": "https://dorognoe.ru", "шансон": "https://radioshanson.fm",
+                       "loveradio": "https://www.loveradio.ru", "businessfm": "https://www.bfm.ru"}
+    IMAGE_TYPES = ((b"\x89PNG", "image/png"), (b"\xff\xd8", "image/jpeg"), (b"GIF8", "image/gif"),
+                   (b"\x00\x00\x01\x00", "image/x-icon"))
+
+    @staticmethod
+    def _radio_key(name):
+        name = str(name or "").lower().replace("ё", "е")
+        name = re.sub(r"^радио\s+", "", name)
+        return re.sub(r"[^a-zа-я0-9]+", "", name)
+
+    @staticmethod
+    def _public_url(url):
+        """Только http(s) на публичный адрес: каталог открытый, ссылка не должна вести в домашнюю сеть."""
+        u = urlparse(url)
+        if u.scheme not in ("http", "https") or not u.hostname:
+            return False
+        try:
+            infos = socket.getaddrinfo(u.hostname, u.port or (443 if u.scheme == "https" else 80))
+        except OSError:
+            return False
+        return all(ipaddress.ip_address(i[4][0]).is_global for i in infos)
+
+    def radio_logo(self, name):
+        name = str(name or "").strip()[:80]
+        key = self._radio_key(name)
+        if not key:
+            raise AdbError("нет названия")
+        folder = DATA_DIR / ".radio_logos"
+        digest = hashlib.sha1(key.encode()).hexdigest()[:16]
+        image, miss = folder / digest, folder / (digest + ".none")
+        if image.exists():
+            data = image.read_bytes()
+            return data, next((m for sig, m in self.IMAGE_TYPES if data.startswith(sig)), "image/webp")
+        if miss.exists() and time.time() - miss.stat().st_mtime < 7 * 86400:
+            return None
+        data = self._fetch_logo(name, key)
+        folder.mkdir(exist_ok=True)
+        if not data:
+            miss.touch()
+            return None
+        image.write_bytes(data[0])
+        return data
+
+    def _fetch_logo(self, name, key):
+        query = self.RADIO_LOGO_QUERY.get(key, name)
+        params = {"name": query, "limit": "20", "hidebroken": "true", "order": "clickcount", "reverse": "true"}
+        req = urllib.request.Request(self.RADIO_SEARCH + "?" + urlencode(params),
+                                     headers={"User-Agent": f"yandex-station-web/{VERSION}"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                items = json.load(r)
+        except (OSError, ValueError):
+            return None
+        want = {key, self._radio_key(query)}
+        # «Радио Маяк (Radio Mayak)», «Радио Шансон - Radio Shanson»: название до скобок и тире — тоже совпадение,
+        # но после точного; региональные «Радио Маяк Вологда» не подходят
+        main = lambda n: self._radio_key(re.split(r"\s*[(\[|]|\s+[-–—]\s+", str(n or ""), maxsplit=1)[0])
+        items = items if isinstance(items, list) else []
+        ranked = [it for it in items if self._radio_key(it.get("name")) in want] + \
+                 [it for it in items if self._radio_key(it.get("name")) not in want and main(it.get("name")) in want]
+        tried = set()
+        site = self.RADIO_LOGO_SITE.get(key)
+        if site:
+            ranked = [{"homepage": site}] + ranked
+        for it in ranked:
+            # иконка из каталога, иначе — значок официального сайта станции (у многих станций в каталоге её нет)
+            urls = [str(it.get("favicon") or "")]
+            home = urlparse(str(it.get("homepage") or ""))
+            if home.scheme in ("http", "https") and home.netloc:
+                urls += [f"{home.scheme}://{home.netloc}/apple-touch-icon.png", f"{home.scheme}://{home.netloc}/favicon.ico"]
+            for url in urls:
+                if url in tried or not url.startswith(("http://", "https://")):
+                    continue
+                tried.add(url)
+                found = self._download_image(url)
+                if found:
+                    return found
+        return None
+
+    def _download_image(self, url):
+        if not self._public_url(url):
+            return None
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": f"yandex-station-web/{VERSION}"}),
+                                        timeout=8) as r:
+                data = r.read(300 * 1024 + 1)
+        except (OSError, ValueError):
+            return None
+        if len(data) > 300 * 1024:
+            return None
+        kind = next((m for sig, m in self.IMAGE_TYPES if data.startswith(sig)), None)
+        if not kind and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            kind = "image/webp"
+        return (data, kind) if kind else None   # SVG и прочее не берём: картинка отдаётся с адреса панели
+
     def assistant_remove(self):
         self.adb.shell(f"start-stop-daemon -K -p {ASSIST_SD} 2>/dev/null; sleep 0.5; "
                        f"rm -rf {ASSIST_DIR}; rm -f {ASSIST_SD} {ASSIST_STATUS} {ASSIST_CMD}; true", check=False)
@@ -3013,6 +3116,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._download(q.get("path", ""))
         if u.path in ("/", "/index.html"):
             return self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
+        if u.path == "/api/radio/logo":
+            try:
+                logo = self.panel.radio_logo(q.get("name", ""))
+            except AdbError as e:
+                return self._send(400, {"error": str(e)})
+            if not logo:
+                return self._send(404, {"error": "логотип не найден"})
+            return self._send(200, logo[0], logo[1], headers=[("Content-Security-Policy", "default-src 'none'")])
         if u.path.startswith("/static/"):
             f = (STATIC / unquote(u.path[len("/static/"):])).resolve()
             if f.is_file() and STATIC in f.parents:

@@ -3652,17 +3652,18 @@ async function loadRadio() {
   $('#rd-voice-hint').textContent = `— «Алиса, ${st.play[0]} <название>», «Алиса, ${st.stop[0]}»`;
   if (!$('#tab-radio').hidden) rd.timer = setTimeout(loadRadio, now.playing || now.paused ? 4000 : 10000);
 }
-// Логотип станции Алисы панель узнаёт, когда та впервые заиграла в плеере; до этого — первые буквы названия.
+// Логотип станции — из каталога radio-browser.info (панель скачивает и хранит его сама); не нашёлся — первые буквы.
 const rdKey = s => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/^радио\s+/, '').replace(/[^a-zа-я0-9]+/g, '');
 function rdAliceView(learned = []) {
-  const byName = Object.fromEntries(learned.map(s => [rdKey(s.title), s]));
   const names = [...RD_ALICE, ...learned.map(s => s.title).filter(t => !RD_ALICE.some(n => rdKey(n) === rdKey(t)))];
   $('#rd-alice').innerHTML = names.map(n => {
-    const s = byName[rdKey(n)], logo = s?.cover ? coverUrl(s.cover, 100) : '';
     const initials = n.replace(/^радио\s+/i, '').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-    return `<button class="btn sm" data-alice="${esc(n)}">${logo ? `<img src="${esc(logo)}" alt="">`
-      : `<span class="rd-logo" aria-hidden="true">${esc(initials)}</span>`}${esc(n)}</button>`;
+    const logo = PanelContext.url('/api/radio/logo?name=' + encodeURIComponent(n));
+    return `<button class="btn sm" data-alice="${esc(n)}"><span class="rd-logo" aria-hidden="true">${esc(initials)}</span>`
+      + `<img src="${esc(logo)}" alt="" hidden>${esc(n)}</button>`;
   }).join('');
+  // буквы видны, пока логотип грузится; загрузился — показываем его
+  $$('#rd-alice img').forEach(img => img.addEventListener('load', () => { img.hidden = false; img.previousElementSibling.remove(); }, { once: true }));
 }
 rdAliceView();
 const rdAlice = (btn, name) => act(btn, async () => { await api('/api/radio/alice', { name }); setTimeout(loadRadio, 800); }, `Алиса включает «${name}»`);

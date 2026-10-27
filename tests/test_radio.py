@@ -67,3 +67,27 @@ class AliceLogos(unittest.TestCase):
             again = server.Panel(Mock())
             self.assertEqual(list(again.fm_stations()), ["europa_plus"])
             self.assertTrue(again.fm_stations()["europa_plus"]["cover"].endswith("/%%"))
+
+
+class StationLogos(unittest.TestCase):
+    def test_only_public_raster_images(self):
+        panel = server.Panel(Mock())
+        self.assertFalse(panel._public_url("http://192.168.1.1/favicon.ico"))
+        self.assertFalse(panel._public_url("http://127.0.0.1/x.png"))
+        self.assertFalse(panel._public_url("file:///etc/passwd"))
+        with patch.object(server.Panel, "_public_url", return_value=True):
+            for body, ok in ((b"<svg onload=alert(1)>", False), (b"<!DOCTYPE html>", False),
+                             (b"\x89PNG\r\n\x1a\n...", True), (b"RIFF\x00\x00\x00\x00WEBPVP8 ", True)):
+                with patch.object(server.urllib.request, "urlopen", return_value=io.BytesIO(body)):
+                    self.assertEqual(bool(panel._download_image("https://radio.example/logo")), ok, body)
+
+    def test_regional_stations_are_not_taken_for_the_main_one(self):
+        found = [{"name": "Радио Маяк Вологда 102.3 FM", "favicon": "https://a.example/vologda.png"},
+                 {"name": "Радио Маяк (Radio Mayak)", "favicon": "https://a.example/mayak.png"}]
+        panel = server.Panel(Mock())
+        panel.RADIO_LOGO_SITE = {}
+        seen = []
+        panel._download_image = lambda url: seen.append(url)
+        with patch.object(server.urllib.request, "urlopen", return_value=io.BytesIO(json.dumps(found).encode())):
+            panel._fetch_logo("Маяк", panel._radio_key("Маяк"))
+        self.assertEqual(seen, ["https://a.example/mayak.png"])
