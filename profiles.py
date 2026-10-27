@@ -13,7 +13,71 @@ PROFILES = {
     'mini3pro': dict(name='Станция Мини 3 Про', platform='pickle', clock=True, boot=False, alarms=False, light=True),
     # Common ADB features and a distinct 3D model; LED layout has not been verified on hardware.
     'mini3': dict(name='Станция Мини 3', platform='bergamot', clock=False, boot=False, alarms=False, light=False, experimental=True),
+    # Glagol всё равно берёт тип из common.deviceType; светодиоды называются mini2:*.
+    'mini2': dict(name='Станция Мини 2 с часами', platform='yandexmini_2', led_prefix='mini2', clock=True, boot=False,
+                  alarms=False, light=True),
 }
+
+# Мини 2: цифры 1–4 из сегментов A–G без точек H, двоеточие PLUS1/PLUS2, MINUS посередине, DEGREE.
+# Остальная панель работает с 36 сегментами Лайт 2, поэтому имена Лайт 2 → сегменты Мини 2.
+# PLUS3/PLUS4 в sysfs есть, но прошивка их не использует — не трогаем.
+MINI2_CLOCK = {**{f'{s}{p}': f'{s}{p + 1}' for p in range(4) for s in 'ABCDEFG'},
+               'DEGREE': 'DEGREE', 'DH': 'PLUS1', 'DL': 'PLUS2', 'DM': 'MINUS'}
+MINI2_CLOCK_DIR = '/tmp/webpanel_clock/'
+# Кадр .binscled Мини 2: флаг, 32 яркости (цифры по A–G, затем PLUS1, PLUS2, MINUS, DEGREE), мс.
+MINI2_FRAME_LEDS = [f'{s}{p}' for p in range(4) for s in 'ABCDEFG'] + ['DH', 'DL', 'DM', 'DEGREE']
+MINI2_FRAME = 1 + len(MINI2_FRAME_LEDS) + 2
+
+
+def mini2_clock_dir_script(leds='/sys/class/leds', target=MINI2_CLOCK_DIR):
+    """Каталог с именами Лайт 2: ссылки на сегменты Мини 2, точкам H — обычные файлы (их на дисплее нет)."""
+    d = target.rstrip('/')
+    links = ' '.join(f'{name}:{physical}' for name, physical in MINI2_CLOCK.items())
+    return (f'[ -d {d} ] || {{ T={d}.$$; rm -rf $T; mkdir -p $T && '
+            f'for e in {links}; do ln -s {leds}/mini2:white:clock${{e#*:}} $T/${{e%%:*}}; done && '
+            f'for p in 0 1 2 3; do mkdir $T/H$p; echo 0 > $T/H$p/brightness; done && mv $T {d} || rm -rf $T; }}')
+
+
+def mini2_decode_clock_pattern(s, name, data):
+    if name.endswith('.zst'):
+        data = s.zstd_decompress(data)
+    index = {name: i for i, name in enumerate(MINI2_FRAME_LEDS)}
+    frames = []
+    for i in range(0, len(data) - MINI2_FRAME + 1, MINI2_FRAME):
+        b = data[i:i + MINI2_FRAME]
+        values = b[1:-2]
+        frames.append({'flag': b[0], 'v': [values[index[n]] if n in index else 0 for n in s.CLOCK_LEDS],
+                       'ms': int.from_bytes(b[-2:], 'big')})
+    return frames
+
+
+def mini2_encode_clock_pattern(s, frames):
+    out = bytearray()
+    for f in frames:
+        v = [max(0, min(255, int(x))) for x in f['v']]
+        if len(v) != len(s.CLOCK_LEDS):
+            raise s.AdbError(f'в кадре должно быть {len(s.CLOCK_LEDS)} значений')
+        by_name = dict(zip(s.CLOCK_LEDS, v))
+        ms = max(10, min(65535, int(f.get('ms', 100))))
+        out += bytes([1 if f.get('flag') else 0, *(by_name[n] for n in MINI2_FRAME_LEDS)]) + ms.to_bytes(2, 'big')
+    if not out:
+        raise s.AdbError('нет ни одного кадра')
+    return bytes(out)
+
+
+def mini2_ring_script(rgb=None, leds='/sys/class/leds', state='/tmp/webpanel_ring.before'):
+    """Кольцо Мини 2 — 6 RGB без триггеров: Quasar сам пишет brightness. Перед своим цветом запоминаем
+    прежний, сброс возвращает его."""
+    names = ' '.join(f'mini2:{color}:ring{i}' for i in range(1, 7) for color in ('red', 'green', 'blue'))
+    lines = ['D=' + shlex.quote(leds), 'S=' + shlex.quote(state)]
+    if rgb is not None:
+        lines.append(f'[ -s "$S" ] || for n in {names}; do echo "$n $(cat "$D/$n/brightness")"; done > "$S"')
+        lines += [f'echo {max(0, min(255, int(value)))} > "$D/mini2:{color}:ring{i}/brightness"'
+                  for i in range(1, 7) for color, value in zip(('red', 'green', 'blue'), rgb)]
+    else:
+        lines.append('if [ -s "$S" ]; then while read n v; do echo "$v" > "$D/$n/brightness"; done < "$S"; '
+                     f'else for n in {names}; do echo 0 > "$D/$n/brightness"; done; fi; rm -f "$S"')
+    return '\n'.join(lines)
 
 
 def mini3pro_ring_script(rgb=None, leds='/sys/class/leds', state='/tmp/webpanel_ring.state'):
@@ -59,7 +123,7 @@ def install(s, model='lite2', auto=False):
     profile['light_note'] = ('Подсветка этой модели ещё не проверена.' if not profile['light'] else
                              'Анимация Алисы может заменить выбранный цвет.')
     s.GLAGOL_PLATFORM = profile['platform']
-    s.LED_PREFIX = profile['platform']
+    s.LED_PREFIX = profile.get('led_prefix', profile['platform'])
     original_get, original_post = s.Handler.do_GET, s.Handler.do_POST
 
     def do_get(self):
@@ -89,6 +153,10 @@ def install(s, model='lite2', auto=False):
     s.Handler.do_GET, s.Handler.do_POST = do_get, do_post
     if model == 'lite2':
         return  # No changes to the original Lite 2 hardware, boot hook, YAM or alarm code.
+    if model == 'mini2':
+        s.CLOCK_PATH = MINI2_CLOCK_DIR
+        s.decode_clock_pattern = lambda name, data: mini2_decode_clock_pattern(s, name, data)
+        s.encode_clock_pattern = lambda frames: mini2_encode_clock_pattern(s, frames)
 
     P = s.Panel
     original_shell = s.Adb.shell
@@ -96,6 +164,9 @@ def install(s, model='lite2', auto=False):
     def shell(self, command, timeout=15, check=True):
         # Older adbd can print a root-shell banner and lose the remote exit status.
         marker = '__PANEL_' + os.urandom(8).hex() + '__'
+        if model == 'mini2' and MINI2_CLOCK_DIR in command:
+            # /tmp чистится при перезагрузке колонки — каталог сегментов создаём при первой нужде.
+            command = mini2_clock_dir_script() + '\n' + command
         wrapped = (f"printf '{marker}\\n'; sh -c {shlex.quote(command)}; rc=$?; "
                    f"printf '\\n{marker}RC=%s\\n' \"$rc\"")
         out, err, _ = original_shell(self, wrapped, timeout, False)
@@ -143,21 +214,21 @@ def install(s, model='lite2', auto=False):
     P.boot_status = lambda self: dict(supported=False, custom=False, mounted=False, sound_supported=False,
                                     sound_custom=False, sound_mounted=False, hook=False, no_boot_sound=True, always=False)
 
-    # Existing community YAM installations on the new profiles use this layout.
+    # Existing community YAM installations on the new profiles use this layout; Mini 2 keeps the Lite 2 one.
     old = s.YAM_DIR
     for name, value in list(vars(s).items()):
-        if name.startswith('YAM') and isinstance(value, str):
+        if model != 'mini2' and name.startswith('YAM') and isinstance(value, str):
             setattr(s, name, value.replace(old, '/data/local/yam'))
 
     def patterns(self):
-        if model != 'mini3pro':
+        if model not in ('mini3pro', 'mini2'):
             return {'ring': [], 'clock': []}
         out, _, _ = self.adb.shell(f'find {s.QUASAR}/ledpatterns/clock -maxdepth 1 -type f 2>/dev/null; true')
         return {'ring': [], 'clock': [Path(line).name for line in out.splitlines()]}
     P.patterns = patterns
 
     def play_pattern(self, kind, name, seconds):
-        if kind != 'clock' or model != 'mini3pro':
+        if kind != 'clock' or model not in ('mini3pro', 'mini2'):
             return unsupported()
         if name not in self.patterns()['clock']:
             raise s.AdbError('Нет такой анимации')
@@ -181,6 +252,16 @@ def install(s, model='lite2', auto=False):
             representative = [[round(sum(pixel[k] for pixel in pixels[a:b]) / (b-a)) for k in range(3)]
                               for a, b in ((0, 30), (30, 60), (60, 89))]
             return {'v': [0] * 36, 'ring': representative, 'ring_all': pixels}
+        if model == 'mini2':
+            names = [f'mini2:white:clock{MINI2_CLOCK[name]}' for name in s.CLOCK_LEDS if name in MINI2_CLOCK]
+            names += [f'mini2:{color}:ring{i}' for i in range(1, 7) for color in ('red', 'green', 'blue')]
+            out, _, _ = self.adb.shell('cd /sys/class/leds; ' + '; '.join(f'cat {name}/brightness' for name in names))
+            values = [int(value) for value in out.split() if value.isdigit()]
+            if len(values) != len(names):
+                raise s.AdbError('Неполное состояние светодиодов')
+            clock = iter(values[:len(MINI2_CLOCK)])
+            ring = [values[len(MINI2_CLOCK) + i * 3:len(MINI2_CLOCK) + i * 3 + 3] for i in range(6)]
+            return {'v': [next(clock) if name in MINI2_CLOCK else 0 for name in s.CLOCK_LEDS], 'ring': ring, 'ring_all': ring}
         names = [f'pickle:white:clock{name}' for name in s.CLOCK_LEDS]
         names += [f'pickle:{color}:ring{i}' for i in range(16) for color in ('red', 'green', 'blue')]
         out, _, _ = self.adb.shell('cd /sys/class/leds; ' + '; '.join(f'cat {name}/brightness' for name in names))
@@ -207,6 +288,8 @@ def install(s, model='lite2', auto=False):
         rgb = [max(0, min(255, int(data.get(color, 0)))) for color in ('red', 'green', 'blue')]
         if model == 'mini3pro':
             self.adb.shell(mini3pro_ring_script(rgb))
+        elif model == 'mini2':
+            self.adb.shell(mini2_ring_script(rgb))
         else:
             self.adb.shell('test "$(cat /sys/class/graphics/fb0/virtual_size)" = "89,1" && '
                            'test "$(cat /sys/class/graphics/fb0/bits_per_pixel)" = 32 || exit 1; '
@@ -224,6 +307,8 @@ def install(s, model='lite2', auto=False):
             return {'ok': True}
         if model == 'mini3pro':
             command = mini3pro_ring_script()
+        elif model == 'mini2':
+            command = mini2_ring_script()
         else:
             command = 'if [ -s /tmp/webpanel_ring.before ]; then cat /tmp/webpanel_ring.before > /dev/fb0; rm -f /tmp/webpanel_ring.before; fi'
         self.adb.shell(command)

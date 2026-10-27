@@ -17,7 +17,9 @@ const cases=[
   [{hardware_model:'yandex,station-micro',hostname:'renamed'},'lite'],
   [{hostname:'yandex-station-lite'},'lite'],
   [{hardware_model:'Yandex Plum EVT2',hostname:'yandex-station-lite'},'lite2'],
-  [{hostname:'Yandex-Mini2-1234'},'lite2'],
+  [{hostname:'Yandex-Mini2-2ZTR'},'mini2'],
+  [{hardware_model:'Yandex Station Mini 2',hostname:'renamed'},'mini2'],
+  [{hostname:'Yandex-Mini1-1234'},'lite2'],
 ];
 for(const [identity,expected]of cases){
   const result=rendererProfile(original,identity);

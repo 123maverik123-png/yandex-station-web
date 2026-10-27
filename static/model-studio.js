@@ -3,11 +3,11 @@ import * as T from 'three';
 import { OrbitControls } from './vendor/three/OrbitControls.js';
 import {modelSettings} from './model-settings.js';
 export function createModel(profile){
-const view=document.getElementById('model-view'),lite=profile.id==='lite',mini=lite||profile.id==='mini3pro'||profile.id==='mini3';
+const view=document.getElementById('model-view'),lite=profile.id==='lite',mini=lite||profile.id==='mini3pro'||profile.id==='mini3'||profile.id==='mini2';
 view.setAttribute('role','group');view.setAttribute('aria-label','3D-модель: вращайте мышью или пальцем');view.classList.add('studio-view');
 // Preserve upstream visualizer canvas and the references held by its animation loop.
 // Лайт первого поколения: цвета как в её ledconfigs (purple, yellow, green, pink, red, beige).
-const palette=lite?{purple:['Фиолетовый','#6a3fe6'],yellow:['Жёлтый','#f0c43a'],green:['Зелёный','#59b96d'],pink:['Розовый','#ec2c7c'],red:['Красный','#d9473f'],beige:['Бежевый','#d8c6ab']}:profile.id==='mini3'?{black:['Чёрный','#34343a'],grey:['Серый','#a0a2a8'],violet:['Лиловый','#9b8eaa'],teal:['Бирюзовый','#6aa6a7']}:mini?{black:['Графит','#34343a'],grey:['Серый','#888b91'],blue:['Синий','#355d82']}:{black:['Антрацит','#3b3c40'],blue:['Кобальт','#485c85'],copper:['Медный','#a66d5d'],sand:['Песочный','#c5baaa'],red:['Рубин','#8c3447']};
+const palette=lite?{purple:['Фиолетовый','#6a3fe6'],yellow:['Жёлтый','#f0c43a'],green:['Зелёный','#59b96d'],pink:['Розовый','#ec2c7c'],red:['Красный','#d9473f'],beige:['Бежевый','#d8c6ab']}:profile.id==='mini3'?{black:['Чёрный','#34343a'],grey:['Серый','#a0a2a8'],violet:['Лиловый','#9b8eaa'],teal:['Бирюзовый','#6aa6a7']}:profile.id==='mini2'?{black:['Чёрный','#34343a'],blue:['Синий','#355d82'],red:['Красный','#a8423f']}:mini?{black:['Графит','#34343a'],grey:['Серый','#888b91'],blue:['Синий','#355d82']}:{black:['Антрацит','#3b3c40'],blue:['Кобальт','#485c85'],copper:['Медный','#a66d5d'],sand:['Песочный','#c5baaa'],red:['Рубин','#8c3447']};
 let renderer;
 try{renderer=new T.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});}catch(e){view.insertAdjacentHTML('beforeend','<p class="studio-error">Для объёмной модели включите WebGL в браузере.</p>');throw e;}
 renderer.domElement.className='studio-canvas';renderer.domElement.setAttribute('aria-label',profile.name+' — вращаемая 3D-модель');
@@ -72,8 +72,11 @@ if(lite){
   for(let i=0;i<shellUV.count;i++)shellUV.setY(i,(shellPosition.getY(i)+35)/66);
   mesh(shell,fabric);
   mesh(new T.CylinderGeometry(49.5,47.6,3,160),plastic,0,-33.6);mesh(new T.CylinderGeometry(43,43,1.2,128),rubber,0,-35.6);
-  if(profile.id!=='mini3')for(let i=0;i<16;i++)mesh(new T.CylinderGeometry(50.7,50.7,2.3,16,1,true,i*Math.PI/8,Math.PI/8+.005),ledMaterial(),0,30.1);
+  // кольцо по краю крышки: 16 RGB у Мини 3 Про, 6 у Мини 2
+  const ringLeds=profile.id==='mini2'?6:16;
+  if(profile.id!=='mini3')for(let i=0;i<ringLeds;i++)mesh(new T.CylinderGeometry(50.7,50.7,2.3,16,1,true,i*2*Math.PI/ringLeds,2*Math.PI/ringLeds+.005),ledMaterial(),0,30.1);
   mesh(new T.CylinderGeometry(50.6,50.8,2,192),plastic,0,32.1);mesh(new T.CylinderGeometry(50.2,50.2,.6,192),glass,0,33.4);topY=33.8;baseY=-36.2;port(-25,-50.1);
+  if(profile.id==='mini2')group.scale.set(97/102,54/71,97/102);   // 97×54 мм
   if(profile.id==='mini3'){group.scale.y=60.5/71;const indicator=mesh(new T.RingGeometry(3.6,5.2,64),ledMaterial(),0,33.85);indicator.rotation.x=-Math.PI/2;}
 }else{
   const body=roundedBox(123,190,99,21,3),positions=body.attributes.position,uv=body.attributes.uv;
