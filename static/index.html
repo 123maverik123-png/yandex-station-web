@@ -1343,6 +1343,7 @@
             <p class="hint">Через запятую. Говорите: «Алиса, спроси GPT, …». «Алиса, спроси GPT, новый разговор» — забыть контекст.</p>
           </div>
           <p class="hint" id="as-error" hidden></p>
+          <p class="set-note" id="as-privacy" style="margin:12px 0 0"></p>
         </section>
         <section class="card">
           <div class="card-head"><h2>Проверка</h2></div>
@@ -3421,6 +3422,12 @@ function asTtsView() {
   const v = $('#as-tts').value;
   $$('[data-tts]').forEach(el => el.hidden = v !== 'openai');
   $('#as-tts-hint').textContent = AS_TTS_HINT[v];
+  // что при этом всё равно уходит Яндексу — зависит от способа озвучки
+  $('#as-privacy').textContent = 'Яндекс по-прежнему получает голосовые вопросы: «Алиса, спроси GPT, …» распознаёт её облако, '
+    + 'звук и текст фразы уходят на серверы Яндекса, как обычный запрос к Алисе. '
+    + (v === 'alice' ? 'Ответ модели тоже уходит Яндексу: Алиса озвучивает его запросом «Повтори за мной».'
+      : 'Ответ модели Яндекс не получает — его озвучивает выбранный синтезатор.')
+    + ' Вопросы из «Проверки» Яндекс не видит.' + (v === 'alice' ? ' Только ответ на них.' : '');
 }
 $('#as-tts').onchange = asTtsView;
 const asLed = () => act(null, async () => asFill((await api('/api/assistant', { led: { enabled: $('#as-led').checked, color: $('#as-led-color').value } })).config));
