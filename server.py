@@ -200,6 +200,13 @@ BOOT_HOOK_SCRIPT = (
     "exit 0\n"
 )
 ROOTKEEPER = "/data/quasar/rootkeeper.sh"
+# rootkeeper.sh создаёт способ рутования, и он есть не у всех. Штатный onboot.sh запускает его, если файл есть, —
+# тогда панель создаёт его сама и помечает этим файлом, чтобы при откате удалить целиком.
+ROOTKEEPER_CREATED = f"{ROOTKEEPER}.webpanel.created"
+ROOTKEEPER_CALLER = "/system/vendor/quasar/onboot.sh"
+# откат созданного панелью rootkeeper.sh: после удаления нашей строки в нём остались только комментарии
+ROOTKEEPER_DROP_CREATED = (f"if [ -f {ROOTKEEPER_CREATED} ] && [ -z \"$(grep -v '^#' {ROOTKEEPER} 2>/dev/null | grep -v '^[[:space:]]*$')\" ]; "
+                           f"then rm -f {ROOTKEEPER} {ROOTKEEPER_CREATED} {ROOTKEEPER}.webpanel.bak; fi")
 HOOK_MARK = "# webpanel-boot-hook"
 
 
@@ -1362,12 +1369,15 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             self.adb.shell(f"mkdir -p {WEB_DIR}")
             self.adb.push(Path(td) / "hook", BOOT_HOOK)
         _, err, rc = self.adb.shell(
-            f"chmod 755 {BOOT_HOOK}; [ -f {ROOTKEEPER} ] || exit 3; "
+            f"chmod 755 {BOOT_HOOK}; [ -f {ROOTKEEPER} ] || {{ grep -q {ROOTKEEPER} {ROOTKEEPER_CALLER} 2>/dev/null || exit 3; "
+            f"printf '#!/bin/sh\\n# создан веб-панелью: штатный onboot.sh запускает этот файл, если он есть\\n' > {ROOTKEEPER} "
+            f"&& chmod 755 {ROOTKEEPER} && touch {ROOTKEEPER_CREATED} || exit 4; }}; "
             f"[ -f {ROOTKEEPER}.webpanel.bak ] || cp {ROOTKEEPER} {ROOTKEEPER}.webpanel.bak; "
             f"grep -q '{HOOK_MARK}' {ROOTKEEPER} || "
             f"sed -i '1a [ -x {BOOT_HOOK} ] && {BOOT_HOOK} {HOOK_MARK}' {ROOTKEEPER}", check=False)
         if rc == 3:
-            raise AdbError(f"нет {ROOTKEEPER}: подключить к загрузке не к чему")
+            raise AdbError(f"нет {ROOTKEEPER}, и штатная загрузка ({ROOTKEEPER_CALLER}) его не вызывает: "
+                           "подключить к загрузке не к чему")
         if rc != 0:
             raise AdbError(err.strip() or "не удалось подключить хук к загрузке")
 
@@ -1376,7 +1386,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         self.adb.shell(
             f"if [ ! -f {BOOT_CUSTOM} ] && [ ! -f {SOUND_CUSTOM} ] && [ ! -f {BOOT_ALWAYS} ] && [ ! -f {YAM_AUTOSTART} ] "
             f"&& [ ! -f {ALARM_CONF} ] && [ ! -f {HOSTS_CUSTOM} ] && [ ! -f {ASSIST_CONF} ]; then "
-            f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; rm -f {BOOT_HOOK}; fi; true")
+            f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; {ROOTKEEPER_DROP_CREATED}; rm -f {BOOT_HOOK}; fi; true")
 
     def _install_override(self, data, custom, target, orig):
         """Кладёт свой файл и сразу монтирует его поверх стандартного; при первой установке сохраняет оригинал."""
@@ -1924,7 +1934,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"grep -q ' {BOOT_TARGET} ' /proc/mounts && {{ umount {BOOT_TARGET} || umount -l {BOOT_TARGET}; }}; "
             f"grep -q ' {SOUND_TARGET} ' /proc/mounts && {{ umount {SOUND_TARGET} || umount -l {SOUND_TARGET}; }}; "
             f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && {{ umount {HOSTS_TARGET} || umount -l {HOSTS_TARGET}; }}; "
-            f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; true", check=False)
+            f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; {ROOTKEEPER_DROP_CREATED}; true", check=False)
         # Копию rootkeeper.sh удаляем, только если без нашей строки файл совпал с ней: значит, других правок не было.
         out, _, _ = self.adb.shell(
             f"b={ROOTKEEPER}.webpanel.bak; if [ -f $b ]; then "

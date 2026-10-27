@@ -2192,8 +2192,11 @@ function renderBootStatus() {
   const s = boot.status;
   if (!s) return;
   $('#boot-always').checked = !!s.always;
-  $('#boot-hook-badge').textContent = s.hook ? 'хук подключён' : 'хук не нужен';
-  $('#boot-hook-badge').className = 'badge' + (s.hook ? ' ok' : '');
+  // своё сохранено, а строки автозапуска нет — после перезагрузки заставка и звук не подменятся
+  const needHook = s.custom || s.sound_custom || s.always;
+  $('#boot-hook-badge').textContent = s.hook ? 'хук подключён' : needHook ? 'хук не подключён' : 'хук не нужен';
+  $('#boot-hook-badge').className = 'badge' + (s.hook ? ' ok' : needHook ? ' bad' : '');
+  $('#boot-hook-badge').title = !s.hook && needHook ? 'Своя заставка или звук сохранены, но строки запуска в rootkeeper.sh нет. Сохраните их ещё раз — панель подключит хук.' : '';
   $('#snd-badge').textContent = !s.sound_supported ? 'не поддерживается' : s.sound_custom ? 'свой' : 'стандартный';
   $('#snd-badge').className = 'badge' + (s.sound_custom ? ' ok' : '');
   $('#bs-play-custom').disabled = !s.sound_custom;
