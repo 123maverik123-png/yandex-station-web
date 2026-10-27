@@ -1664,7 +1664,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 "stations": radio.get("stations") or [], "voice": radio.get("voice", True),
                 "play": radio.get("play") or ["включи станцию", "включи радиостанцию", "поставь станцию"],
                 "stop": radio.get("stop") or ["выключи станцию", "выключи радиостанцию", "останови станцию"],
-                "now": (st.get("state") or {}).get("radio") or {}}
+                "now": (st.get("state") or {}).get("radio") or {},
+                "alice": [{"id": k, **v} for k, v in self.fm_stations().items()]}
 
     def _radio_station(self, s):
         name = str((s or {}).get("name") or "").strip()[:80]
@@ -2278,7 +2279,37 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             pos = self._bt_position(p.get("title"))
             if pos:
                 g = {**g, "state": {**g["state"], "playerState": {**p, "progress": pos[0]}}, "progress_at": pos[1]}
+        if p and p.get("type") == "FmRadio":
+            self._remember_fm(p)
         return {"auth": self.auth.info(), "glagol": g}
+
+    # Логотипы станций Алисы: их отдаёт только плеер, пока станция играет, — запоминаем на будущее.
+    _fm_cache = None
+
+    def _fm_file(self):
+        return DATA_DIR / ".radio_alice.json"
+
+    def fm_stations(self):
+        if self._fm_cache is None:
+            try:
+                self._fm_cache = json.loads(self._fm_file().read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                self._fm_cache = {}
+        return self._fm_cache
+
+    def _remember_fm(self, p):
+        sid, title = str(p.get("id") or "")[:60], str(p.get("title") or "").strip()[:80]
+        cover = str((p.get("extra") or {}).get("coverURI") or "")[:300]
+        if not re.fullmatch(r"[\w.-]+", sid) or not title:
+            return
+        known = self.fm_stations()
+        entry = {"title": title, "cover": cover}
+        if known.get(sid) != entry:
+            known[sid] = entry
+            try:
+                write_unix(self._fm_file(), json.dumps(known, ensure_ascii=False))
+            except OSError:
+                pass
 
     def _bt_position(self, title):
         """Позиция трека с телефона; спрашиваем не чаще раза в 3 с — между опросами её досчитывает страница."""

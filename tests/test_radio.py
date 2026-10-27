@@ -54,3 +54,16 @@ class Radio(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AliceLogos(unittest.TestCase):
+    def test_logo_is_remembered_from_the_player(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d, patch.object(server, "DATA_DIR", Path(d)):
+            panel = server.Panel(Mock())
+            panel._remember_fm({"id": "europa_plus", "title": "Европа плюс", "type": "FmRadio",
+                                "extra": {"coverURI": "avatars.mds.yandex.net/get-music-misc/1/europa_plus-225-full/%%"}})
+            panel._remember_fm({"id": "../evil", "title": "x", "extra": {}})
+            again = server.Panel(Mock())
+            self.assertEqual(list(again.fm_stations()), ["europa_plus"])
+            self.assertTrue(again.fm_stations()["europa_plus"]["cover"].endswith("/%%"))

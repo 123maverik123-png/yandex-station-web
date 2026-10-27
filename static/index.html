@@ -402,6 +402,9 @@
   .as-warn b { color: var(--danger); }
   /* «Радио» */
   .rd-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .rd-chips .btn { gap: 8px; }
+  .rd-chips img, .rd-chips .rd-logo { width: 24px; height: 24px; border-radius: 6px; flex: none; object-fit: cover; }
+  .rd-chips .rd-logo { display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; font-weight: 700; }
   .rd-list { display: grid; gap: 6px; }
   .rd-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--field); min-width: 0; }
   .rd-row .rd-name { flex: 1; min-width: 0; }
@@ -3629,6 +3632,7 @@ async function loadRadio() {
   let st;
   try { st = await api('/api/radio'); } catch (e) { return e.offline || toast(e.message, true); }
   rd.st = st;
+  if (JSON.stringify(st.alice) !== rd.alice) { rd.alice = JSON.stringify(st.alice); rdAliceView(st.alice || []); }
   $('#rd-missing').hidden = st.installed;
   $('#rd-unsupported').hidden = st.supported !== false;
   $('#rd-install').hidden = st.supported === false;
@@ -3648,7 +3652,19 @@ async function loadRadio() {
   $('#rd-voice-hint').textContent = `— «Алиса, ${st.play[0]} <название>», «Алиса, ${st.stop[0]}»`;
   if (!$('#tab-radio').hidden) rd.timer = setTimeout(loadRadio, now.playing || now.paused ? 4000 : 10000);
 }
-$('#rd-alice').innerHTML = RD_ALICE.map(n => `<button class="btn sm" data-alice="${esc(n)}">${esc(n)}</button>`).join('');
+// Логотип станции Алисы панель узнаёт, когда та впервые заиграла в плеере; до этого — первые буквы названия.
+const rdKey = s => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/^радио\s+/, '').replace(/[^a-zа-я0-9]+/g, '');
+function rdAliceView(learned = []) {
+  const byName = Object.fromEntries(learned.map(s => [rdKey(s.title), s]));
+  const names = [...RD_ALICE, ...learned.map(s => s.title).filter(t => !RD_ALICE.some(n => rdKey(n) === rdKey(t)))];
+  $('#rd-alice').innerHTML = names.map(n => {
+    const s = byName[rdKey(n)], logo = s?.cover ? coverUrl(s.cover, 100) : '';
+    const initials = n.replace(/^радио\s+/i, '').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    return `<button class="btn sm" data-alice="${esc(n)}">${logo ? `<img src="${esc(logo)}" alt="">`
+      : `<span class="rd-logo" aria-hidden="true">${esc(initials)}</span>`}${esc(n)}</button>`;
+  }).join('');
+}
+rdAliceView();
 const rdAlice = (btn, name) => act(btn, async () => { await api('/api/radio/alice', { name }); setTimeout(loadRadio, 800); }, `Алиса включает «${name}»`);
 $('#rd-alice').onclick = e => { const b = e.target.closest('[data-alice]'); if (b) rdAlice(b, b.dataset.alice); };
 $('#rd-alice-form').onsubmit = e => { e.preventDefault(); const n = e.target.elements.name.value.trim(); if (n) rdAlice(e.submitter, n); };

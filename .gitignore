@@ -3,6 +3,7 @@
 .panel_auth.json
 .panel_settings.json
 .metrics.json
+.radio_alice.json
 .tls/
 data/
 speakers.json
