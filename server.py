@@ -1626,7 +1626,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         try:
             self._ensure_hook()
         except AdbError:
-            pass   # не Лайт 2: её хук не ставим, помощник работает до перезагрузки колонки
+            pass   # хук поставить нельзя (нет rootkeeper.sh): помощник работает до перезагрузки колонки
         return self.assistant_start()
 
     def _assist_write(self, cfg):

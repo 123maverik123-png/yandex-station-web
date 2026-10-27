@@ -50,7 +50,9 @@ alice() {
 }
 
 # Кольцо — через framebuffer, как у самого Quasar; после будильника возвращаем его Quasar.
-ring() { echo -e -n "$1$1$1" > /dev/fb0 2>/dev/null; }
+# Только если /dev/fb0 — кольцо Лайт 2 (3 пикселя): на других моделях там может быть экран.
+FB_RING=; [ "$(cat /sys/class/graphics/fb0/virtual_size 2>/dev/null)" = "3,1" ] && FB_RING=1
+ring() { [ -n "$FB_RING" ] && echo -e -n "$1$1$1" > /dev/fb0 2>/dev/null; }
 ring_release() {
     for n in $RING_LEDS; do
         t=/sys/class/leds/plum:$n/trigger

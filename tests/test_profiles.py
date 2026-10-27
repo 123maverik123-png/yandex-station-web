@@ -36,7 +36,6 @@ class ProfileTests(unittest.TestCase):
         p._assist_config = lambda: {}
         st = p.assistant_status()
         self.assertTrue(st['experimental'])
-        self.assertFalse(st['autostart'])
         with self.assertRaisesRegex(s.AdbError, '64-битное'):
             p.assistant_install()   # 32-битное ядро: программу не кладём
         self.assertEqual(calls[-1], 'uname -m')
@@ -45,6 +44,16 @@ class ProfileTests(unittest.TestCase):
         p._assist_binary = lambda: Path('assistantd')
         p._assist_write = lambda cfg: None
         self.assertEqual(p.assistant_install(), 'started')   # хук Лайт 2 не ставится, но установка проходит
+
+    def test_boot_status_hides_screen_keeps_sound_on_other_models(self):
+        s = fresh_server()
+        profiles.install(s, 'mini2')
+        p = s.Panel(Mock())
+        p.adb.shell = lambda cmd, *a, **k: ('s_target\nhook\n', '', 0)
+        st = p.boot_status()
+        self.assertFalse(st['supported'])
+        self.assertTrue(st['sound_supported'])
+        self.assertTrue(st['hook'])
 
     def test_pro_clock_scripts_use_pickle_without_altering_ring_count(self):
         s = fresh_server()
@@ -89,17 +98,21 @@ class ProfileTests(unittest.TestCase):
         self.assertIn('ln -s /sys/class/leds/mini2:white:clock', sent[0])
         self.assertNotIn('ln -s', sent[1])
 
-    def test_other_profiles_block_boot_restore_alarm_posts(self):
+    def test_other_profiles_block_boot_screen_and_restore_but_try_alarms(self):
         for model in ('station2', 'mini3pro', 'mini3', 'mini2'):
             s = fresh_server()
             s.Handler.do_POST = Mock()
             original = s.Handler.do_POST
             profiles.install(s, model)
-            for path in ('/api/clock/boot', '/api/boot/install', '/api/alarms/set', '/api/backup/restore', '/api/footprint/reset'):
+            for path in ('/api/clock/boot', '/api/clock/boot/reset', '/api/backup/restore', '/api/footprint/reset'):
                 request = SimpleNamespace(path=path, _guard=lambda _:False, _send=Mock())
                 s.Handler.do_POST(request)
                 self.assertEqual(request._send.call_args.args[0], 400)
             original.assert_not_called()
+            # звук запуска, «когда показывать», будильник и ассистент — на пробу
+            for path in ('/api/boot/sound/reset', '/api/clock/boot/always', '/api/alarms', '/api/assistant/install'):
+                s.Handler.do_POST(SimpleNamespace(path=path, _guard=lambda _:False, _send=Mock()))
+            self.assertEqual(original.call_count, 4)
 
 
 class ConfigTests(unittest.TestCase):

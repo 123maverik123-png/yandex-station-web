@@ -146,8 +146,8 @@ def install(s, model='lite2', auto=False):
 
     def do_post(self):
         path = self.path.split('?')[0]
-        disabled = (not profile['boot'] and (path.startswith('/api/clock/boot') or path.startswith('/api/boot/')) or
-                    not profile['alarms'] and path.startswith('/api/alarms') or
+        # Запуск и будильник на других моделях — на пробу; заставка часов рассчитана на дисплей Лайт 2
+        disabled = (not profile['boot'] and path in ('/api/clock/boot', '/api/clock/boot/reset') or
                     model != 'lite2' and path.startswith('/api/radio') and path != '/api/radio/alice' or
                     model != 'lite2' and path in ('/api/footprint/reset', '/api/backup/restore'))
         if disabled:
@@ -212,19 +212,28 @@ def install(s, model='lite2', auto=False):
     if not profile['clock']:
         for method in ('clock', 'display_set', 'play_clock', 'clock_frames'):
             setattr(P, method, unsupported)
-    # Never connect the Light 2 rootkeeper hook to a different model.
-    P._ensure_hook = unsupported
+    # Хук в rootkeeper.sh (звук запуска, автозапуск будильника и ассистента) — только если файл есть или его
+    # вызывает штатный onboot.sh, иначе _ensure_hook сам откажет. На Мини 3 оборудование не сверено — не трогаем.
+    if profile.get('experimental'):
+        P._ensure_hook = unsupported
     for method in ('yam_install_daemon', 'yam_update_daemon', 'yam_autostart'):
         if hasattr(P, method):
             setattr(P, method, unsupported)
     # Помощник проверен только на Лайт 2: здесь — на пробу, без хука автозапуска Лайт 2 (до перезагрузки колонки)
     original_assistant_status = P.assistant_status
-    P.assistant_status = lambda self: {**original_assistant_status(self), 'experimental': True, 'autostart': False,
+    P.assistant_status = lambda self: {**original_assistant_status(self), 'experimental': True,
                                          'model_name': profile['name']}
     original_radio_status = P.radio_status
     P.radio_status = lambda self: {**original_radio_status(self), 'supported': False}
-    P.boot_status = lambda self: dict(supported=False, custom=False, mounted=False, sound_supported=False,
-                                    sound_custom=False, sound_mounted=False, hook=False, no_boot_sound=True, always=False)
+    original_boot_status = P.boot_status
+
+    def boot_status(self):
+        st = original_boot_status(self)
+        if not profile['boot']:   # без заставки часов: звук запуска и «когда показывать» остаются
+            st.update(supported=False, custom=False, mounted=False)
+            st.pop('default', None), st.pop('frames', None)
+        return st
+    P.boot_status = boot_status
 
     # Existing community YAM installations on the new profiles use this layout; Mini 2 keeps the Lite 2 one.
     old = s.YAM_DIR

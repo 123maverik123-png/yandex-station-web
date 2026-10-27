@@ -10,6 +10,21 @@ async function loadProfile(){
   }
 }
 const profile=await loadProfile();
+// Запуск и будильник проверены только на Лайт 2 — на остальных не прячем, а предупреждаем крупно в шапке.
+const untested=(tab,what,text)=>{
+  const head=document.querySelector('#tab-'+tab+' .page-head');if(!head)return;
+  const box=document.createElement('div');box.className='untested';box.setAttribute('role','alert');
+  box.innerHTML='<svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 1 21h22L12 2zm1 15h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg><div><strong></strong><p></p></div>';
+  box.querySelector('strong').textContent='На '+profile.name.replace(/^Станция/,'Станции')+' '+what+' не тестировал'+(what==='будильник'?'ся':'ась')+' и может работать не так, как надо';
+  box.querySelector('p').innerHTML=text+' Заработало или нет — напишите, пожалуйста, в <a href="https://github.com/dimap/yandex-station-web/issues" target="_blank" rel="noopener">Issues</a> с моделью и версией прошивки.';
+  head.append(box);
+};
+if(!profile.boot){
+  document.getElementById('boot-card')?.setAttribute('data-profile-hidden','');
+  untested('boot','настройка запуска','Проверена только на Станции Лайт 2. Заставка часов скрыта — она рассчитана на дисплей Лайт 2. Свой звук подменяется при загрузке через хук в <code>rootkeeper.sh</code>; если после перезагрузки звучит стандартный, значит, на этой модели хук не срабатывает.');
+}
+if(!profile.alarms)
+  untested('alarm','будильник','Проверен только на Станции Лайт 2: это скрипт на колонке, он будит звуками и голосом Алисы и запускается при загрузке через хук в <code>rootkeeper.sh</code>. Прежде чем полагаться на него утром, проверьте кнопкой «Проверить» и после перезагрузки колонки.');
 const view=document.getElementById('model-view');
 const loading=document.createElement('p');loading.className='studio-caption';loading.textContent='Ожидаю данные колонки…';view.append(loading);
 let status;
@@ -39,8 +54,6 @@ const hide=element=>element?.setAttribute('data-profile-hidden','');
 if(!profile.clock)hide(document.querySelector('[data-widget="clock"]'));
 if(!profile.light)hide(document.querySelector('[data-widget="light"]'));
 if(!profile.boot)hide(document.getElementById('privacy-row'));
-if(!profile.boot){hide(document.querySelector('a[href="#boot"]'));const tab=document.querySelector('#tab-boot');for(const child of tab.children)hide(child);tab.insertAdjacentHTML('afterbegin','<p class="card">Редактор запуска не поддерживается выбранным профилем.</p>');}
-if(!profile.alarms){hide(document.querySelector('a[href="#alarm"]'));const tab=document.querySelector('#tab-alarm');for(const child of tab.children)hide(child);tab.insertAdjacentHTML('afterbegin','<p class="card">Автозапуск будильника этой модели ещё не поддерживается. Существующие будильники не изменяются.</p>');}
 if(profile.id!=='lite2'){
   hide(document.getElementById('pat-play'));
   document.querySelectorAll('[data-k="clock"]').forEach(e=>{if(!profile.clock)hide(e);});
