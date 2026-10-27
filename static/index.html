@@ -1345,7 +1345,6 @@
       <p class="hint">Небольшая программа ляжет на колонку в /data/quasar/webpanel/assistant и будет работать без компьютера.
         Как это устроено: Алиса распознаёт фразу, помощник сразу отменяет её собственный ответ, отправляет вопрос модели
         (любой OpenAI-совместимый API) и озвучивает ответ голосом Алисы или выбранным синтезатором.</p>
-      <p class="hint" id="as-nogo" hidden>Чтобы собрать программу, на этом компьютере нужен Go: <a href="https://go.dev/dl/" target="_blank" rel="noopener">go.dev/dl</a>.</p>
       <div class="row"><button class="btn primary" id="as-install">Установить на колонку</button></div>
     </section>
 
@@ -3485,7 +3484,6 @@ async function loadAssistant(fill) {
   try { st = await api('/api/assistant'); } catch (e) { return e.offline || toast(e.message, true); }
   $('#as-unsupported').hidden = st.supported !== false;
   $('#as-missing').hidden = st.supported === false || st.installed;
-  $('#as-nogo').hidden = st.can_build !== false;
   $('#as-on').hidden = !st.installed;
   $('#as-update').hidden = !st.outdated;
   const s = st.state || {}, c = st.config || {};

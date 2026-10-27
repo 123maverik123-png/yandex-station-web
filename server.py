@@ -1510,21 +1510,63 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                      "led": ("enabled", "color"),
                      "mode": ("timeout_min", "follow_up")}
 
-    def _assist_binary(self):
-        """Собранный assistantd для колонки (linux/arm64). Есть Go — собираем из device/assistant сами."""
-        out = ASSIST_SRC / "build" / "assistantd"
-        sources = list(ASSIST_SRC.glob("*.go")) + [ASSIST_SRC / "go.mod"]
-        fresh = out.exists() and all(f.stat().st_mtime <= out.stat().st_mtime for f in sources if f.exists())
+    ASSIST_ASSET = "assistantd-linux-arm64"
+
+    def _assist_binary(self, download=True):
+        """Программа помощника для колонки (linux/arm64), по порядку:
+        1) есть Go — собираем из device/assistant (для тех, кто меняет код помощника);
+        2) готовая сборка своей версии рядом (Docker, архив для Windows);
+        3) скачанная с релиза GitHub для этой версии панели — с проверкой SHA256SUMS, как yamd;
+        4) готовая сборка другой версии — лучше, чем ничего."""
+        build = ASSIST_SRC / "build" / "assistantd"
         go = shutil.which("go")
-        if go and not fresh:
-            env = {**os.environ, "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": "arm64"}
-            r = subprocess.run([go, "build", "-trimpath", "-ldflags", f"-s -w -X main.version={VERSION}",
-                                "-o", str(out), "."], cwd=ASSIST_SRC, env=env, capture_output=True, text=True, timeout=300)
-            if r.returncode:
-                raise AdbError("не удалось собрать помощника: " + (r.stderr or r.stdout).strip()[-400:])
-        if not out.exists():
-            raise AdbError("нет собранного помощника: установите Go (go.dev/dl) — панель соберёт его сама")
-        return out
+        if go:
+            sources = list(ASSIST_SRC.glob("*.go")) + [ASSIST_SRC / "go.mod"]
+            fresh = build.exists() and all(f.stat().st_mtime <= build.stat().st_mtime for f in sources if f.exists())
+            if not fresh:
+                env = {**os.environ, "CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": "arm64"}
+                r = subprocess.run([go, "build", "-trimpath", "-ldflags", f"-s -w -X main.version={VERSION}",
+                                    "-o", str(build), "."], cwd=ASSIST_SRC, env=env, capture_output=True, text=True, timeout=300)
+                if r.returncode:
+                    raise AdbError("не удалось собрать помощника: " + (r.stderr or r.stdout).strip()[-400:])
+            return build
+        try:
+            bundled = (ASSIST_SRC / "build" / "VERSION").read_text().strip()
+        except OSError:
+            bundled = ""
+        if build.exists() and bundled == VERSION:
+            return build
+        cached = DATA_DIR / f".assistantd-{VERSION}"
+        if cached.exists():
+            return cached
+        if download:
+            try:
+                return self._assist_download(cached)
+            except (OSError, ValueError, AdbError) as e:
+                if not build.exists():
+                    raise AdbError(f"не удалось скачать помощника для версии {VERSION}: {e}") from None
+        if build.exists():
+            return build
+        raise AdbError("нет программы помощника для колонки: она скачивается с релиза GitHub — проверьте интернет")
+
+    def _assist_download(self, dest):
+        base = f"https://github.com/{REPO}/releases/download/v{VERSION}/"
+        get = lambda name, limit: urllib.request.urlopen(urllib.request.Request(
+            base + name, headers={"User-Agent": f"yandex-station-web/{VERSION}"}), timeout=60).read(limit)
+        sums = get("SHA256SUMS", 64 * 1024).decode("utf-8", "replace")
+        want = next((ln.split()[0] for ln in sums.splitlines() if ln.split()[-1:] == [self.ASSIST_ASSET]), None)
+        if not want:
+            raise AdbError(f"в SHA256SUMS релиза нет {self.ASSIST_ASSET}")
+        blob = get(self.ASSIST_ASSET, 64 * 1024 * 1024)
+        if hashlib.sha256(blob).hexdigest() != want.lower():
+            raise AdbError("контрольная сумма программы помощника не совпала")
+        tmp = dest.with_name(dest.name + ".part")
+        tmp.write_bytes(blob)
+        os.replace(tmp, dest)
+        for old in DATA_DIR.glob(".assistantd-*"):   # прежние версии больше не нужны
+            if old != dest:
+                old.unlink(missing_ok=True)
+        return dest
 
     def _assist_config(self):
         out, _, _ = self.adb.shell(f"cat {ASSIST_CONF} 2>/dev/null; true", check=False)
@@ -1538,7 +1580,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     def _assist_local_md5(self):
         """md5 сборки на компьютере — понять, что на колонке старая программа. Без Go и сборки — None."""
         try:
-            out = self._assist_binary()
+            out = self._assist_binary(download=False)   # статус опрашивается часто — ничего не качаем
         except AdbError:
             return None
         mtime = out.stat().st_mtime
@@ -1568,8 +1610,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         local = self._assist_local_md5() if "installed" in flags else None
         return {"supported": True, "installed": "installed" in flags, "running": running, "config": cfg,
                 "outdated": bool(local) and local not in out,
-                "state": state if running else {}, "can_build": bool(shutil.which("go"))
-                or (ASSIST_SRC / "build" / "assistantd").exists()}
+                "state": state if running else {}}
 
     def assistant_install(self):
         binary = self._assist_binary()
@@ -1708,7 +1749,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         st = self.assistant_status()
         radio = st["config"].get("radio") or {}
         return {"supported": st.get("supported", True), "installed": st["installed"], "running": st["running"],
-                "outdated": st.get("outdated", False), "can_build": st.get("can_build"),
+                "outdated": st.get("outdated", False),
                 "stations": radio.get("stations") or [], "voice": radio.get("voice", True),
                 "own_disabled": self.RADIO_OWN_DISABLED,
                 "play": radio.get("play") or ["включи станцию", "включи радиостанцию", "поставь станцию"],

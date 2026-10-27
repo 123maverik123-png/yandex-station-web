@@ -1,4 +1,5 @@
 import json
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -79,3 +80,50 @@ class AssistantHook(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AssistantDownload(unittest.TestCase):
+    """Без Go панель берёт программу помощника с релиза своей версии и сверяет SHA256SUMS."""
+
+    def setUp(self):
+        import hashlib, tempfile
+        self.tmp = Path(tempfile.mkdtemp())
+        self.blob = b"\x7fELF assistantd"
+        self.sums = f"{hashlib.sha256(self.blob).hexdigest()}  assistantd-linux-arm64\n".encode()
+        self.patches = [patch.object(server, "DATA_DIR", self.tmp), patch.object(server, "ASSIST_SRC", self.tmp / "src"),
+                        patch.object(server.shutil, "which", lambda name: None)]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        shutil.rmtree(self.tmp)
+
+    def fetch(self, files):
+        def urlopen(req, timeout=None):
+            body = files[req.full_url.rsplit("/", 1)[1]]
+            return Mock(read=lambda limit=None: body)
+        return patch.object(server.urllib.request, "urlopen", urlopen)
+
+    def test_downloads_and_caches(self):
+        panel = server.Panel(Mock())
+        with self.fetch({"SHA256SUMS": self.sums, "assistantd-linux-arm64": self.blob}):
+            out = panel._assist_binary()
+        self.assertEqual(out.read_bytes(), self.blob)
+        self.assertEqual(out.name, f".assistantd-{server.VERSION}")
+        with self.fetch({}):   # второй раз — из кэша, без сети
+            self.assertEqual(panel._assist_binary(), out)
+
+    def test_bad_checksum(self):
+        panel = server.Panel(Mock())
+        with self.fetch({"SHA256SUMS": self.sums, "assistantd-linux-arm64": b"other"}):
+            with self.assertRaisesRegex(server.AdbError, "контрольная сумма"):
+                panel._assist_binary()
+        self.assertFalse(list(self.tmp.glob(".assistantd-*")))
+
+    def test_status_does_not_download(self):
+        panel = server.Panel(Mock())
+        with self.fetch({}):
+            with self.assertRaises(server.AdbError):
+                panel._assist_binary(download=False)

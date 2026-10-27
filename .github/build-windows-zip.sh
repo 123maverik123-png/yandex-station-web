@@ -19,6 +19,7 @@ cp -r server.py access.py glagol.py profiles.py managed_yam.py multi.py speakers
 rm -rf "$WORK/$NAME/device/assistant/build"
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go -C device/assistant build -trimpath -ldflags "-s -w -X main.version=$VER" \
   -o "$WORK/$NAME/device/assistant/build/assistantd" .
+echo "$VER" > "$WORK/$NAME/device/assistant/build/VERSION"
 curl -fsSL -o "$WORK/python.zip" "https://www.python.org/ftp/python/$PYVER/python-$PYVER-embed-$ARCH.zip"
 unzip -q "$WORK/python.zip" -d "$WORK/$NAME/runtime/python"
 # портативный Python не видит папку скрипта — добавляем корень панели (путь относительно ._pth)

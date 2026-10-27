@@ -4,7 +4,9 @@
 FROM golang:1.26-alpine AS assistant
 WORKDIR /src
 COPY device/assistant/ ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o /out/assistantd .
+COPY VERSION /VERSION
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$(cat /VERSION)" -o /out/assistantd . \
+ && cp /VERSION /out/VERSION
 
 FROM python:3.14-slim
 
@@ -16,7 +18,7 @@ WORKDIR /app
 COPY server.py access.py glagol.py profiles.py managed_yam.py multi.py speakers.example.json VERSION ./
 COPY static ./static
 COPY device ./device
-COPY --from=assistant /out/assistantd ./device/assistant/build/assistantd
+COPY --from=assistant /out/assistantd /out/VERSION ./device/assistant/build/
 COPY LICENSE ./
 
 # /data — токен Яндекса, пароль панели, сертификаты, история графиков и ключ adb (HOME).

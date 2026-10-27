@@ -22,6 +22,7 @@ dist/
 
 # сборка помощника для колонки (панель собирает её сама, если есть Go)
 device/assistant/build/
+.assistantd-*
 
 # локальные настройки Command Code
 .commandcode/
