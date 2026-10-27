@@ -166,6 +166,7 @@ ANALYTICS_HOSTS = ("clck.yandex.net", "report.appmetrica.yandex.net", "appmetric
 # Неотправленные события телеметрия копит здесь (до 1 МБ) и отправит, как только адреса откроются. Телеметрия
 # читает файл при старте и дописывает его при выходе, поэтому сначала kill -9, потом удаление; launcher
 # перезапускает её через секунду уже с пустой очередью. Остальное (fluent-bit, teleme3d) лежит в /tmp.
+# Чистим только по действию пользователя: при включении и выключении блокировки и кнопкой.
 METRICA_BATCH = "/data/quasar/appmetrica/persistedBatch"
 ANALYTICS_PURGE = ("p=$(ps | grep '[m]aind --telemetry' | awk '{print $1}'); "
                    f"[ -n \"$p\" ] && kill -9 $p; rm -f {METRICA_BATCH}")
@@ -189,9 +190,8 @@ BOOT_HOOK_SCRIPT = (
     f"bind {BOOT_CUSTOM} {BOOT_TARGET}\n"
     f"bind {SOUND_CUSTOM} {SOUND_TARGET}\n"
     f"bind {HOSTS_CUSTOM} {HOSTS_TARGET}\n"
-    # очередь аналитики — через минуту и в фоне: телеметрия стартует первой, и launcher ждёт её,
-    # прежде чем запустить основной maind; адреса уже закрыты, так что за минуту ничего не уйдёт
-    f"[ -f {HOSTS_CUSTOM} ] && ( sleep 60; {ANALYTICS_PURGE} ) >/dev/null 2>&1 &\n"
+    # Очередь аналитики при загрузке не чистим: для этого телеметрию приходится убивать kill -9, а в первую
+    # минуту после старта это совпало с зависанием звука у Алисы. Адреса закрыты — очередь и так не уйдёт.
     # yamd сам после загрузки не стартует; start-stop-daemon -b — чтобы не держать rootkeeper.sh
     f"[ -f {YAM_AUTOSTART} ] && [ -x {YAMD} ] && ! pidof yamd >/dev/null && "
     f"start-stop-daemon -S -b -m -p /tmp/webpanel_yamd.sd -x /bin/sh -- -c {shlex.quote(YAMD_CMD)}\n"
@@ -1475,6 +1475,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
 
     def privacy_set(self, enabled):
         if not enabled:
+            # сначала очередь: как только адреса откроются, телеметрия отправила бы всё, что накопилось
+            self.adb.shell(f"{ANALYTICS_PURGE}; true", check=False)
             self.adb.shell(f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && {{ umount {HOSTS_TARGET} || umount -l {HOSTS_TARGET}; }}; "
                            f"rm -f {HOSTS_CUSTOM}; true")
             self._drop_hook_if_unused()
