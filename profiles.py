@@ -149,6 +149,7 @@ def install(s, model='lite2', auto=False):
         disabled = (not profile['boot'] and (path.startswith('/api/clock/boot') or path.startswith('/api/boot/')) or
                     not profile['alarms'] and path.startswith('/api/alarms') or
                     model != 'lite2' and path.startswith('/api/assistant') or
+                    model != 'lite2' and path.startswith('/api/radio') and path != '/api/radio/alice' or
                     model != 'lite2' and path in ('/api/footprint/reset', '/api/backup/restore'))
         if disabled:
             if not self._guard(path):

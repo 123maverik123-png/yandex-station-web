@@ -59,6 +59,12 @@ type Daemon struct {
 	// режим ассистента: все вопросы к «Алисе» — модели; modeAt — последний разговор (для автоотключения)
 	mode   bool
 	modeAt time.Time
+	// своё радио: на время разговора с Алисой ставим на паузу; resume=false — Алисе велели включить что-то своё
+	radio  player
+	resume bool
+	// состояние самой Алисы по журналу: idle, listening, busy, speaking
+	aliceState string
+	lastRadio  string
 }
 
 func (d *Daemon) reload() {
@@ -85,7 +91,12 @@ func (d *Daemon) set(state, errText string) {
 }
 
 func (d *Daemon) writeStatus() {
+	// радио меняется само (название трека, обрыв потока) — пишем состояние, когда оно изменилось
+	radio, _ := json.Marshal(d.radio.Status())
 	d.mu.Lock()
+	if string(radio) != d.lastRadio {
+		d.lastRadio, d.dirty = string(radio), true
+	}
 	if !d.dirty {
 		d.mu.Unlock()
 		return
@@ -93,7 +104,7 @@ func (d *Daemon) writeStatus() {
 	d.dirty = false
 	s := map[string]any{"pid": os.Getpid(), "version": version, "state": d.state, "error": d.err,
 		"config_error": d.cfgErr, "enabled": d.cfg.Enabled, "history": d.history, "at": time.Now().Unix(),
-		"mode": d.mode}
+		"mode": d.mode, "radio": d.radio.Status()}
 	if d.mode {
 		s["mode_until"] = d.modeAt.Add(time.Duration(d.cfg.Mode.TimeoutMin) * time.Minute).Unix()
 	}
@@ -238,9 +249,113 @@ func (d *Daemon) stopAnswer() {
 	d.set("idle", "")
 }
 
+// resumeRadio возвращает радио, когда и Алиса, и ассистент замолчали: ответ модели может прийти позже,
+// чем Алиса вернулась в покой после отмены своего ответа.
+func (d *Daemon) resumeRadio() {
+	quiet := 0
+	for i := 0; i < 600; i++ {
+		time.Sleep(300 * time.Millisecond)
+		d.mu.Lock()
+		idle := d.aliceState == "idle" && d.state == "idle"
+		again := d.resume // за это время Алису позвали снова — возобновит следующий покой
+		d.mu.Unlock()
+		if again {
+			return
+		}
+		if !idle {
+			quiet = 0
+			continue
+		}
+		if quiet++; quiet >= 3 {
+			d.radio.Resume()
+			return
+		}
+	}
+}
+
+// onRadio — своё радио: пауза на время разговора с Алисой и команды голосом. true — фраза обработана.
+func (d *Daemon) onRadio(ev logEvent, c Config, ours bool) bool {
+	switch ev.kind {
+	case "spotted":
+		if d.radio.Pause() {
+			d.mu.Lock()
+			d.resume = true
+			d.mu.Unlock()
+		}
+	case "listening":
+		if !ours && d.radio.Pause() {
+			d.mu.Lock()
+			d.resume = true
+			d.mu.Unlock()
+		}
+	case "idle":
+		d.mu.Lock()
+		resume := d.resume
+		d.resume = false
+		d.mu.Unlock()
+		if resume {
+			go d.resumeRadio()
+		}
+	case "phrase":
+		if !c.Radio.Voice {
+			break
+		}
+		if name, ok := matchTrigger(ev.phrase, c.Radio.Play); ok {
+			d.alice.Cancel()
+			st, found := findStation(name, c.Radio.Stations)
+			if name == "" && len(c.Radio.Stations) > 0 {
+				st, found = c.Radio.Stations[0], true
+			}
+			d.mu.Lock()
+			d.resume = false
+			d.mu.Unlock()
+			if !found {
+				d.speak(context.Background(), c, "Такой станции нет в списке.")
+				return true
+			}
+			log.Printf("радио голосом: %s", st.Name)
+			if err := d.radio.Start(st); err != nil {
+				log.Printf("радио: %v", err)
+			}
+			return true
+		}
+		_, stop := matchTrigger(ev.phrase, c.Radio.Stop)
+		switch normalize(ev.phrase) {
+		case "стоп", "хватит", "выключи", "выключи радио", "тишина":
+			stop = stop || d.radio.Active()
+		}
+		if stop {
+			d.alice.Cancel()
+			d.radio.Stop()
+			d.mu.Lock()
+			d.resume = false
+			d.mu.Unlock()
+			return true
+		}
+		if alicePlayback(ev.phrase) {
+			d.mu.Lock()
+			d.resume = false // Алисе велели включить своё — радио не возвращаем
+			d.mu.Unlock()
+		}
+	}
+	return false
+}
+
 func (d *Daemon) onEvent(ev logEvent) {
 	d.mu.Lock()
 	c := d.cfg
+	oursBefore := d.ours || time.Since(d.sayAt) < 3*time.Second
+	switch ev.kind {
+	case "phrase":
+		d.aliceState = "busy"
+	case "speaking", "listening", "idle":
+		d.aliceState = ev.kind
+	}
+	d.mu.Unlock()
+	if d.onRadio(ev, c, oursBefore) {
+		return
+	}
+	d.mu.Lock()
 	recent := time.Since(d.sayAt) < time.Minute
 	switch ev.kind {
 	case "spotted":
@@ -308,7 +423,8 @@ func (d *Daemon) onEvent(ev logEvent) {
 	d.ask(question, "voice")
 }
 
-// command — запрос из панели: {"ask": "текст"} (проверка без голоса), {"stop": true}, {"mode": true|false}.
+// command — запрос из панели: {"ask": "текст"} (проверка без голоса), {"stop": true}, {"mode": true|false},
+// {"radio": {"name": …, "url": …}}, {"radio_stop": true}.
 func (d *Daemon) command() {
 	b, err := os.ReadFile(d.cmdPath)
 	if err != nil {
@@ -316,9 +432,11 @@ func (d *Daemon) command() {
 	}
 	os.Remove(d.cmdPath)
 	var cmd struct {
-		Ask  string `json:"ask"`
-		Stop bool   `json:"stop"`
-		Mode *bool  `json:"mode"`
+		Ask       string   `json:"ask"`
+		Stop      bool     `json:"stop"`
+		Mode      *bool    `json:"mode"`
+		Radio     *Station `json:"radio"`
+		RadioStop bool     `json:"radio_stop"`
 	}
 	if json.Unmarshal(b, &cmd) != nil {
 		return
@@ -331,6 +449,19 @@ func (d *Daemon) command() {
 	}
 	if cmd.Ask != "" {
 		d.ask(cmd.Ask, "panel")
+	}
+	if cmd.RadioStop {
+		d.radio.Stop()
+	}
+	if cmd.Radio != nil {
+		if err := d.radio.Start(*cmd.Radio); err != nil {
+			log.Printf("радио: %v", err)
+		}
+	}
+	if cmd.RadioStop || cmd.Radio != nil {
+		d.mu.Lock()
+		d.dirty = true
+		d.mu.Unlock()
 	}
 }
 
@@ -433,6 +564,7 @@ func main() {
 		}
 	}()
 	d.follow(ctx, maindLog)
+	d.radio.Stop()
 	d.alice.Close()
 	os.Remove(d.statusPath)
 }

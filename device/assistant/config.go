@@ -33,6 +33,7 @@ type Config struct {
 	TTS      TTS               `json:"tts"`
 	LED      LED               `json:"led"`
 	Mode     Mode              `json:"mode"`
+	Radio    Radio             `json:"radio"`
 	Keys     map[string]string `json:"keys"` // ключ на каждый адрес API: сменили провайдера — ключ прежнего остался
 }
 
@@ -70,6 +71,8 @@ func defaults() Config {
 		Mode: Mode{Enter: []string{"переключись на gpt", "переключись на ассистента", "включи ассистента"},
 			Exit:       []string{"отключись от ассистента", "выключи ассистента", "верни алису", "вернись к алисе"},
 			TimeoutMin: 10, FollowUp: true},
+		Radio: Radio{Voice: true, Play: []string{"включи станцию", "включи радиостанцию", "поставь станцию"},
+			Stop: []string{"выключи станцию", "выключи радиостанцию", "останови станцию"}},
 	}
 }
 
@@ -89,6 +92,12 @@ func loadConfig(path string) (Config, error) {
 	}
 	if len(c.Mode.Exit) == 0 {
 		c.Mode.Exit = defaults().Mode.Exit
+	}
+	if len(c.Radio.Play) == 0 {
+		c.Radio.Play = defaults().Radio.Play
+	}
+	if len(c.Radio.Stop) == 0 {
+		c.Radio.Stop = defaults().Radio.Stop
 	}
 	if c.Mode.TimeoutMin <= 0 {
 		c.Mode.TimeoutMin = 10

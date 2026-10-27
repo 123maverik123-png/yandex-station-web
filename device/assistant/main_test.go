@@ -113,3 +113,25 @@ func TestModePhrases(t *testing.T) {
 		t.Fatal("обычная просьба не включает режим")
 	}
 }
+
+func TestRadioHelpers(t *testing.T) {
+	stations := []Station{{"Groove Salad", "http://ice1.somafm.com/groovesalad-128-mp3"}, {"Радио Рекорд", "https://radiorecord.hostingradio.ru/rr_main96.aacp"}}
+	for said, want := range map[string]string{"groove salad": "Groove Salad", "грув салад": "", "рекорд": "Радио Рекорд", "радио рекорд": "Радио Рекорд"} {
+		st, ok := findStation(said, stations)
+		if (want == "") == ok || st.Name != want {
+			t.Errorf("%q → %q %v", said, st.Name, ok)
+		}
+	}
+	for u, ok := range map[string]bool{"http://a.b/c.mp3": true, "https://a.b:8000/x?y=1": true, "ftp://a.b": false,
+		`http://a.b/"x`: false, "http://a.b/x y": false, "http://a.b/!x": false, "file:///etc/passwd": false} {
+		if validStreamURL(u) != ok {
+			t.Errorf("%q", u)
+		}
+	}
+	if parseStreamTitle("StreamTitle='Artist - Song';StreamUrl='';\x00\x00") != "Artist - Song" {
+		t.Fatal("ICY")
+	}
+	if !alicePlayback("Включи музыку") || alicePlayback("какая погода") {
+		t.Fatal("просьба что-то включить")
+	}
+}

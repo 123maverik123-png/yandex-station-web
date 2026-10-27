@@ -34,7 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import urllib.error
 import urllib.request
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import access
 import glagol
@@ -1650,6 +1650,96 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             raise AdbError("вопрос — от 1 до 1000 символов")
         return self.assistant_command({"ask": text})
 
+    # ---------- радио ----------
+    # Свои станции играет та же программа на колонке, что и ассистент (device/assistant/radio.go): встроенный
+    # в прошивку GStreamer, без компьютера. Станции Алисы — обычный текстовый запрос «включи радио …».
+    RADIO_URL = re.compile(r"https?://[^\s\"'\\!]{3,490}")
+    RADIO_SEARCH = "https://all.api.radio-browser.info/json/stations/search"
+
+    def radio_status(self):
+        st = self.assistant_status()
+        radio = st["config"].get("radio") or {}
+        return {"supported": st.get("supported", True), "installed": st["installed"], "running": st["running"],
+                "outdated": st.get("outdated", False), "can_build": st.get("can_build"),
+                "stations": radio.get("stations") or [], "voice": radio.get("voice", True),
+                "play": radio.get("play") or ["включи станцию", "включи радиостанцию", "поставь станцию"],
+                "stop": radio.get("stop") or ["выключи станцию", "выключи радиостанцию", "останови станцию"],
+                "now": (st.get("state") or {}).get("radio") or {}}
+
+    def _radio_station(self, s):
+        name = str((s or {}).get("name") or "").strip()[:80]
+        url = str((s or {}).get("url") or "").strip()
+        if not name or not self.RADIO_URL.fullmatch(url):
+            raise AdbError("у станции нужны название и адрес потока http(s)://… без кавычек и пробелов")
+        return {"name": name, "url": url}
+
+    def radio_set(self, d):
+        cfg = self._assist_keys_migrate(self._assist_config())
+        radio = cfg.setdefault("radio", {})
+        if isinstance(d.get("stations"), list):
+            radio["stations"] = [self._radio_station(s) for s in d["stations"]][:200]
+        if "voice" in d:
+            radio["voice"] = bool(d["voice"])
+        for k in ("play", "stop"):
+            if isinstance(d.get(k), list):
+                radio[k] = [str(x).strip()[:60] for x in d[k] if str(x).strip()][:10]
+        if not self.assistant_status()["installed"]:
+            raise AdbError("программа панели не установлена на колонке")
+        self._assist_write(cfg)
+        return self.radio_status()
+
+    def radio_play(self, d):
+        station = self._radio_station(d)
+        try:   # музыка Алисы и радио иначе заиграют одновременно
+            if self.glagol.ws:
+                self.glagol.send({"command": "stop"})
+        except Exception:  # noqa: BLE001 — без Glagol радио всё равно включится
+            pass
+        self.assistant_command({"radio": station})
+        return {"ok": True}
+
+    def radio_stop(self):
+        return self.assistant_command({"radio_stop": True})
+
+    def radio_alice(self, name):
+        name = str(name or "").strip()
+        if not 1 <= len(name) <= 80:
+            raise AdbError("название станции — от 1 до 80 символов")
+        self.radio_stop_quiet()
+        return self.music_cmd({"command": "sendText", "text": f"включи радио {name}"})
+
+    def radio_stop_quiet(self):
+        try:
+            if self.assistant_status()["running"]:
+                self.assistant_command({"radio_stop": True})
+        except AdbError:
+            pass
+
+    def radio_search(self, q, country=""):
+        """Каталог radio-browser.info: открытый, бесплатный, без ключа. Берём только потоки, которые сможем играть."""
+        q = str(q or "").strip()[:80]
+        if len(q) < 2:
+            raise AdbError("введите хотя бы два символа")
+        params = {"name": q, "limit": "40", "hidebroken": "true", "order": "clickcount", "reverse": "true"}
+        if re.fullmatch(r"[A-Za-z]{2}", country or ""):
+            params["countrycode"] = country.upper()
+        req = urllib.request.Request(self.RADIO_SEARCH + "?" + urlencode(params),
+                                     headers={"User-Agent": f"yandex-station-web/{VERSION}"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                items = json.load(r)
+        except (OSError, ValueError) as e:
+            raise AdbError(f"каталог радиостанций недоступен: {e}") from None
+        out = []
+        for it in items if isinstance(items, list) else []:
+            url = str(it.get("url_resolved") or it.get("url") or "").strip()
+            if it.get("hls") or not self.RADIO_URL.fullmatch(url):
+                continue   # HLS (.m3u8) прошивка не проверена, странные адреса не пройдут в конвейер
+            out.append({"name": str(it.get("name") or "").strip()[:80] or url, "url": url,
+                        "codec": str(it.get("codec") or "")[:12], "bitrate": int(it.get("bitrate") or 0),
+                        "country": str(it.get("countrycode") or "")[:2], "tags": str(it.get("tags") or "")[:80]})
+        return {"stations": out}
+
     def assistant_remove(self):
         self.adb.shell(f"start-stop-daemon -K -p {ASSIST_SD} 2>/dev/null; sleep 0.5; "
                        f"rm -rf {ASSIST_DIR}; rm -f {ASSIST_SD} {ASSIST_STATUS} {ASSIST_CMD}; true", check=False)
@@ -2880,6 +2970,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/footprint": p.footprint,
             "/api/privacy": p.privacy_status,
             "/api/assistant": p.assistant_status,
+            "/api/radio": p.radio_status,
+            "/api/radio/search": lambda: p.radio_search(q.get("q", ""), q.get("country", "")),
             "/api/panel/version": lambda: self.updater.check(q.get("refresh") == "1"),
             "/api/bt": p.bt_state,
             "/api/metrics": lambda: p.metrics.get(q.get("range", 3600)),
@@ -2989,6 +3081,10 @@ class Handler(BaseHTTPRequestHandler):
             "/api/assistant/ask": lambda: p.assistant_ask(d.get("text")),
             "/api/assistant/stop": lambda: p.assistant_command({"stop": True}),
             "/api/assistant/mode": lambda: p.assistant_command({"mode": bool(d.get("on"))}),
+            "/api/radio": lambda: p.radio_set(d),
+            "/api/radio/play": lambda: p.radio_play(d),
+            "/api/radio/stop": p.radio_stop,
+            "/api/radio/alice": lambda: p.radio_alice(d.get("name")),
             "/api/assistant/remove": p.assistant_remove,
             "/api/assistant/models": lambda: p.assistant_models(d),
             "/api/panel/update": lambda: self.updater.update(),
