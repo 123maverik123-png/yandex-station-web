@@ -135,3 +135,9 @@ func TestRadioHelpers(t *testing.T) {
 		t.Fatal("просьба что-то включить")
 	}
 }
+
+func TestFatalStreamErrors(t *testing.T) {
+	if !fatalStreamError("souphttpsrc0: Bad Request") || fatalStreamError("souphttpsrc0: Internal data stream error.") {
+		t.Fatal("400 — не повторяем, обрыв связи — повторяем")
+	}
+}

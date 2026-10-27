@@ -52,6 +52,22 @@ type player struct {
 	title   string
 	err     string
 	gen     int // поколение: старые наблюдатели метаданных и процессы узнают, что их сменили
+	// переподключение: интернет-радио иногда на секунду пропадает, а GStreamer после этого не продолжает сам
+	retries  int
+	retrying bool
+	started  time.Time
+}
+
+const radioRetries = 5
+
+// fatalStreamError — ошибки, которые повтор не исправит: сервер отказал (4xx) или формат не поддерживается.
+func fatalStreamError(msg string) bool {
+	for _, s := range []string{"Bad Request", "Forbidden", "Not Found", "Unauthorized", "Missing", "missing a plug-in"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *player) Start(st Station) error {
@@ -61,6 +77,7 @@ func (p *player) Start(st Station) error {
 	p.mu.Lock()
 	p.killLocked()
 	p.station, p.paused, p.title, p.err = st, false, "", ""
+	p.retries, p.retrying = 0, false
 	p.gen++
 	gen := p.gen
 	err := p.spawnLocked()
@@ -84,7 +101,7 @@ func (p *player) spawnLocked() error {
 	if err = cmd.Start(); err != nil {
 		return err
 	}
-	p.cmd = cmd
+	p.cmd, p.started = cmd, time.Now()
 	gen := p.gen
 	go func() {
 		// GStreamer пишет ошибки в свой журнал: «ERROR from souphttpsrc0: …» — показываем их в панели
@@ -106,13 +123,32 @@ func (p *player) spawnLocked() error {
 		}
 		cmd.Wait()
 		p.mu.Lock()
-		if p.cmd == cmd {
-			p.cmd = nil
-			if !p.paused && p.err == "" {
-				p.err = "поток прервался"
-			}
+		defer p.mu.Unlock()
+		if p.cmd != cmd || p.gen != gen {
+			return // остановили, поставили на паузу или включили другую станцию
 		}
-		p.mu.Unlock()
+		p.cmd = nil
+		if p.err == "" {
+			p.err = "поток прервался"
+		}
+		if time.Since(p.started) > time.Minute {
+			p.retries = 0 // долго играло — это новый обрыв, а не цепочка неудач
+		}
+		if fatalStreamError(p.err) || p.retries >= radioRetries {
+			return
+		}
+		p.retries++
+		p.retrying = true
+		delay := time.Duration(p.retries) * 2 * time.Second
+		go func() {
+			time.Sleep(delay)
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			if p.gen == gen && p.retrying && p.cmd == nil && !p.paused {
+				p.retrying, p.err = false, ""
+				p.spawnLocked()
+			}
+		}()
 	}()
 	return nil
 }
@@ -129,6 +165,7 @@ func (p *player) Stop() {
 	defer p.mu.Unlock()
 	p.killLocked()
 	p.station, p.paused, p.title, p.err = Station{}, false, "", ""
+	p.retries, p.retrying = 0, false
 	p.gen++
 }
 
@@ -136,11 +173,11 @@ func (p *player) Stop() {
 func (p *player) Pause() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.cmd == nil || p.paused {
+	if p.paused || p.cmd == nil && !p.retrying {
 		return false
 	}
 	p.killLocked()
-	p.paused = true
+	p.paused, p.retrying = true, false
 	return true
 }
 
@@ -157,14 +194,14 @@ func (p *player) Resume() {
 func (p *player) Active() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.cmd != nil || p.paused
+	return p.cmd != nil || p.paused || p.retrying
 }
 
 func (p *player) Status() map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return map[string]any{"playing": p.cmd != nil, "paused": p.paused, "name": p.station.Name, "url": p.station.URL,
-		"title": p.title, "error": p.err}
+		"title": p.title, "error": p.err, "retrying": p.retrying}
 }
 
 func (p *player) watchTitle(gen int, stream string) {

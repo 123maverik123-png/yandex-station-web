@@ -3639,12 +3639,12 @@ async function loadRadio() {
   $('#rd-install').hidden = st.supported === false;
   $('#rd-own').hidden = !st.installed;
   const now = st.now || {};
-  $('#rd-now').hidden = !(now.playing || now.paused || now.error && now.name);
+  $('#rd-now').hidden = !(now.playing || now.paused || now.retrying || now.error && now.name);
   $('#rd-now-name').textContent = now.name || '—';
   // «souphttpsrc0: Bad Request» → понятная причина: поток отклонил сервер станции, а не колонка
   const err = now.error && (/^souphttpsrc\d*:\s*(.*)$/.exec(now.error)?.[1] || now.error);
-  $('#rd-now-title').textContent = err ? (/souphttpsrc/.test(now.error) ? `Станция не отдаёт поток (сервер ответил: ${err}). Попробуйте другой адрес потока.` : 'Ошибка: ' + err)
-    : now.paused ? 'пауза, пока вы говорите с Алисой' : now.title || 'играет';
+  $('#rd-now-title').textContent = err && !now.retrying ? (/souphttpsrc/.test(now.error) ? `Станция не отдаёт поток (сервер ответил: ${err}). Попробуйте другой адрес потока.` : 'Ошибка: ' + err)
+    : now.retrying ? 'поток прервался — переподключаюсь…' : now.paused ? 'пауза, пока вы говорите с Алисой' : now.title || 'играет';
   $('#rd-count').textContent = st.stations.length ? `${st.stations.length}` : '';
   $('#rd-list').innerHTML = st.stations.length ? st.stations.map((s, i) => `<div class="rd-row${now.url === s.url && now.playing ? ' on' : ''}">
       <button class="btn sm icon" data-rd-play="${i}" aria-label="Слушать ${esc(s.name)}"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg></button>
@@ -3654,7 +3654,7 @@ async function loadRadio() {
     : '<div class="empty">Добавьте станцию ниже или найдите в каталоге.</div>';
   $('#rd-voice').checked = st.voice;
   $('#rd-voice-hint').textContent = `— «Алиса, ${st.play[0]} <название>», «Алиса, ${st.stop[0]}»`;
-  if (!$('#tab-radio').hidden) rd.timer = setTimeout(loadRadio, now.playing || now.paused ? 4000 : 10000);
+  if (!$('#tab-radio').hidden) rd.timer = setTimeout(loadRadio, now.playing || now.paused || now.retrying ? 4000 : 10000);
 }
 // Логотип станции — из каталога radio-browser.info (панель скачивает и хранит его сама); не нашёлся — первые буквы.
 const rdKey = s => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/^радио\s+/, '').replace(/[^a-zа-я0-9]+/g, '');
