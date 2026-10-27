@@ -1696,6 +1696,12 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     RADIO_URL = re.compile(r"https?://[^\s\"'\\!]{3,490}")
     RADIO_SEARCH = "https://all.api.radio-browser.info/json/stations/search"
 
+    RADIO_PROXY = re.compile(r"http://(?:[^\s\"'\\!@/]+@)?[^\s\"'\\!@/]+")
+
+    @staticmethod
+    def _mask_proxy(proxy):
+        return re.sub(r"(//[^:@/]+:)[^@/]+@", r"\1•••@", proxy or "")
+
     def radio_status(self):
         st = self.assistant_status()
         radio = st["config"].get("radio") or {}
@@ -1705,6 +1711,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 "play": radio.get("play") or ["включи станцию", "включи радиостанцию", "поставь станцию"],
                 "stop": radio.get("stop") or ["выключи станцию", "выключи радиостанцию", "останови станцию"],
                 "now": (st.get("state") or {}).get("radio") or {},
+                "proxy": self._mask_proxy(radio.get("proxy")), "checks": self._radio_checks(),
                 "miss": (st.get("state") or {}).get("radio_miss"),
                 "alice": [{"id": k, **v} for k, v in self.fm_stations().items()]}
 
@@ -1726,6 +1733,13 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             radio["stations"] = [self._radio_station(s) for s in d["stations"]][:200]
         if "voice" in d:
             radio["voice"] = bool(d["voice"])
+        if "proxy" in d:
+            proxy = str(d["proxy"] or "").strip()
+            if "•••" in proxy:
+                proxy = radio.get("proxy", "")     # пароль не показывали — значит, его не меняли
+            elif proxy and (not self.RADIO_PROXY.fullmatch(proxy) or re.search(r"[\"'\\!\s]", unquote(proxy))):
+                raise AdbError("прокси для радио — http://адрес:порт или http://логин:пароль@адрес:порт")
+            radio["proxy"] = proxy
         for k in ("play", "stop"):
             if isinstance(d.get(k), list):
                 radio[k] = [str(x).strip()[:60] for x in d[k] if str(x).strip()][:10]
@@ -1743,6 +1757,69 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             pass
         self.assistant_command({"radio": station})
         return {"ok": True}
+
+    # ---------- проверка станции: идёт ли поток и с какой скоростью ----------
+    # Частая беда — блокировка провайдера: первые 16–32 КБ приходят сразу, потом соединение замирает намертво.
+    # Проверяем с компьютера с панелью: обычно он ходит в интернет через тот же роутер, что и колонка.
+    def _radio_checks(self):
+        try:
+            return json.loads((DATA_DIR / ".radio_checks.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def radio_check(self, url, seconds=6):
+        url = str(url or "").strip()
+        if not self.RADIO_URL.fullmatch(url):
+            raise AdbError("адрес потока — http(s)://…")
+        host = urlparse(url).hostname or ""
+        try:
+            ip = socket.getaddrinfo(host, None)[0][4][0]
+        except OSError:
+            ip = ""
+        proxy = ((self._assist_config().get("radio") or {}).get("proxy") or "") if self.assistant_status()["installed"] else ""
+        handlers = [urllib.request.ProxyHandler({"http": proxy, "https": proxy})] if proxy else []
+        opener = urllib.request.build_opener(*handlers)
+        result = {"at": int(time.time()), "host": host, "ip": ip, "proxy": bool(proxy)}
+        try:
+            r = opener.open(urllib.request.Request(url, headers={"User-Agent": f"yandex-station-web/{VERSION}"}), timeout=5)
+        except urllib.error.HTTPError as e:
+            result.update(state="down", detail=f"сервер ответил {e.code}")
+        except (OSError, ValueError) as e:
+            result.update(state="down", detail=f"не отвечает: {e}")
+        else:
+            need = (int(r.headers.get("icy-br") or 128) or 128) * 125   # байт в секунду
+            marks, total, t0 = [], 0, time.time()
+            with r:
+                sock = getattr(getattr(r.fp, "raw", None), "_sock", None)
+                while (now := time.time() - t0) < seconds:
+                    if sock:
+                        sock.settimeout(max(0.2, seconds - now))
+                    try:
+                        chunk = r.read1(65536)
+                    except (OSError, ValueError):
+                        break
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    marks.append((time.time() - t0, total))
+            kb = total // 1024
+            early = next((b for s, b in marks if s >= 2), total)     # что пришло к концу 2-й секунды
+            if total == 0:
+                result.update(state="down", detail="не прислал ни байта")
+            elif total <= 64 * 1024 and total - early < 2048:
+                result.update(state="blocked", detail=f"замирает после {kb} КБ")
+            elif (total - early) / max(1, seconds - 2) < need * 0.8:
+                result.update(state="slow", detail=f"{kb} КБ за {seconds} с — медленнее, чем играет")
+            else:
+                result.update(state="ok", detail=f"{kb} КБ за {seconds} с")
+            result["kb"] = kb
+        checks = self._radio_checks()
+        checks[url] = result
+        try:
+            write_unix(DATA_DIR / ".radio_checks.json", json.dumps(checks, ensure_ascii=False))
+        except OSError:
+            pass
+        return result
 
     def radio_stop(self):
         return self.assistant_command({"radio_stop": True})
@@ -3275,6 +3352,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/radio/play": lambda: p.radio_play(d),
             "/api/radio/stop": p.radio_stop,
             "/api/radio/miss-seen": lambda: p.assistant_command({"radio_miss_seen": True}),
+            "/api/radio/check": lambda: p.radio_check(d.get("url")),
             "/api/radio/alice": lambda: p.radio_alice(d.get("name")),
             "/api/assistant/remove": p.assistant_remove,
             "/api/assistant/models": lambda: p.assistant_models(d),

@@ -328,7 +328,7 @@ func (d *Daemon) onRadio(ev logEvent, c Config, ours bool) bool {
 				return true
 			}
 			log.Printf("радио голосом: %s", st.Name)
-			if err := d.radio.Start(st); err != nil {
+			if err := d.radio.Start(st, c.Radio.Proxy); err != nil {
 				log.Printf("радио: %v", err)
 			}
 			return true
@@ -469,7 +469,10 @@ func (d *Daemon) command() {
 		d.radio.Stop()
 	}
 	if cmd.Radio != nil {
-		if err := d.radio.Start(*cmd.Radio); err != nil {
+		d.mu.Lock()
+		proxy := d.cfg.Radio.Proxy
+		d.mu.Unlock()
+		if err := d.radio.Start(*cmd.Radio, proxy); err != nil {
 			log.Printf("радио: %v", err)
 		}
 	}

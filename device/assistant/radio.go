@@ -32,10 +32,26 @@ type Radio struct {
 	Voice    bool      `json:"voice"` // включать и выключать голосом
 	Play     []string  `json:"play"`  // «включи станцию …»
 	Stop     []string  `json:"stop"`  // «выключи станцию»
+	Proxy    string    `json:"proxy"` // http://[логин:пароль@]адрес:порт — для станций, до которых провайдер не пускает
 }
 
 // Сертификаты прошивки: без них souphttpsrc не открывает HTTPS-потоки.
 const caFile = quasar + "/ca-certificates.crt"
+
+// validProxy — прокси тоже попадает в конвейер GStreamer: только http:// и без кавычек и пробелов.
+func validProxy(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" || u.Host == "" || strings.ContainsAny(raw, "\"'\\ \t\r\n!") {
+		return false
+	}
+	if u.User != nil { // логин и пароль после раскодирования %xx тоже идут в конвейер
+		pw, _ := u.User.Password()
+		if strings.ContainsAny(u.User.Username()+pw, "\"'\\ \t\r\n!") {
+			return false
+		}
+	}
+	return true
+}
 
 // validStreamURL — адрес попадает в описание конвейера GStreamer, поэтому только http(s) и без кавычек и пробелов.
 func validStreamURL(raw string) bool {
@@ -47,6 +63,7 @@ func validStreamURL(raw string) bool {
 }
 
 type player struct {
+	proxy   string // HTTP-прокси для потоков; souphttpsrc умеет только HTTP
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	station Station
@@ -73,11 +90,15 @@ func fatalStreamError(msg string) bool {
 	return false
 }
 
-func (p *player) Start(st Station) error {
+func (p *player) Start(st Station, proxy string) error {
 	if !validStreamURL(st.URL) {
 		return errors.New("адрес потока — http(s)://…, без кавычек и пробелов")
 	}
+	if proxy != "" && !validProxy(proxy) {
+		return errors.New("прокси для радио — http://адрес:порт")
+	}
 	p.mu.Lock()
+	p.proxy = proxy
 	p.killLocked()
 	p.station, p.paused, p.title, p.err = st, false, "", ""
 	p.retries, p.retrying, p.short = 0, false, 0
@@ -86,14 +107,21 @@ func (p *player) Start(st Station) error {
 	err := p.spawnLocked()
 	p.mu.Unlock()
 	if err == nil {
-		go p.watchTitle(gen, st.URL)
+		go p.watchTitle(gen, st.URL, proxy)
 	}
 	return err
 }
 
 func (p *player) spawnLocked() error {
-	pipeline := fmt.Sprintf(`souphttpsrc location="%s" iradio-mode=false ssl-ca-file=%s ! decodebin ! audioconvert ! audioresample ! alsasink`,
-		p.station.URL, caFile)
+	src := fmt.Sprintf(`souphttpsrc location="%s" iradio-mode=false ssl-ca-file=%s`, p.station.URL, caFile)
+	if u, err := url.Parse(p.proxy); err == nil && p.proxy != "" {
+		src += fmt.Sprintf(` proxy="http://%s"`, u.Host)
+		if u.User != nil {
+			pw, _ := u.User.Password()
+			src += fmt.Sprintf(` proxy-id="%s" proxy-pw="%s"`, u.User.Username(), pw)
+		}
+	}
+	pipeline := src + " ! decodebin ! audioconvert ! audioresample ! alsasink"
 	cmd := exec.Command(quasar+"/maind", "--gst-launch", pipeline)
 	cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH="+quasar+"/libs")
 	out, err := cmd.StdoutPipe()
@@ -218,9 +246,9 @@ func (p *player) Status() map[string]any {
 		"title": p.title, "error": p.err, "retrying": p.retrying}
 }
 
-func (p *player) watchTitle(gen int, stream string) {
+func (p *player) watchTitle(gen int, stream, proxy string) {
 	for {
-		title := icyTitle(stream)
+		title := icyTitle(stream, proxy)
 		p.mu.Lock()
 		if p.gen != gen {
 			p.mu.Unlock()
@@ -234,7 +262,7 @@ func (p *player) watchTitle(gen int, stream string) {
 
 // icyTitle — «сейчас играет» по ICY: просим метаданные, пропускаем icy-metaint байт звука и читаем блок
 // «StreamTitle='…';». Станция без метаданных — пустая строка.
-func icyTitle(stream string) string {
+func icyTitle(stream, proxy string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", stream, nil)
@@ -243,7 +271,11 @@ func icyTitle(stream string) string {
 	}
 	req.Header.Set("Icy-MetaData", "1")
 	req.Header.Set("User-Agent", "yandex-station-web/"+version)
-	resp, err := http.DefaultClient.Do(req)
+	hc, err := client(proxy, 10*time.Second)
+	if err != nil {
+		return ""
+	}
+	resp, err := hc.Do(req)
 	if err != nil {
 		return ""
 	}

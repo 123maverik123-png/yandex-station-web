@@ -179,3 +179,12 @@ func TestStationAliasesAndCatalogNames(t *testing.T) {
 		}
 	}
 }
+
+func TestRadioProxyValidation(t *testing.T) {
+	for raw, ok := range map[string]bool{"http://10.0.0.1:3128": true, "http://u:p@proxy.lan:8080": true,
+		"socks5://a:1080": false, `http://a"b:1`: false, "http://a b:1": false, "http://u:%22x@a:1": false} {
+		if validProxy(raw) != ok {
+			t.Errorf("%q", raw)
+		}
+	}
+}

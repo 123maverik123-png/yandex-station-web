@@ -5,6 +5,7 @@
 .metrics.json
 .radio_alice.json
 .radio_logos
+.radio_checks.json
 .tls/
 data/
 speakers.json

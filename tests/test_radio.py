@@ -102,3 +102,58 @@ class StationAliases(unittest.TestCase):
         aliases = st["stations"][0]["aliases"]
         self.assertEqual(aliases[:2], ["флакс", "x" * 40])
         self.assertLessEqual(len(aliases), 8)
+
+
+class StationCheck(unittest.TestCase):
+    """Проверка станции на настоящем локальном HTTP-сервере: живой поток, «замирание» после первых КБ, отказ."""
+
+    @classmethod
+    def setUpClass(cls):
+        import threading, time as _t
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Stream(BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def do_GET(self):
+                if self.path == "/bad":
+                    self.send_error(400); return
+                self.send_response(200); self.send_header("Content-Type", "audio/mpeg"); self.send_header("icy-br", "64")
+                self.end_headers()
+                try:
+                    if self.path == "/frozen":
+                        self.wfile.write(b"\0" * 17000); self.wfile.flush(); _t.sleep(6); return
+                    for _ in range(60):
+                        self.wfile.write(b"\0" * 4000); self.wfile.flush(); _t.sleep(0.1)
+                except OSError:
+                    pass
+
+        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), Stream)
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        cls.base = f"http://127.0.0.1:{cls.srv.server_port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+
+    def check(self, path):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d, patch.object(server, "DATA_DIR", Path(d)):
+            panel = server.Panel(Mock())
+            panel.assistant_status = lambda: {"installed": False}
+            return panel.radio_check(self.base + path, seconds=4)
+
+    def test_states(self):
+        self.assertEqual(self.check("/live")["state"], "ok")
+        frozen = self.check("/frozen")
+        self.assertEqual(frozen["state"], "blocked")
+        self.assertIn("16 КБ", frozen["detail"])
+        self.assertEqual(self.check("/bad")["state"], "down")
+
+    def test_proxy_setting(self):
+        panel = Radio.panel(Radio())
+        self.assertEqual(panel.radio_set({"proxy": "http://u:secret@10.0.0.1:3128"})["proxy"], "http://u:•••@10.0.0.1:3128")
+        panel.radio_set({"proxy": "http://u:•••@10.0.0.1:3128"})
+        self.assertEqual(panel.stored["radio"]["proxy"], "http://u:secret@10.0.0.1:3128")
+        for bad in ("socks5://a:1", 'http://a"b:1', "http://u:%22x@a:1"):
+            with self.assertRaises(server.AdbError):
+                panel.radio_set({"proxy": bad})
