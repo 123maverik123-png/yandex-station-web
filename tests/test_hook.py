@@ -23,7 +23,15 @@ class LocalAdb:
         shutil.copy(local, remote)
 
 
-@unittest.skipIf(shutil.which("sh") is None, "нужен sh")
+def gnu_sed():
+    """На колонке sed из busybox (как GNU); BSD sed в macOS понимает -i и «1a» иначе — там этот тест не о чём."""
+    try:
+        return subprocess.run(["sed", "--version"], capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
+@unittest.skipIf(shutil.which("sh") is None or not gnu_sed(), "нужны sh и sed как на колонке (GNU/busybox)")
 class RootkeeperHook(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
