@@ -141,3 +141,18 @@ func TestFatalStreamErrors(t *testing.T) {
 		t.Fatal("400 — не повторяем, обрыв связи — повторяем")
 	}
 }
+
+func TestAliceMusicStartEvent(t *testing.T) {
+	for _, line := range []string{
+		"[sdk] [info] [directive_sequencer.cpp:758] routeDirective (xx25101022)alice_request.music_thin_client_on_started via AliceCapability",
+		"[sdk] [info] [directive_sequencer.cpp:758] routeDirective (xx922f83e2)audio_play.Glagol via AudioPlayerCapability",
+		"[sdk] [info] [directive_sequencer.cpp:758] routeDirective (xx1)audio_player_continue_directive.Glagol via AudioPlayerCapability",
+	} {
+		if ev, ok := parseLine(line); !ok || ev.kind != "music" {
+			t.Errorf("%q → %+v", line, ev)
+		}
+	}
+	if ev, _ := parseLine("routeDirective (xx2)alice_request.music_thin_client_on_stopped via AliceCapability"); ev.kind == "music" {
+		t.Fatal("остановка — не начало музыки")
+	}
+}

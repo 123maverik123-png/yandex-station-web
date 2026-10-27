@@ -86,7 +86,7 @@ func (a *aliceCLI) Close() {
 
 // logEvent — то, что нам нужно из строки журнала.
 type logEvent struct {
-	kind   string // spotted, phrase, speaking, listening, idle
+	kind   string // spotted, phrase, speaking, listening, idle, music
 	phrase string
 }
 
@@ -106,6 +106,10 @@ func parseLine(line string) (logEvent, bool) {
 		return logEvent{kind: "listening"}, true
 	case strings.Contains(line, "onAliceStateChanged: IDLE"):
 		return logEvent{kind: "idle"}, true
+	// Алиса начинает свою музыку — из приложения, панели, голосом или продолжая после паузы
+	case strings.Contains(line, "music_thin_client_on_started"),
+		strings.Contains(line, "routeDirective (") && (strings.Contains(line, ")audio_play") || strings.Contains(line, ")audio_player_continue")):
+		return logEvent{kind: "music"}, true
 	}
 	return logEvent{}, false
 }

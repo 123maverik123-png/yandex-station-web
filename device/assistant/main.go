@@ -288,6 +288,15 @@ func (d *Daemon) onRadio(ev logEvent, c Config, ours bool) bool {
 			d.resume = true
 			d.mu.Unlock()
 		}
+	case "music":
+		// своё радио и музыка Алисы одновременно звучат кашей — уступаем Алисе
+		if d.radio.Active() {
+			log.Printf("радио выключено: Алиса включила музыку")
+			d.radio.Stop()
+			d.mu.Lock()
+			d.resume = false
+			d.mu.Unlock()
+		}
 	case "idle":
 		d.mu.Lock()
 		resume := d.resume
