@@ -321,6 +321,10 @@ func (d *Daemon) onRadio(ev logEvent, c Config, ours bool) bool {
 		}
 		if name, ok := matchTrigger(ev.phrase, c.Radio.Play); ok {
 			d.alice.Cancel()
+			if ownRadioDisabled {
+				d.speak(context.Background(), c, "Свои радиостанции пока отключены. Попросите Алису включить её радио.")
+				return true
+			}
 			st, found := findStation(name, c.Radio.Stations)
 			if name == "" && len(c.Radio.Stations) > 0 {
 				st, found = c.Radio.Stations[0], true
@@ -480,6 +484,10 @@ func (d *Daemon) command() {
 	}
 	if cmd.RadioStop {
 		d.radio.Stop()
+	}
+	if cmd.Radio != nil && ownRadioDisabled {
+		log.Printf("радио: свои станции временно отключены")
+		cmd.Radio = nil
 	}
 	if cmd.Radio != nil {
 		d.mu.Lock()

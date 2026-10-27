@@ -82,6 +82,10 @@ type player struct {
 
 const radioRetries = 5
 
+// Свои станции временно выключены: проигрыватель (maind --gst-launch) рядом с проигрывателем Алисы при
+// переключении станций оставлял общий микшер ALSA заклинившим — звук пропадал у всей колонки.
+const ownRadioDisabled = true
+
 // fatalStreamError — ошибки, которые повтор не исправит: сервер отказал (4xx) или формат не поддерживается.
 func fatalStreamError(msg string) bool {
 	for _, s := range []string{"Bad Request", "Forbidden", "Not Found", "Unauthorized", "Missing", "missing a plug-in"} {

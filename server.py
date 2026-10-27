@@ -1710,6 +1710,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         return {"supported": st.get("supported", True), "installed": st["installed"], "running": st["running"],
                 "outdated": st.get("outdated", False), "can_build": st.get("can_build"),
                 "stations": radio.get("stations") or [], "voice": radio.get("voice", True),
+                "own_disabled": self.RADIO_OWN_DISABLED,
                 "play": radio.get("play") or ["включи станцию", "включи радиостанцию", "поставь станцию"],
                 "stop": radio.get("stop") or ["выключи станцию", "выключи радиостанцию", "останови станцию"],
                 "now": (st.get("state") or {}).get("radio") or {},
@@ -1750,7 +1751,12 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         self._assist_write(cfg)
         return self.radio_status()
 
+    # Свои станции временно выключены: их проигрыватель ломал общий микшер звука колонки (см. radio.go).
+    RADIO_OWN_DISABLED = True
+
     def radio_play(self, d):
+        if self.RADIO_OWN_DISABLED:
+            raise AdbError("свои станции временно отключены: их проигрыватель ломал звук колонки. Станции Алисы работают")
         station = self._radio_station(d)
         try:   # музыка Алисы и радио иначе заиграют одновременно
             if self.glagol.ws:

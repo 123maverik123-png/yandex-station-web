@@ -1495,6 +1495,9 @@
           <p class="hint" id="rd-unsupported" hidden>Пока только для Станции Лайт 2.</p>
           <button class="btn primary" id="rd-install">Установить на колонку</button>
         </div>
+        <p class="rd-note" id="rd-own-off" hidden style="margin:0 0 12px">Свои станции временно отключены: их проигрыватель
+          при переключении станций ломал звук всей колонки (Алиса переставала говорить до перезапуска). Список сохранён —
+          включу, как только найду безопасный способ. Станции Алисы слева работают.</p>
         <div id="rd-own" hidden>
           <div class="rd-list" id="rd-list"><div class="empty">Добавьте станцию ниже или найдите в каталоге.</div></div>
           <form class="row" id="rd-add" style="margin-top:12px;gap:8px">
@@ -3688,6 +3691,7 @@ async function loadRadio() {
   $('#rd-unsupported').hidden = st.supported !== false;
   $('#rd-install').hidden = st.supported === false;
   $('#rd-own').hidden = !st.installed;
+  $('#rd-own-off').hidden = !st.own_disabled;
   const now = st.now || {};
   $('#rd-now').hidden = !(now.playing || now.paused || now.retrying || now.error && now.name);
   // подробности проверки — под проигрывателем, где для них есть место
