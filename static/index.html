@@ -590,6 +590,8 @@
   .anim-pick { gap: 8px; flex-wrap: nowrap; min-width: 0; }
   .anim-pick select { min-height: 36px; padding: 0 10px; max-width: 260px; min-width: 0; }
   [data-boot-only][hidden] { display: none !important; }
+  .report-text { width: 100%; min-height: 160px; margin-top: 10px; font-size: 12px; line-height: 1.45; resize: vertical; }
+  .report-text[hidden] { display: none; }
   button.link { border: 0; background: none; padding: 0; font: inherit; color: var(--accent-ink); text-decoration: underline; cursor: pointer; }
   .anim-pending { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; padding: 10px 12px;
     border-radius: 10px; background: var(--accent-soft); color: var(--text-2); font-size: 13.5px; }
@@ -754,7 +756,8 @@
         <p class="login-err" id="cs-login-err" role="alert"></p>
       </form>
       <details id="cs-log-box" hidden><summary>Лог подключения</summary><pre class="out" id="cs-log"></pre></details>
-      <p class="hint" id="cs-report-row" hidden>Не получается подключиться? <button class="link" data-report>Скопировать отчёт для Issue</button></p>
+      <p class="hint" id="cs-report-row" hidden>Не получается подключиться? <button class="link" data-report="cs-report">Скопировать отчёт для Issue</button></p>
+      <textarea class="field mono report-text" id="cs-report" readonly hidden aria-label="Отчёт для Issue"></textarea>
     </section>
   </main>
 
@@ -1066,7 +1069,8 @@
         <div class="set-item"><div class="set-label"><b>Что-то не работает?</b><small>Отчёт для Issue: версии панели, adb и прошивки, хук,
           своё на колонке и журнал панели (вкладка «Логи» → «журнал панели»). Токены, ключи, адреса и MAC в нём скрыты — но перед отправкой
           всё равно просмотрите.</small></div>
-          <div class="set-ctl"><button class="btn sm" data-report>Скопировать отчёт</button><a class="btn sm" href="https://github.com/dimap/yandex-station-web/issues/new" target="_blank" rel="noopener">Новое Issue ↗</a></div></div>
+          <div class="set-ctl"><button class="btn sm" data-report="set-report">Скопировать отчёт</button><a class="btn sm" href="https://github.com/dimap/yandex-station-web/issues/new" target="_blank" rel="noopener">Новое Issue ↗</a></div></div>
+        <textarea class="field mono report-text" id="set-report" readonly hidden aria-label="Отчёт для Issue"></textarea>
       </section>
 
     </div>
@@ -2615,10 +2619,24 @@ async function loadLog(btn) {
 }
 $('#log-load').onclick = e => loadLog(e.currentTarget);
 // Отчёт для Issue — и в «Настройках», и на экране подключения (там он нужнее всего)
+// Буфер обмена браузер даёт только сразу после нажатия, а отчёт собирается на сервере: поэтому запись начинаем
+// в том же нажатии с обещанием текста (ClipboardItem), а если не вышло — показываем отчёт в поле, уже выделенным.
 $$('[data-report]').forEach(b => b.onclick = e => act(e.currentTarget, async () => {
-  const r = await api('/api/report');
-  if (!await copyText(r.text)) throw new Error('Не удалось скопировать — откройте «Логи» → «журнал панели»');
-}, 'Отчёт скопирован — вставьте его в новое Issue и проверьте перед отправкой'));
+  const box = $('#' + b.dataset.report);
+  const text = api('/api/report').then(r => r.text);
+  let copied = false;
+  if (navigator.clipboard?.write && window.ClipboardItem && isSecureContext) {
+    copied = await navigator.clipboard.write([new ClipboardItem({ 'text/plain': text.then(t => new Blob([t], { type: 'text/plain' })) })])
+      .then(() => true, () => false);
+  }
+  const t = await text;
+  if (!copied) copied = await copyText(t);
+  box.value = t; box.hidden = false;
+  box.style.height = Math.min(420, box.scrollHeight + 4) + 'px';
+  if (!copied) { box.focus(); box.select(); }
+  toast(copied ? 'Отчёт скопирован — вставьте его в новое Issue и проверьте перед отправкой'
+    : 'Браузер не дал скопировать — отчёт ниже уже выделен, нажмите Ctrl+C (⌘C)', !copied);
+}));
 $('#log-name').onchange = () => { $('#log-out').scrollTop = 1e9; loadLog(); };
 $('#log-lines').onchange = () => loadLog();
 $('#log-filter').oninput = renderLog;
