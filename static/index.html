@@ -1435,9 +1435,8 @@
             <button class="btn primary" id="boot-install">Установить на колонку</button>
             <button class="btn danger" id="boot-reset">Вернуть стандартную</button>
           </div>
-          <div class="row" style="gap:8px">
-            <button class="btn sm" id="boot-save-my" title="Сохранить отдельной своей анимацией — встроенная не меняется">Сохранить как свою…</button>
-            <button class="btn sm danger" id="boot-del-my" hidden>Удалить свою</button>
+          <div class="row" style="gap:8px" id="boot-del-row" hidden>
+            <button class="btn sm danger" id="boot-del-my">Удалить свою</button>
           </div>
         </div>
       </div>
@@ -1473,9 +1472,8 @@
             <button class="btn primary" id="ra-install">Установить на колонку</button>
             <button class="btn danger" id="ra-reset">Вернуть стандартную</button>
           </div>
-          <div class="row" style="gap:8px">
-            <button class="btn sm" id="ra-save-my" title="Сохранить отдельной своей анимацией — встроенная не меняется">Сохранить как свою…</button>
-            <button class="btn sm danger" id="ra-del-my" hidden>Удалить свою</button>
+          <div class="row" style="gap:8px" id="ra-del-row" hidden>
+            <button class="btn sm danger" id="ra-del-my">Удалить свою</button>
           </div>
         </div>
       </div>
@@ -2457,8 +2455,19 @@ function fillAnimSelect(kind) {
   const sort = l => l.sort((a, b) => animLabel(kind, a).localeCompare(animLabel(kind, b), 'ru'));
   const all = patterns[kind] || [], mine = sort(all.filter(isMy)), std = sort(all.filter(n => !isMy(n)));
   const opts = l => l.map(n => `<option value="${esc(n)}">${esc(animLabel(kind, n))}</option>`).join('');
-  sel.innerHTML = (mine.length ? `<optgroup label="Свои">${opts(mine)}</optgroup>` : '') + `<optgroup label="Встроенные">${opts(std)}</optgroup>`;
+  sel.innerHTML = (mine.length ? `<optgroup label="Свои">${opts(mine)}</optgroup>` : '') + `<optgroup label="Встроенные">${opts(std)}</optgroup>`
+    + '<option value="__new">＋ Добавить новую…</option>';
   if (all.includes(cur)) sel.value = cur;
+  sel.dataset.cur = sel.value;
+}
+// «＋ Добавить новую…» в списке: своя анимация — копия открытой сейчас, её и правим; встроенная не меняется
+async function myNewFromSelect(kind, payload, reload) {
+  const sel = $('#anim-' + kind), from = sel.dataset.cur;
+  const n = prompt(`Название новой анимации (буквы, цифры, «_» и «-»).\nОна начнётся с копии открытой сейчас «${animTitle(from)}» — дальше правьте как хотите, встроенная не изменится.`);
+  if (!n || !n.trim()) { sel.value = from; return; }
+  await act(null, async () => { await mySave(kind, n.trim().replace(/\s+/g, '_'), payload()); await reload(); }, 'Своя анимация добавлена');
+  if (sel.value === '__new') sel.value = from;
+  sel.dataset.cur = sel.value;
 }
 // Сохранить как свою: имя спрашиваем, файл кладём в webpanel/anims; выбираем её в списке
 async function mySave(kind, name, payload) {
@@ -2467,10 +2476,6 @@ async function mySave(kind, name, payload) {
   fillAnimSelect(kind); renderPatterns?.();
   $('#anim-' + kind).value = r.name;
   return r.name;
-}
-function askMyName(kind, from) {
-  const n = prompt('Название своей анимации (буквы, цифры, «_» и «-»):', isMy(from) ? myBase(from) : animTitle(from) + ' моя');
-  return n && n.trim().replace(/\s+/g, '_');
 }
 function checkPause() {
   const short = (+$('#boot-pause').value || 0) < 3000;
@@ -2523,7 +2528,7 @@ function renderClockStatus() {
   const my = isMy(boot.name);
   $('#boot-install').textContent = my ? 'Сохранить' : isBootAnim() ? 'Установить на загрузку' : 'Установить на колонку';
   $('#boot-reset').hidden = $('#boot-load-default').hidden = my;
-  $('#boot-del-my').hidden = !my;
+  $('#boot-del-row').hidden = !my;
 }
 async function loadBoot() {
   try {
@@ -2548,7 +2553,11 @@ async function loadClockAnim() {
   }
   renderClockStatus(); renderBoot();
 }
-$('#anim-clock').onchange = () => loadClockAnim().catch(e => e.offline || toast(e.message, true));
+$('#anim-clock').onchange = e => {
+  if (e.target.value === '__new') return myNewFromSelect('clock', () => ({ frames: bootFull() }), loadClockAnim);
+  e.target.dataset.cur = e.target.value;
+  loadClockAnim().catch(err => err.offline || toast(err.message, true));
+};
 // Кисть яркости: щелчок зажигает сегмент её яркостью, повторный по такому же — гасит; правый — пипетка.
 const bootBrush = () => clamp(+$('#boot-br').value || 255, 1, +$('#boot-br').max);
 const setBrush = x => { $('#boot-br').value = x; $('#boot-br-v').textContent = bootBrush(); };
@@ -2596,7 +2605,6 @@ $('#boot-load-default').onclick = () => {
   setBootFrames(boot.def); renderBoot();
 };
 const clockAnimTitle = () => isBootAnim() ? 'заставку' : `анимацию «${animTitle(boot.name)}»`;
-$('#boot-save-my').onclick = e => { const n = askMyName('clock', boot.name); n && act(e.currentTarget, async () => { await mySave('clock', n, { frames: bootFull() }); await loadClockAnim(); }, 'Своя анимация сохранена'); };
 $('#boot-del-my').onclick = e => confirm(`Удалить свою анимацию «${animTitle(boot.name)}»?`) && act(e.currentTarget, async () => {
   patterns = (await api('/api/anim/my/delete', { kind: 'clock', name: boot.name })).patterns;
   $('#anim-clock').value = BOOT_ANIM; fillAnimSelect('clock'); renderPatterns(); await loadClockAnim();
@@ -2668,7 +2676,7 @@ function renderRa() {
   s.innerHTML = my ? '<span class="badge ok">своя анимация</span>' : animCustom.ring.includes(ra.name) ? '<span class="badge ok">изменена</span>' : '<span class="badge">стандартная</span>';
   $('#ra-install').textContent = my ? 'Сохранить' : 'Установить на колонку';
   $('#ra-reset').hidden = $('#ra-load-default').hidden = my;
-  $('#ra-del-my').hidden = !my;
+  $('#ra-del-row').hidden = !my;
 }
 function raSetText(text) {
   $('#ra-text').value = text;
@@ -2715,13 +2723,16 @@ async function loadRingAnim() {
   ra.name = $('#anim-ring').value; ra.def = null;
   raSetText((await api('/api/ring/frames?name=' + encodeURIComponent(ra.name))).text || '');
 }
-$('#anim-ring').onchange = () => loadRingAnim().catch(e => e.offline || toast(e.message, true));
+$('#anim-ring').onchange = e => {
+  if (e.target.value === '__new') return myNewFromSelect('ring', () => ({ text: $('#ra-text').value }), loadRingAnim);
+  e.target.dataset.cur = e.target.value;
+  loadRingAnim().catch(err => err.offline || toast(err.message, true));
+};
 $('#ra-load-default').onclick = e => act(e.currentTarget, async () => {
   ra.def ??= (await api('/api/anim/original?kind=ring&name=' + encodeURIComponent(ra.name))).text;
   raSetText(ra.def);
 });
 const ringAnimTitle = () => `«${animTitle(ra.name)}»`;
-$('#ra-save-my').onclick = e => { const n = askMyName('ring', ra.name); n && act(e.currentTarget, async () => { await mySave('ring', n, { text: $('#ra-text').value }); await loadRingAnim(); }, 'Своя анимация сохранена'); };
 $('#ra-del-my').onclick = e => confirm(`Удалить свою анимацию кольца ${ringAnimTitle()}?`) && act(e.currentTarget, async () => {
   patterns = (await api('/api/anim/my/delete', { kind: 'ring', name: ra.name })).patterns;
   $('#anim-ring').value = ''; fillAnimSelect('ring'); renderPatterns(); await loadRingAnim();
