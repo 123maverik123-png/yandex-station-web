@@ -21,7 +21,8 @@ PROFILES = {
     'mini3': dict(name='Станция Мини 3', platform='bergamot', clock=False, boot=False, alarms=False, light=False, experimental=True),
     # Glagol всё равно берёт тип из common.deviceType; светодиоды называются mini2:*.
     'mini2': dict(name='Станция Мини 2 с часами', platform='yandexmini_2', led_prefix='mini2', clock=True,
-                  clock_max=170, bt_volume=False, boot=False, alarms=False, light=True),
+                  clock_max=170, bt_volume=False, boot=False, alarms=False, light=True,
+                  tested=('say',)),   # «Сказать на колонке» — issue #16
 }
 
 # Мини 2: цифры 1–4 из сегментов A–G без точек H, двоеточие PLUS1/PLUS2, MINUS посередине, DEGREE.
