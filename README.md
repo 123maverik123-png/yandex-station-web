@@ -35,8 +35,14 @@
     <td width="50%"><img src="docs/screenshots/overview-dark.png" alt="Тёмная тема"></td>
   </tr>
   <tr>
-    <td align="center">Редактор заставки и звук запуска</td>
+    <td align="center">Редактор заставки часов</td>
     <td align="center">Тёмная тема</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/scenes.png" alt="Сценарии"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center">Сценарии на поле нод: условие по дням недели, речь Алисы, вопрос своему ассистенту, плавная громкость</td>
   </tr>
 </table>
 

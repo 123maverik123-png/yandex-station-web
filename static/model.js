@@ -20,7 +20,7 @@ const untested=(tab,what,text)=>{   // what — фраза целиком: «б�
   head.append(box);
 };
 // На пробу (TRIAL_FEATURES в profiles.py): предупреждение, пока функцию для модели не подтвердили люди (tested)
-const tried=f=>!(profile.tested||[]).includes(f);
+const tried=f=>profile.id!=='lite2'&&!(profile.tested||[]).includes(f);   // Лайт 2 — всё проверено, даже если tested не пришёл
 if(!profile.boot)document.getElementById('boot-card')?.setAttribute('data-profile-hidden','');
 if(tried('anims')){
   untested('boot','замена анимаций не тестировалась и может работать не так, как надо','Проверена только на Станции Лайт 2. '+(profile.boot?'':'Редактор часов скрыт — он рассчитан на дисплей Лайт 2. ')+'Свои анимации кольца подменяются при загрузке через хук в <code>rootkeeper.sh</code>; если после перезагрузки остались стандартные, значит, на этой модели хук не срабатывает.');
