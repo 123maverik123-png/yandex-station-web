@@ -347,7 +347,7 @@
     box-shadow: 0 6px 18px rgba(0,0,0,.08); user-select: none; }
   .sc-node.trig { width: 190px; border-color: var(--accent); }
   .sc-node.drop { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  .sc-node header { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-weight: 700; font-size: 13px; cursor: grab;
+  .sc-node header { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-weight: 700; font-size: 13px; cursor: grab; touch-action: none;
     border-bottom: 1px solid var(--line-2); }
   .sc-node header .n { width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; display: grid; place-items: center; }
   .sc-node header button { margin-left: auto; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; }
@@ -1320,6 +1320,7 @@
         <div class="full">
           <div class="sc-steps" id="sc-steps"></div>
           <div class="sc-field" id="sc-field" hidden></div>
+          <div class="row" style="justify-content:flex-end;margin-top:6px"><button type="button" class="btn sm" id="sc-arrange" hidden>Разложить по порядку</button></div>
           <p class="hint" id="sc-field-hint" hidden>Тяните за заголовок, чтобы переставить ноду. Связь — от кружка справа к другой ноде; отпустить
             на пустом месте — убрать связь. У условия и повтора два выхода. Новая нода сама цепляется к выбранной.</p>
           <div class="sc-palette" id="sc-add-step"></div>
@@ -4874,15 +4875,21 @@ $('#sc-field').addEventListener('pointerdown', e => {
   }
   if (id !== 'start') { scSel = id; $$('#sc-field .sc-node').forEach(x => x.classList.toggle('sel', x === nodeEl)); }
   if (!e.target.closest('header') || e.target.closest('button')) return;
+  // перетаскиваем ноду за заголовок; указатель захватываем — перенос не срывается, даже если мышь обогнала ноду
   e.preventDefault();
+  const head = e.target.closest('header');
   const p = id === 'start' ? scStartPos() : scNode(scEdit, id), sx = e.clientX - p.x, sy = e.clientY - p.y;
+  try { head.setPointerCapture(e.pointerId); } catch {}
   const move = ev => {
     p.x = Math.max(0, Math.round(ev.clientX - sx)); p.y = Math.max(0, Math.round(ev.clientY - sy));
     nodeEl.style.left = p.x + 'px'; nodeEl.style.top = p.y + 'px';
     scWires();
   };
-  const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); if (id === 'start') store.set('sc.start.' + (scEdit.id || 'new'), p); };
-  addEventListener('pointermove', move); addEventListener('pointerup', up);
+  const up = () => {
+    head.removeEventListener('pointermove', move); head.removeEventListener('pointerup', up); head.removeEventListener('pointercancel', up);
+    if (id === 'start') store.set('sc.start.' + (scEdit.id || 'new'), p);
+  };
+  head.addEventListener('pointermove', move); head.addEventListener('pointerup', up); head.addEventListener('pointercancel', up);
 });
 $('#sc-field').oninput = scInput;
 $('#sc-field').addEventListener('click', e => {
@@ -4942,17 +4949,22 @@ function scView(v) {
   $('#sc-view [data-v="list"]').title = scChain(scEdit).linear ? '' : 'В сценарии есть ветвления — только поле';
   store.set('sc.view', v);
   $('#sc-steps').hidden = v === 'field';
-  $('#sc-field').hidden = $('#sc-field-hint').hidden = v !== 'field';
-  if (v === 'list') {   // из поля в список: раскладываем цепочку по порядку
-    scEdit.nodes.forEach((n, i) => { if (!n.x && !n.y) { n.x = 280 + (i % 3) * (SC_W + 30); n.y = 30 + Math.floor(i / 3) * 170; } });
-  }
+  $('#sc-field').hidden = $('#sc-field-hint').hidden = $('#sc-arrange').hidden = v !== 'field';
+  if (v === 'field') scLayout();   // ноды, добавленные в списке, места на поле ещё не имеют
   scRender();
 }
 $$('#sc-view button').forEach(b => b.onclick = () => scView(b.dataset.v));
-function scLayout() {   // ноды без места (из списка) — по порядку цепочки слева направо
+$('#sc-arrange').onclick = () => { scLayout(true); renderScField(); };
+// Ноды без места (из списка) — по порядку цепочки змейкой; all — разложить заново все.
+// Ноды, оказавшиеся в одной точке, тоже разводим: иначе верхняя закрывает остальные.
+function scLayout(all) {
   const { chain } = scChain(scEdit);
   const order = [...chain, ...scEdit.nodes.filter(n => !chain.includes(n))];
-  order.forEach((n, i) => { if (!n.x && !n.y) { n.x = 280 + (i % 3) * (SC_W + 30); n.y = 30 + Math.floor(i / 3) * 170 + (i % 2) * 30; } });
+  const seen = new Set();
+  order.forEach((n, i) => {
+    if (all || (!n.x && !n.y) || seen.has(n.x + ',' + n.y)) { n.x = 260 + (i % 3) * (SC_W + 14); n.y = 30 + Math.floor(i / 3) * 190 + (i % 2) * 30; }
+    seen.add(n.x + ',' + n.y);
+  });
 }
 function openScene(s) {
   scEdit = structuredClone(s || { id: '', name: '', trigger: 'time', time: '23:00', days: '1234567', on: true, start: '', nodes: [] });
