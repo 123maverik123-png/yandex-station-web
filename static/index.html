@@ -907,6 +907,8 @@
         <div class="actions"><button class="btn sm" id="ov-reset">Виджеты по умолчанию</button><button class="btn sm primary" id="ov-done">Готово</button></div>
       </div>
       <div class="ov-opts">
+        <div class="set-item"><div class="set-label"><b>Плитки сверху</b><small>Что показывать в четырёх плитках: значение, полоска и график за 15 минут</small></div>
+          <div class="set-ctl"><div class="tile-picks" id="set-tiles"></div></div></div>
         <label class="set-item"><div class="set-label"><b>Визуализатор за 3D-моделью</b><small>Спектр из символов за моделью, пока колонка играет музыку (нужен вход в Яндекс)</small></div>
           <div class="set-ctl"><input type="checkbox" class="switch" id="set-viz"></div></label>
         <label class="set-item"><div class="set-label"><b>Фон в покое</b><small>Пока музыка не играет, символы за моделью медленно переливаются</small></div>
@@ -1143,8 +1145,6 @@
           <div class="set-ctl"><input type="checkbox" class="switch" id="set-minibar"></div></label>
         <div class="set-item"><div class="set-label"><b>«Обзор»</b><small>Виджеты, 3D-модель и визуализатор</small></div>
           <div class="set-ctl"><button class="btn sm" id="set-layout-edit">Настроить «Обзор»</button><button class="btn sm" id="set-layout-reset">По умолчанию</button></div></div>
-        <div class="set-item"><div class="set-label"><b>Плитки сверху «Обзора»</b><small>Что показывать в четырёх плитках: значение, полоска и график за 15 минут</small></div>
-          <div class="set-ctl"><div class="tile-picks" id="set-tiles"></div></div></div>
         <div class="set-item"><div class="set-label"><b>Галерея 3D-моделей</b><small>Все корпуса, которые знает панель, — без подключения к колонке</small></div>
           <div class="set-ctl"><a class="btn sm" id="model-gallery" href="./static/model-preview.html" target="_blank" rel="noopener">Открыть ↗</a></div></div>
       </section>
@@ -3972,7 +3972,11 @@ $('#ov-edit').onclick = () => setEditing(!document.body.classList.contains('edit
 $('#set-layout-edit').onclick = () => { location.hash = '#overview'; setTimeout(() => { setEditing(true); window.scrollTo({ top: 0 }); }, 0); };
 $('#set-layout-reset').onclick = () => $('#ov-reset').click();
 $('#ov-done').onclick = () => setEditing(false);
-$('#ov-reset').onclick = () => { applyLayout(DEFAULT_LAYOUT); $$('#wz-hidden > [data-widget]').forEach(w => $('#' + homeZone(w.dataset.widget)).append(w)); saveLayout(); toast('Раскладка по умолчанию'); };
+$('#ov-reset').onclick = () => {
+  applyLayout(DEFAULT_LAYOUT); $$('#wz-hidden > [data-widget]').forEach(w => $('#' + homeZone(w.dataset.widget)).append(w)); saveLayout();
+  store.set('ov.tiles', JSON.stringify(TILE_DEFAULT)); buildTiles(); fillTileSettings();   // и плитки сверху
+  toast('Раскладка по умолчанию');
+};
 // Перетаскивание: виджет переезжает прямо во время движения, место выбирается по середине соседей.
 let dragW = null;
 document.addEventListener('dragstart', e => {
