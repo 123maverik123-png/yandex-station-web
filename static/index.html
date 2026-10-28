@@ -587,6 +587,18 @@
   .boot-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
   @media (max-width: 900px) { .boot-grid { grid-template-columns: 1fr; } }
   .frames { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 8px; }
+  .anim-pick { gap: 8px; flex-wrap: nowrap; min-width: 0; }
+  .anim-pick select { min-height: 36px; padding: 0 10px; max-width: 260px; min-width: 0; }
+  [data-boot-only][hidden] { display: none !important; }
+  .ra-preview { display: flex; justify-content: center; gap: 18px; padding: 22px; border-radius: 14px; background: var(--display); }
+  .ra-preview span { width: 46px; height: 46px; border-radius: 50%; background: #000; box-shadow: 0 0 18px 2px var(--glow, transparent); transition: background .05s; }
+  .ra-frames { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow: auto; }
+  .ra-frame { display: flex; align-items: center; gap: 6px; }
+  .ra-frame .n { width: 26px; font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: right; flex: none; }
+  .ra-frame input[type=color] { width: 34px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; flex: none; }
+  .ra-frame input[type=number] { width: 80px; min-height: 32px; padding: 0 8px; }
+  .ra-frame .btn { color: var(--muted); }
+  #ra-text { width: 100%; resize: vertical; font-size: 12.5px; line-height: 1.5; }
   .frame-thumb { flex: none; width: 112px; border: 2px solid transparent; border-radius: 12px; background: var(--display); padding: 8px 8px 6px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
   .frame-thumb svg { width: 100%; height: auto; display: block; }
   .frame-thumb span { font-family: var(--mono); font-size: 11px; color: #B8B8C4; text-align: center; }
@@ -706,7 +718,7 @@
       <div class="nav-group" role="presentation">Колонка</div>
       <a href="#alarm" data-tab="alarm"><svg width="20" height="20" aria-hidden="true"><use href="#i-alarm"/></svg>Будильник</a>
       <a href="#assistant" data-tab="assistant"><svg width="20" height="20" aria-hidden="true"><use href="#i-mic"/></svg>Ассистент</a>
-      <a href="#boot" data-tab="boot"><svg width="20" height="20" aria-hidden="true"><use href="#i-power"/></svg>Запуск</a>
+      <a href="#boot" data-tab="boot"><svg width="20" height="20" aria-hidden="true"><use href="#i-power"/></svg>Анимации</a>
       <a href="#apps" data-tab="apps"><svg width="20" height="20" aria-hidden="true"><use href="#i-box"/></svg>Приложения</a>
       <a href="#files" data-tab="files"><svg width="20" height="20" aria-hidden="true"><use href="#i-folder"/></svg>Файлы</a>
       <a href="#console" data-tab="console"><svg width="20" height="20" aria-hidden="true"><use href="#i-term"/></svg>Консоль</a>
@@ -1206,7 +1218,7 @@
   </main>
 
   <main id="tab-boot" data-page hidden>
-    <header class="page-head"><div><h1>Запуск</h1><div class="sub">Что колонка показывает и играет при включении</div></div></header>
+    <header class="page-head"><div><h1>Анимации</h1><div class="sub">Анимации кольца и часов, заставка и звук при включении</div></div></header>
     <div class="cols">
       <section class="card">
         <div class="card-head"><h2>Когда показывать</h2><span class="badge" id="boot-hook-badge">—</span></div>
@@ -1231,7 +1243,8 @@
     </div>
     <!-- заставка часов -->
     <section class="card" id="boot-card">
-      <div class="card-head"><h2>Заставка часов</h2><div class="status-line" id="boot-status">—</div></div>
+      <div class="card-head"><h2>Анимации часов</h2>
+        <div class="row anim-pick"><select class="field" id="anim-clock" aria-label="Анимация часов"></select><div class="status-line" id="boot-status">—</div></div></div>
       <div class="frames" id="boot-frames" aria-label="Кадры"></div>
       <div class="boot-grid">
         <div class="col">
@@ -1254,19 +1267,49 @@
             <button class="btn sm" id="boot-clear">Очистить</button>
             <button class="btn sm danger" id="boot-del">Удалить кадр</button>
           </div>
-          <div class="row" style="gap:8px">
+          <div class="row" style="gap:8px" data-boot-only>
             <label for="boot-pause" style="min-width:auto">Пауза перед заставкой</label>
             <input type="number" id="boot-pause" class="field mono" min="0" max="65535" step="100" value="3300" style="width:100px"><span class="meta">мс</span>
           </div>
-          <p class="hint" id="boot-pause-hint">В стандартной заставке 3,3 с пустого экрана: в первые секунды загрузки дисплей ещё не показывает картинку, и более ранние кадры не видны.</p>
+          <p class="hint" id="boot-pause-hint" data-boot-only>В стандартной заставке 3,3 с пустого экрана: в первые секунды загрузки дисплей ещё не показывает картинку, и более ранние кадры не видны.</p>
           <div class="row" style="gap:8px; padding-top:12px; border-top:1px solid var(--line-2)">
             <button class="btn sm" id="boot-preview"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg>В браузере</button>
             <button class="btn sm" id="boot-device"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg>На колонке</button>
             <button class="btn sm" id="boot-load-default">Открыть стандартную</button>
           </div>
           <div class="row" style="gap:8px">
-            <button class="btn primary" id="boot-install">Установить на загрузку</button>
-            <button class="btn danger" id="boot-reset">Сбросить на стандартную</button>
+            <button class="btn primary" id="boot-install">Установить на колонку</button>
+            <button class="btn danger" id="boot-reset">Вернуть стандартную</button>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- анимации кольца -->
+    <section class="card" id="ring-anim-card">
+      <div class="card-head"><h2>Анимации кольца</h2>
+        <div class="row anim-pick"><select class="field" id="anim-ring" aria-label="Анимация кольца"></select><div class="status-line" id="ra-status">—</div></div></div>
+      <div class="boot-grid">
+        <div class="col">
+          <div class="ra-preview" id="ra-preview" aria-hidden="true"></div>
+          <label class="toggle"><span>Повторять по кругу</span><input type="checkbox" id="ra-loop"></label>
+          <div class="ra-frames" id="ra-frames"></div>
+          <div class="row" style="gap:8px" id="ra-visual-btns"><button class="btn sm" id="ra-add"><svg width="14" height="14" aria-hidden="true"><use href="#i-plus"/></svg>Кадр</button></div>
+          <p class="hint" id="ra-complex" hidden>В этой анимации есть плавные переходы, градиенты или вращение — их можно править
+            только текстом справа. В браузере они показываются упрощённо.</p>
+        </div>
+        <div class="col">
+          <label for="ra-text">Текст анимации</label>
+          <textarea class="field mono" id="ra-text" rows="12" spellcheck="false"></textarea>
+          <p class="hint">Строка — кадр: цвета точек кольца (RRGGBB) и длительность в мс, например
+            <code>ff0000 00ff00 0000ff 200</code>. <code>loop</code> — повторять по кругу.</p>
+          <div class="row" style="gap:8px; padding-top:12px; border-top:1px solid var(--line-2)">
+            <button class="btn sm" id="ra-preview-btn"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg>В браузере</button>
+            <button class="btn sm" id="ra-device"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg>На колонке</button>
+            <button class="btn sm" id="ra-load-default">Открыть стандартную</button>
+          </div>
+          <div class="row" style="gap:8px">
+            <button class="btn primary" id="ra-install">Установить на колонку</button>
+            <button class="btn danger" id="ra-reset">Вернуть стандартную</button>
           </div>
         </div>
       </div>
@@ -1855,7 +1898,7 @@ function renderSounds() {
 function setSndCustom(r) {
   sndCustom = new Set(r.custom || []);
   renderSounds();
-  if (!$('#tab-boot').hidden) loadBoot();   // звук запуска показывает и вкладка «Запуск»
+  if (!$('#tab-boot').hidden) loadBoot();   // звук запуска показывает и вкладка «Анимации»
 }
 $('#snd-replace-file').onchange = async e => {
   const f = e.target.files[0], name = sndTarget;
@@ -2199,19 +2242,31 @@ function animateRing({ frames, loop }, seconds) {
 }
 
 // ---------- заставка при загрузке ----------
-const boot = { frames: [], sel: 0, def: [], status: null };
+// Редактор часов правит любую анимацию из ledpatterns/clock; у заставки (boot) — своя пауза и своё хранение.
+const BOOT_ANIM = 'boot.binscled.zst';
+const boot = { frames: [], sel: 0, def: [], status: null, name: BOOT_ANIM };
+let animCustom = { clock: [], ring: [] };
+const isBootAnim = () => boot.name === BOOT_ANIM;
 const bootCur = () => boot.frames[boot.sel];
-// Пустой первый кадр — это пауза перед заставкой: показываем её отдельным полем, а не кадром.
+// Пустой первый кадр заставки — это пауза перед ней: показываем её отдельным полем, а не кадром.
 function setBootFrames(frames) {
   frames = structuredClone(frames || []);
-  const lead = frames[0] && frames[0].v.every(x => x === 0) ? frames.shift().ms : 0;
+  const lead = isBootAnim() && frames[0] && frames[0].v.every(x => x === 0) ? frames.shift().ms : 0;
   $('#boot-pause').value = lead;
+  $$('[data-boot-only]').forEach(e => e.hidden = !isBootAnim());
   boot.frames = frames; boot.sel = 0;
   checkPause();
 }
 function bootFull() {
-  const pause = clamp(+$('#boot-pause').value || 0, 0, 65535);
+  const pause = isBootAnim() ? clamp(+$('#boot-pause').value || 0, 0, 65535) : 0;
   return pause ? [{ flag: 0, v: blankFrame(), ms: pause }, ...boot.frames] : boot.frames;
+}
+const animLabel = (kind, n) => (PAT_NAMES[patBase(n)] || patBase(n).replace(/_/g, ' ')) + (animCustom[kind].includes(n) ? ' · своя' : '');
+function fillAnimSelect(kind) {
+  const sel = $('#anim-' + kind), cur = sel.value || (kind === 'clock' ? boot.name : ra.name);
+  const list = [...(patterns[kind] || [])].sort((a, b) => animLabel(kind, a).localeCompare(animLabel(kind, b), 'ru'));
+  sel.innerHTML = list.map(n => `<option value="${esc(n)}">${esc(animLabel(kind, n))}</option>`).join('');
+  if (list.includes(cur)) sel.value = cur;
 }
 function checkPause() {
   const short = (+$('#boot-pause').value || 0) < 3000;
@@ -2265,19 +2320,45 @@ function renderBootStatus() {
   $('#snd-badge').className = 'badge' + (s.sound_custom ? ' ok' : '');
   $('#bs-play-custom').disabled = !s.sound_custom;
   $('#bs-reset').disabled = !s.sound_custom;
-  if (!s.supported) { $('#boot-status').innerHTML = '<span class="badge bad">прошивка не поддерживается</span>'; return; }
-  $('#boot-status').innerHTML = s.custom
-    ? `<span class="badge ok">своя</span>${s.mounted ? '' : '<span class="badge bad">не подменена</span>'}`
-    : '<span class="badge">стандартная</span>';
+  renderClockStatus();
+}
+function renderClockStatus() {
+  const s = boot.status;
+  if (isBootAnim()) {
+    if (!s) return;
+    if (!s.supported) { $('#boot-status').innerHTML = '<span class="badge bad">прошивка не поддерживается</span>'; return; }
+    $('#boot-status').innerHTML = s.custom
+      ? `<span class="badge ok">своя</span>${s.mounted ? '' : '<span class="badge bad">не подменена</span>'}`
+      : '<span class="badge">стандартная</span>';
+  } else {
+    $('#boot-status').innerHTML = animCustom.clock.includes(boot.name) ? '<span class="badge ok">своя</span>' : '<span class="badge">стандартная</span>';
+  }
+  $('#boot-install').textContent = isBootAnim() ? 'Установить на загрузку' : 'Установить на колонку';
 }
 async function loadBoot() {
   try {
-    boot.status = await api('/api/clock/boot');
-    boot.def = boot.status.default || [];
-    setBootFrames(boot.status.frames || boot.def);
-    renderBootStatus(); renderBoot();
-  } catch (e) { $('#boot-status').innerHTML = `<span class="badge bad">${esc(e.message)}</span>`; }
+    if (!patterns.clock) patterns = await api('/api/patterns');
+    [boot.status, animCustom] = await Promise.all([api('/api/clock/boot'), api('/api/anim/custom')]);
+    fillAnimSelect('clock'); fillAnimSelect('ring');
+    renderBootStatus();
+    await loadClockAnim();
+    if (!ra.name && $('#anim-ring').value) loadRingAnim();
+  } catch (e) { if (!e.offline) $('#boot-status').innerHTML = `<span class="badge bad">${esc(e.message)}</span>`; }
 }
+async function loadClockAnim() {
+  boot.name = $('#anim-clock').value || BOOT_ANIM;
+  if (isBootAnim()) {
+    boot.def = boot.status?.default || [];
+    setBootFrames(boot.status?.frames || boot.def);
+  } else {
+    const name = encodeURIComponent(boot.name);
+    const [orig, cur] = await Promise.all([api(`/api/anim/original?kind=clock&name=${name}`), api('/api/clock/frames?name=' + name)]);
+    boot.def = orig.frames || [];
+    setBootFrames(cur);
+  }
+  renderClockStatus(); renderBoot();
+}
+$('#anim-clock').onchange = () => loadClockAnim().catch(e => e.offline || toast(e.message, true));
 $('#boot-editor').onclick = e => {
   const i = e.target.closest('[data-i]')?.dataset.i;
   if (i === undefined) return;
@@ -2309,13 +2390,122 @@ $('#boot-preview').onclick = () => {
 };
 $('#boot-device').onclick = e => act(e.currentTarget, () => api('/api/clock/play', { frames: bootFull(), seconds: bootDuration() }), 'Заставка играет на колонке');
 $('#boot-load-default').onclick = () => {
-  if (!boot.def.length) return toast('Стандартная заставка недоступна', true);
+  if (!boot.def.length) return toast('Стандартная анимация недоступна', true);
   setBootFrames(boot.def); renderBoot();
 };
-$('#boot-install').onclick = e => confirm('Установить эту заставку на загрузку колонки?') &&
-  act(e.currentTarget, async () => { boot.status = await api('/api/clock/boot', { frames: bootFull() }); renderBootStatus(); }, 'Заставка установлена — покажется при следующей загрузке');
-$('#boot-reset').onclick = e => confirm('Вернуть стандартную заставку часов?') &&
-  act(e.currentTarget, async () => { await api('/api/clock/boot/reset', {}); await loadBoot(); }, 'Стандартная заставка восстановлена');
+const clockAnimTitle = () => isBootAnim() ? 'заставку' : `анимацию «${animLabel('clock', boot.name).replace(' · своя', '')}»`;
+$('#boot-install').onclick = e => confirm(`Установить эту ${clockAnimTitle()} на колонку?`) && act(e.currentTarget, async () => {
+  if (isBootAnim()) boot.status = await api('/api/clock/boot', { frames: bootFull() });
+  else animCustom = await api('/api/anim/install', { kind: 'clock', name: boot.name, frames: bootFull() });
+  if (isBootAnim()) animCustom = await api('/api/anim/custom');
+  fillAnimSelect('clock'); renderBootStatus();
+}, isBootAnim() ? 'Заставка установлена — покажется при следующей загрузке' : 'Анимация установлена');
+$('#boot-reset').onclick = e => confirm(`Вернуть стандартную ${clockAnimTitle()}?`) && act(e.currentTarget, async () => {
+  if (isBootAnim()) await api('/api/clock/boot/reset', {});
+  else await api('/api/anim/reset', { kind: 'clock', name: boot.name });
+  await loadBoot();
+}, 'Стандартная анимация восстановлена');
+
+// ---------- анимации кольца ----------
+// Файл .led — текст; простые (только кадры и loop) правим и визуально, остальные — текстом.
+const ra = { name: null, frames: [], loop: false, simple: true, def: null, timer: 0 };
+const rgbHex = c => c.map(x => clamp(x | 0, 0, 255).toString(16).padStart(2, '0')).join('');
+function parseLedJS(text) {
+  const res = { frames: [], loop: false, simple: true };
+  for (const line of text.split('\n')) {
+    const p = line.trim().split(/\s+/).filter(Boolean);
+    if (!p.length) continue;
+    if (p.length === 1 && p[0] === 'loop') { res.loop = true; continue; }
+    const cols = p.slice(0, -1), ms = +p[p.length - 1];
+    if (p.length >= 2 && Number.isFinite(ms) && cols.every(h => /^[0-9a-f]{6}$/i.test(h))) {
+      res.frames.push({ c: cols.map(h => hex2rgb('#' + h)), ms }); continue;
+    }
+    res.simple = false;
+    // rotate: кадр всё равно показываем в предпросмотре
+    if (p[0] === 'rotate' && p.slice(1, -1).every(h => /^[0-9a-f]{6}$/i.test(h))) res.frames.push({ c: p.slice(1, -1).map(h => hex2rgb('#' + h)), ms });
+  }
+  return res;
+}
+const raText = () => (ra.loop ? 'loop\n' : '') + ra.frames.map(f => f.c.map(rgbHex).join(' ') + ' ' + f.ms).join('\n') + '\n';
+const raPixels = () => ra.frames[0]?.c.length || 3;
+function raShow(c) {
+  const spans = $$('#ra-preview span');
+  spans.forEach((s, i) => { const v = c?.[i] || [0, 0, 0]; s.style.background = `rgb(${v})`; s.style.setProperty('--glow', v.some(x => x > 20) ? `rgba(${v},.6)` : 'transparent'); });
+}
+function renderRa() {
+  $('#ra-preview').innerHTML = '<span></span>'.repeat(raPixels());
+  raShow(ra.frames[0]?.c);
+  $('#ra-loop').checked = ra.loop;
+  $('#ra-loop').disabled = !ra.simple;
+  $('#ra-complex').hidden = ra.simple;
+  $('#ra-frames').hidden = $('#ra-visual-btns').hidden = !ra.simple;
+  $('#ra-frames').innerHTML = ra.frames.map((f, i) => `<div class="ra-frame" data-i="${i}"><span class="n">${i + 1}</span>
+    ${f.c.map((c, k) => `<input type="color" data-k="${k}" value="#${rgbHex(c)}" aria-label="Кадр ${i + 1}, точка ${k + 1}">`).join('')}
+    <input type="number" class="field mono" min="10" max="600000" step="10" value="${f.ms}" aria-label="Длительность кадра ${i + 1}, мс"><span class="meta">мс</span>
+    <button class="btn sm icon ghost" data-a="dup" title="Дублировать кадр" aria-label="Дублировать кадр ${i + 1}">${icon('i-plus', 14)}</button>
+    <button class="btn sm icon ghost" data-a="del" title="Удалить кадр" aria-label="Удалить кадр ${i + 1}">${icon('i-trash', 14)}</button></div>`).join('');
+  const s = $('#ra-status');
+  s.innerHTML = animCustom.ring.includes(ra.name) ? '<span class="badge ok">своя</span>' : '<span class="badge">стандартная</span>';
+}
+function raSetText(text) {
+  $('#ra-text').value = text;
+  Object.assign(ra, parseLedJS(text));
+  renderRa();
+}
+function raChanged() { $('#ra-text').value = raText(); }
+$('#ra-frames').oninput = e => {
+  const row = e.target.closest('.ra-frame'); if (!row) return;
+  const f = ra.frames[+row.dataset.i];
+  if (e.target.type === 'color') { f.c[+e.target.dataset.k] = hex2rgb(e.target.value); raShow(f.c); }
+  else f.ms = clamp(+e.target.value || 100, 10, 600000);
+  raChanged();
+};
+$('#ra-frames').onclick = e => {
+  const b = e.target.closest('[data-a]'); if (!b) return;
+  const i = +b.closest('.ra-frame').dataset.i;
+  if (b.dataset.a === 'dup') ra.frames.splice(i + 1, 0, structuredClone(ra.frames[i]));
+  else ra.frames.splice(i, 1);
+  raChanged(); renderRa();
+};
+$('#ra-add').onclick = () => { ra.frames.push({ c: Array.from({ length: raPixels() }, () => hex2rgb(ringHex)), ms: 200 }); raChanged(); renderRa(); };
+$('#ra-loop').onchange = e => { ra.loop = e.target.checked; raChanged(); };
+$('#ra-text').oninput = e => { Object.assign(ra, parseLedJS(e.target.value)); renderRa(); };
+const raSeconds = () => {
+  const total = ra.frames.reduce((a, f) => a + f.ms, 0) / 1000;
+  return clamp(Math.ceil(ra.loop || !ra.simple ? Math.max(total * 2, 5) : total + 1), 2, 30);
+};
+$('#ra-preview-btn').onclick = () => {
+  clearTimeout(ra.timer);
+  if (!ra.frames.length) return;
+  const until = Date.now() + raSeconds() * 1000;
+  let i = 0;
+  const step = () => {
+    if (Date.now() > until || (i >= ra.frames.length && !ra.loop)) return raShow(ra.frames[0]?.c);
+    if (i >= ra.frames.length) i = 0;
+    raShow(ra.frames[i].c);
+    ra.timer = setTimeout(step, Math.max(16, ra.frames[i++].ms));
+  };
+  step();
+};
+$('#ra-device').onclick = e => act(e.currentTarget, () => api('/api/ring/try', { text: $('#ra-text').value, seconds: raSeconds() }), 'Анимация играет на колонке');
+async function loadRingAnim() {
+  ra.name = $('#anim-ring').value; ra.def = null;
+  raSetText((await api('/api/ring/frames?name=' + encodeURIComponent(ra.name))).text || '');
+}
+$('#anim-ring').onchange = () => loadRingAnim().catch(e => e.offline || toast(e.message, true));
+$('#ra-load-default').onclick = e => act(e.currentTarget, async () => {
+  ra.def ??= (await api('/api/anim/original?kind=ring&name=' + encodeURIComponent(ra.name))).text;
+  raSetText(ra.def);
+});
+const ringAnimTitle = () => `«${animLabel('ring', ra.name).replace(' · своя', '')}»`;
+$('#ra-install').onclick = e => confirm(`Установить анимацию кольца ${ringAnimTitle()} на колонку?`) && act(e.currentTarget, async () => {
+  animCustom = await api('/api/anim/install', { kind: 'ring', name: ra.name, text: $('#ra-text').value });
+  fillAnimSelect('ring'); renderRa();
+}, 'Анимация кольца установлена');
+$('#ra-reset').onclick = e => confirm(`Вернуть стандартную анимацию кольца ${ringAnimTitle()}?`) && act(e.currentTarget, async () => {
+  animCustom = await api('/api/anim/reset', { kind: 'ring', name: ra.name });
+  fillAnimSelect('ring'); await loadRingAnim();
+}, 'Стандартная анимация восстановлена');
 
 // ---------- bluetooth ----------
 

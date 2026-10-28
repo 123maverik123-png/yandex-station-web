@@ -76,3 +76,42 @@ class SoundOverrides(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnimOverrides(unittest.TestCase):
+    """Свои анимации кольца и часов — те же подмены, что у звуков."""
+
+    def test_led_validation(self):
+        good = "loop\nff0000 00ff00 0000ff 200\nsmooth 100\ngradient 0 0000ff 1 0000ff 60000\nrotate ff0000 000000 000000 50\n# —\n"
+        self.assertEqual(server.check_led(good), good)
+        for bad in ("rm -rf /", "ff0000 00ff00 0000ff 200; reboot", "loop\n$(id)", "loop", "ff0000 1\n" * 10000):
+            with self.assertRaises(server.AdbError):
+                server.check_led(bad)
+
+    def test_led_parse(self):
+        r = server.parse_led("loop\nff0000 00ff00 0000ff 200\n")
+        self.assertEqual((r["loop"], r["simple"], r["frames"][0]["c"][1], r["frames"][0]["ms"]), (True, True, [0, 255, 0], 200))
+        self.assertFalse(server.parse_led("smooth 10\nff0000 00ff00 0000ff 200\n")["simple"])
+
+    def test_only_listed_animations(self):
+        p = server.Panel(Mock())
+        p.patterns = lambda: {"ring": ["qc.led"], "clock": ["boot.binscled.zst", "blink.binscled.zst"]}
+        for kind, name in (("ring", "../../etc/passwd"), ("clock", "qc.led"), ("evil", "qc.led")):
+            with self.assertRaisesRegex(server.AdbError, "нет такой анимации"):
+                p.anim_reset(kind, name)
+        self.assertEqual(p._anim_paths("ring", "qc.led")[1], f"{server.OVR_DIR}/ledpatterns/oknix/qc.led")
+        p.boot_reset, p._remove_override, p.anim_custom = Mock(), Mock(), Mock()
+        p.anim_reset("clock", "boot.binscled.zst")
+        p.boot_reset.assert_called_once()   # заставка — по-старому, через вкладку «Запуск»
+        p._remove_override.assert_not_called()
+
+    def test_custom_list(self):
+        p = server.Panel(Mock())
+        p.adb.shell.return_value = ("./oknix/qc.led\n./clock/blink.binscled.zst\n./other/x\n@boot\n", "", 0)
+        self.assertEqual(p.anim_custom(), {"ring": ["qc.led"], "clock": ["blink.binscled.zst", "boot.binscled.zst"]})
+
+    def test_backup_names(self):
+        ok = server.Panel.BACKUP_FILES.fullmatch
+        self.assertTrue(ok("override/ledpatterns/oknix/timer.led"))
+        for bad in ("override/ledpatterns/x/a", "override/ledpatterns/oknix/../a", "override/ledpatterns/oknix/a/b"):
+            self.assertFalse(ok(bad), bad)

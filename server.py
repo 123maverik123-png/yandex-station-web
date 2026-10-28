@@ -280,6 +280,46 @@ def zstd_compress(data):
         raise AdbError(ZSTD_HELP) from None
 
 
+
+# Анимация кольца (.led) — текст: «RRGGBB RRGGBB RRGGBB мс» на кадр (3 точки у Лайт 2, 6 у Мини 2) и директивы
+# loop, smooth N, gradient …, rotate …, gammacorrection, # комментарий. Простые кадры редактор показывает
+# визуально, остальное — только текстом.
+LED_LINE = re.compile(r"(loop|gammacorrection|smooth\s+\d{1,6}|gradient(\s+[0-9a-fA-F]{1,6})+|"
+                      r"(rotate\s+)?([0-9a-fA-F]{6}\s+){1,32}\d{1,6}|#[^\x00-\x1f]*)?")
+
+
+def check_led(text):
+    if not isinstance(text, str) or len(text) > 64 * 1024:
+        raise AdbError("анимация кольца: нужен текст до 64 КБ")
+    text = text.replace("\r\n", "\n")
+    for n, line in enumerate(text.split("\n"), 1):
+        if not LED_LINE.fullmatch(line.strip()):
+            raise AdbError(f"анимация кольца, строка {n}: непонятно «{line.strip()[:40]}»")
+    if not any(re.fullmatch(r"(rotate\s+)?([0-9a-fA-F]{6}\s+)+\d+|gradient.*", l.strip()) for l in text.split("\n")):
+        raise AdbError("в анимации кольца нет ни одного кадра")
+    return text if text.endswith("\n") else text + "\n"
+
+
+def parse_led(text):
+    """Кадры для предпросмотра; simple — в файле только кадры и loop, его можно править визуально."""
+    frames, loop, simple = [], False, True
+    for line in text.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        if parts == ["loop"]:
+            loop = True
+            continue
+        try:
+            if len(parts) >= 2 and all(len(h) == 6 for h in parts[:-1]):
+                frames.append({"c": [[int(h[i:i + 2], 16) for i in (0, 2, 4)] for h in parts[:-1]], "ms": int(parts[-1])})
+                continue
+        except ValueError:
+            pass
+        simple = False
+    return {"loop": loop, "frames": frames, "text": text, "simple": simple}
+
+
 def decode_clock_pattern(name, data):
     """Кадры анимации часов: [{"flag", "v": [36 яркостей], "ms"}].
 
@@ -1400,22 +1440,69 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         return {"v": v[:len(CLOCK_LEDS)], "ring": [r[0:3], r[3:6], r[6:9]]}
 
     def ring_frames(self, name):
-        """Кадры анимации кольца (.led): «loop» в первой строке, далее «RRGGBB … мс» (3 цвета у Лайт 2, 6 у Мини 2)."""
         if name not in self.patterns()["ring"]:
             raise AdbError("нет такого паттерна")
-        text = self.adb.read_bytes(f"{PATTERNS['ring']}/{name}").decode("utf-8", "replace")
-        frames, loop = [], False
-        for line in text.splitlines():
-            parts = line.split()
-            if parts == ["loop"]:
-                loop = True
-            elif len(parts) >= 2:
-                try:
-                    frames.append({"c": [[int(h[i:i + 2], 16) for i in (0, 2, 4)] for h in parts[:-1]],
-                                   "ms": int(parts[-1])})
-                except ValueError:
-                    continue
-        return {"loop": loop, "frames": frames}
+        return parse_led(self.adb.read_bytes(f"{PATTERNS['ring']}/{name}").decode("utf-8", "replace"))
+
+    # ---------- свои анимации: подмена файлов ledpatterns, как у звуков ----------
+    def _anim_paths(self, kind, name):
+        if kind not in PATTERNS or name not in self.patterns()[kind]:
+            raise AdbError("нет такой анимации")
+        target = f"{PATTERNS[kind]}/{name}"
+        return target, f"{OVR_DIR}/{posixpath.relpath(target, QUASAR)}"
+
+    def anim_custom(self):
+        out, _, _ = self.adb.shell(
+            f"cd {OVR_DIR}/ledpatterns 2>/dev/null && find . -type f; [ -f {BOOT_CUSTOM} ] && echo @boot; true", check=False)
+        res = {kind: [] for kind in PATTERNS}
+        dirs = {posixpath.basename(d): kind for kind, d in PATTERNS.items()}
+        for line in strip_ansi(out).split():
+            if line == "@boot":
+                res["clock"].append(posixpath.basename(BOOT_TARGET))
+            elif line.startswith("./") and line.count("/") == 2 and line.split("/")[1] in dirs:
+                res[dirs[line.split("/")[1]]].append(line.split("/")[2])
+        return {k: sorted(v) for k, v in res.items()}
+
+    def anim_original(self, kind, name):
+        target, _ = self._anim_paths(kind, name)
+        if target == BOOT_TARGET:   # у заставки копия оригинала своя, со времён вкладки «Запуск»
+            return {"frames": self.boot_status().get("default") or []}
+        data = self._original_bytes(target)
+        if kind == "clock":
+            return {"frames": decode_clock_pattern(name, data)}
+        return parse_led(data.decode("utf-8", "replace"))
+
+    def anim_install(self, kind, name, frames=None, text=None):
+        target, custom = self._anim_paths(kind, name)
+        if kind == "clock":
+            if not isinstance(frames, list) or not frames:
+                raise AdbError("нет кадров")
+            if target == BOOT_TARGET:
+                self.boot_install(frames)
+            else:
+                data = encode_clock_pattern(frames)
+                self._install_override(zstd_compress(data) if name.endswith(".zst") else data, custom, target)
+        else:
+            self._install_override(check_led(text).encode(), custom, target)
+        return self.anim_custom()
+
+    def anim_reset(self, kind, name):
+        target, custom = self._anim_paths(kind, name)
+        if target == BOOT_TARGET:
+            self.boot_reset()
+        else:
+            self._remove_override(custom, target)
+        return self.anim_custom()
+
+    def ring_try(self, text, seconds):
+        """Проиграть анимацию кольца из редактора, ничего не устанавливая."""
+        path = "/tmp/webpanel_ring_try.led"
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "a.led"
+            f.write_bytes(check_led(text).encode())
+            self.adb.push(f, path)
+        self._run_timed("ring", f"{QRUN}/led_util {path}", seconds)
+        return {"ok": True}
 
     # ---------- запуск: заставка часов и звук ----------
     def boot_status(self):
@@ -2167,9 +2254,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && echo 1 || echo 0", q(HOSTS_CUSTOM),
             q(ASSISTD), f"[ -d {ASSIST_DIR} ] && du -sk {ASSIST_DIR} | cut -f1 || echo 0",
             f"find {OVR_DIR}/sounds -type f 2>/dev/null | wc -l",
-            f"[ -d {OVR_DIR} ] && du -sk {OVR_DIR} | cut -f1 || echo 0"])
+            f"[ -d {OVR_DIR}/sounds ] && du -sk {OVR_DIR}/sounds | cut -f1 || echo 0",
+            f"find {OVR_DIR}/ledpatterns -type f 2>/dev/null | wc -l"])
         v = self.adb.shell(cmd, check=False)[0].split()
-        v = (v + ["0"] * 21)[:21]
+        v = (v + ["0"] * 22)[:22]
         b = [x == "1" for x in v]
         n = lambda x: int(x) if x.isdigit() else 0
         items = [
@@ -2177,6 +2265,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             {"key": "sound", "name": "Свой звук запуска", "on": b[2] or b[3]},
             {"key": "sounds", "name": "Свои системные звуки", "on": n(v[19]) > 0, "detail": f"заменено: {n(v[19])}",
              "size_kb": n(v[20])},
+            {"key": "anims", "name": "Свои анимации кольца и часов", "on": n(v[21]) > 0, "detail": f"заменено: {n(v[21])}"},
             {"key": "always", "name": "Заставка при каждой загрузке", "on": b[4]},
             {"key": "yamd", "name": "Автозапуск yamd", "on": b[5]},
             {"key": "privacy", "name": "Блокировка аналитики", "on": b[15] or b[16], "detail": "свой /etc/hosts"},
@@ -2220,7 +2309,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     # не берём: ставим текущую версию из панели.
     BACKUP_FILES = re.compile(r"(boot\.binscled\.zst|boot_sound\.wav|boot_every_time|yamd_autostart|hosts|"
                               r"alarm/alarms\.conf|alarm/default\.wav|alarm/[su]_[0-9a-f]{10}\.wav|"
-                              r"override/sounds/(?:[\w-][\w.-]*/)*[\w-][\w.-]*)")
+                              r"override/sounds/(?:[\w-][\w.-]*/)*[\w-][\w.-]*|override/ledpatterns/(?:clock|oknix)/[\w-][\w.-]*)")
     BACKUP_LIMIT = 200 * 1024 * 1024
 
     def backup(self, ui):
@@ -2289,6 +2378,16 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 else:
                     skipped += 1
             report.append(f"свои системные звуки ({len(sounds) - skipped})" + (f", пропущено {skipped}: на этой прошивке их нет" if skipped else ""))
+        anims = {n[len("override/ledpatterns/"):]: data for n, data in files.items() if n.startswith("override/ledpatterns/")}
+        if anims:
+            have, done = self.patterns(), 0
+            for rel, data in anims.items():
+                folder, name = rel.split("/")
+                kind = next(k for k, d in PATTERNS.items() if posixpath.basename(d) == folder)
+                if name in have[kind]:
+                    self._install_override(data, f"{OVR_DIR}/ledpatterns/{rel}", f"{PATTERNS[kind]}/{name}")
+                    done += 1
+            report.append(f"свои анимации ({done})" + (f", пропущено {len(anims) - done}: на этой прошивке их нет" if done < len(anims) else ""))
         if "boot_every_time" in files:
             self.boot_always(True)
             report.append("заставка при каждой загрузке")
@@ -3403,6 +3502,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/leds/live": p.leds.get,
             "/api/display": p.display_status,
             "/api/ring/frames": lambda: p.ring_frames(q.get("name", "")),
+            "/api/anim/custom": p.anim_custom,
+            "/api/anim/original": lambda: p.anim_original(q.get("kind", ""), q.get("name", "")),
             "/api/yam/status": p.yam_status,
             "/api/music": p.music,
             "/api/music/info": lambda: p.music_info(q.get("id", "")),
@@ -3506,6 +3607,9 @@ class Handler(BaseHTTPRequestHandler):
             "/api/ring": lambda: p.ring(d),
             "/api/clock": lambda: p.clock(d),
             "/api/clock/play": lambda: p.play_clock(d["frames"], d.get("seconds", 10)),
+            "/api/anim/install": lambda: p.anim_install(d.get("kind"), d.get("name"), d.get("frames"), d.get("text")),
+            "/api/anim/reset": lambda: p.anim_reset(d.get("kind"), d.get("name")),
+            "/api/ring/try": lambda: p.ring_try(d.get("text"), d.get("seconds", 5)),
             "/api/clock/boot": lambda: p.boot_install(d["frames"]),
             "/api/clock/boot/reset": p.boot_reset,
             "/api/boot/sound/reset": p.boot_sound_reset,
