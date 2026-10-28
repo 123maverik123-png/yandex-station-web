@@ -336,6 +336,46 @@
   .al-row .actions { flex: none; }
   .al-row input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
   @media (max-width: 560px) { .al-row { flex-wrap: wrap; gap: 8px 14px; } .al-time { font-size: 28px; min-width: 0; } .al-row .actions { width: 100%; } }
+  .sc-field { position: relative; height: 460px; overflow: auto; border-radius: 14px; border: 1px solid var(--line);
+    background: var(--field) radial-gradient(circle, var(--line) 1px, transparent 1.2px) 0 0 / 22px 22px; touch-action: none; }
+  .sc-field[hidden] { display: none; }
+  .sc-canvas { position: relative; min-width: 100%; min-height: 100%; }
+  .sc-wires { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+  .sc-wires path { fill: none; stroke: var(--accent); stroke-width: 2.5; opacity: .75; }
+  .sc-wires path.tmp { stroke-dasharray: 6 5; opacity: .9; }
+  .sc-node { position: absolute; width: 232px; border-radius: 14px; background: var(--card); border: 1.5px solid var(--line);
+    box-shadow: 0 6px 18px rgba(0,0,0,.08); user-select: none; }
+  .sc-node.trig { width: 190px; border-color: var(--accent); }
+  .sc-node.drop { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .sc-node header { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-weight: 700; font-size: 13px; cursor: grab;
+    border-bottom: 1px solid var(--line-2); }
+  .sc-node header .n { width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; display: grid; place-items: center; }
+  .sc-node header button { margin-left: auto; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; }
+  .sc-node .v { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px; }
+  .sc-node .v .field { min-height: 32px; padding: 0 8px; font-size: 13px; }
+  .sc-node .v input[type=text], .sc-node .v select { width: 100%; }
+  .sc-node .v input[type=range] { flex: 1; min-width: 0; }
+  .sc-node .v input[type=number] { width: 72px; }
+  .sc-node .v input[type=color] { width: 38px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; }
+  .sc-node .port { position: absolute; top: 18px; width: 14px; height: 14px; border-radius: 50%; background: var(--card); border: 2.5px solid var(--accent); }
+  .sc-node .port.in { left: -8px; }
+  .sc-node .port.out { right: -8px; cursor: crosshair; }
+  .sc-node .port.out:hover { background: var(--accent); }
+  /* сценарии */
+  .sc-steps { display: flex; flex-direction: column; gap: 8px; }
+  .sc-step { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--field); flex-wrap: wrap; }
+  .sc-step .n { width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; font-weight: 700; display: grid; place-items: center; flex: none; }
+  .sc-step .k { font-weight: 700; font-size: 13.5px; min-width: 112px; display: flex; align-items: center; gap: 6px; }
+  .sc-step .v { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+  .sc-step .v .field { min-height: 36px; padding: 0 10px; }
+  .sc-step .v input[type=text] { flex: 1; min-width: 160px; }
+  .sc-step .v input[type=number] { width: 84px; }
+  .sc-step .v input[type=range] { flex: 1; min-width: 100px; }
+  .sc-step .v input[type=color] { width: 40px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; }
+  .sc-step .ctl { display: flex; gap: 2px; flex: none; margin-left: auto; }
+  .sc-step .ctl .btn { color: var(--muted); }
+  .sc-flow { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; }
+  .sc-flow span { font-size: 12px; color: var(--text-2); background: var(--field); border-radius: 999px; padding: 2px 9px; }
   .al-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
   .al-form .full { grid-column: 1 / -1; }
   .al-form label.f { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 13.5px; color: var(--text-2); min-width: 0; }
@@ -1216,6 +1256,38 @@
     <section class="card" id="al-list-card">
       <div class="card-head"><h2>Будильники</h2><span class="badge" id="al-badge">—</span></div>
       <div id="al-list"><div class="empty">Загрузка…</div></div>
+    </section>
+    <!-- сценарии: несколько шагов подряд по времени или после включения колонки -->
+    <section class="card" id="sc-card" hidden>
+      <div class="card-head"><h2>Сценарии</h2>
+        <div class="row" style="gap:8px"><div class="seg" id="sc-view" role="group" aria-label="Вид редактора"><button data-v="list" class="active">Список</button><button data-v="field">Поле</button></div>
+          <button class="btn sm primary" id="sc-add"><svg width="14" height="14" aria-hidden="true"><use href="#i-plus"/></svg>Сценарий</button></div></div>
+      <p class="hint">Несколько действий подряд — по времени или после включения колонки. Выполняются на самой колонке, компьютер не нужен.
+        Запросы и речь Алисы — через её облако, нужен интернет.</p>
+      <div id="sc-list"><div class="empty">Загрузка…</div></div>
+    </section>
+    <section class="card" id="sc-editor" hidden>
+      <div class="card-head"><h2 id="sc-ed-title">Новый сценарий</h2></div>
+      <form class="al-form" id="sc-form">
+        <label class="f">Название<input type="text" class="field" id="sc-name" maxlength="40" placeholder="например, «Ночь»" required></label>
+        <label class="f">Когда
+          <select class="field" id="sc-trigger"><option value="time">По времени</option><option value="boot">После включения колонки</option></select></label>
+        <label class="f" data-sc-time>Время<input type="time" class="field" id="sc-time"></label>
+        <div class="f full" data-sc-time><label class="f" style="flex-direction:row;justify-content:space-between;align-items:center">Повторять
+          <span class="chips" id="sc-presets"><button type="button" class="chip" data-d="">Один раз</button><button type="button" class="chip" data-d="12345">Будни</button><button type="button" class="chip" data-d="67">Выходные</button><button type="button" class="chip" data-d="1234567">Каждый день</button></span></label>
+          <div class="chips day-chips" id="sc-days" style="margin-top:8px"></div></div>
+        <p class="hint full" id="sc-boot-hint" hidden>Запустится примерно через минуту после того, как Алиса загрузится, — при каждом включении колонки.</p>
+        <div class="full">
+          <div class="sc-steps" id="sc-steps"></div>
+          <div class="sc-field" id="sc-field" hidden></div>
+          <div class="row" style="gap:6px;margin-top:10px" id="sc-add-step"></div>
+        </div>
+        <div class="actions full">
+          <button class="btn primary" id="sc-save">Сохранить</button>
+          <button type="button" class="btn" id="sc-cancel">Отмена</button>
+          <button type="button" class="btn danger" id="sc-del" hidden>Удалить</button>
+        </div>
+      </form>
     </section>
     <div class="cols" id="al-cols">
       <section class="card">
@@ -4395,6 +4467,7 @@ function inText(ms) {
 async function loadAlarms() {
   try { alarmsData = await api('/api/alarms'); } catch (e) { if (!e.offline) $('#al-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   renderAlarms();
+  if (alarmsData.installed) loadScenes();
 }
 function renderAlarms() {
   const d = alarmsData; if (!d) return;
@@ -4433,7 +4506,8 @@ function renderAlarms() {
   // без установки на колонку — только карточка установки
   const inst = d.installed;
   $('#al-setup').hidden = inst;
-  ['#al-list-card', '#al-cols', '#al-add'].forEach(x => $(x).hidden = !inst);
+  ['#al-list-card', '#al-cols', '#al-add', '#sc-card'].forEach(x => $(x).hidden = !inst);
+  if (!inst) $('#sc-editor').hidden = true;
   if (!inst) { $('#al-editor').hidden = true; $('#al-snoozed').hidden = true; }
   $('#al-install-note').textContent = d.ffmpeg ? '' : 'Нужен ffmpeg на компьютере — им перекодируется звук.';
   $('#al-install').disabled = !d.ffmpeg;
@@ -4514,6 +4588,264 @@ function openAlarm(a) {
   $('#al-editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 $('#al-add').onclick = () => openAlarm(null);
+// ---------- сценарии ----------
+// Сценарий — шаги по порядку; на колонке их выполняет тот же демон, что и будильники (scenes.conf).
+const SC_STEPS = {
+  query: { name: 'Запрос Алисе', icon: 'i-mic', def: () => ({ text: '' }) },
+  say: { name: 'Алиса скажет', icon: 'i-mic', def: () => ({ text: '' }) },
+  vol: { name: 'Громкость', icon: 'i-vol', def: () => ({ level: 3, ramp: 0 }) },
+  sound: { name: 'Звук', icon: 'i-music', def: () => ({ sound: 'sys:common/timer.wav' }) },
+  ring: { name: 'Кольцо', icon: 'i-palette', def: () => ({ color: ringHex || '#6c47ff', secs: 10 }) },
+  wait: { name: 'Пауза', icon: 'i-alarm', def: () => ({ secs: 60 }) },
+  stop: { name: 'Стоп', icon: 'i-stop', def: () => ({}) },
+};
+const SC_RAMPS = [[0, 'сразу'], [30, 'за 30 с'], [60, 'за 1 мин'], [180, 'за 3 мин'], [300, 'за 5 мин'], [600, 'за 10 мин'], [1800, 'за 30 мин']];
+let scData = null, scEdit = null, scTimer;
+const durText = s => s >= 3600 ? `${+(s / 3600).toFixed(1)} ч` : s >= 60 ? `${+(s / 60).toFixed(1)} мин` : `${s} с`;
+const sndTitle = v => v.startsWith('u_') ? (alUploaded.find(u => u.sound === v)?.sound_name || 'свой звук') : v.replace(/^sys:/, '').split('/').pop().replace(/\.[^.]+$/, '');
+function stepText(st) {
+  switch (st.kind) {
+    case 'query': return `«${st.text}»`;
+    case 'say': return `скажет «${st.text}»`;
+    case 'vol': return `громкость ${st.level * 10}%` + (st.ramp ? ` ${SC_RAMPS.find(r => r[0] === st.ramp)?.[1] || durText(st.ramp)}` : '');
+    case 'sound': return `звук «${sndTitle(st.sound)}»`;
+    case 'ring': return `кольцо ${durText(st.secs)}`;
+    case 'wait': return `пауза ${durText(st.secs)}`;
+    default: return 'стоп';
+  }
+}
+async function loadScenes() {
+  clearTimeout(scTimer);
+  try { scData = await api('/api/scenes'); } catch (e) { if (!e.offline) $('#sc-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  renderScenes();
+  // пока что-то идёт — обновляем, чтобы кнопка «Остановить» сменилась обратно
+  if (scData.running.length && !$('#tab-alarm').hidden) scTimer = setTimeout(loadScenes, 2000);
+}
+function renderScenes() {
+  const d = scData; if (!d) return;
+  $('#sc-list').innerHTML = d.scenes.length ? d.scenes.map(s => {
+    const run = d.running.includes(s.id);
+    return `<div class="al-row${s.on ? '' : ' off'}" data-id="${esc(s.id)}">
+      <div class="al-time">${s.trigger === 'boot' ? icon('i-power', 30) : esc(s.time)}</div>
+      <div class="al-info"><b>${esc(s.name)}</b>
+        <div class="meta">${s.trigger === 'boot' ? 'после включения колонки' : esc(daysText(s.days))}${run ? ' · <b style="color:var(--ok-ink)">выполняется</b>' : ''}</div>
+        <div class="sc-flow">${s.steps.map(st => `<span>${esc(stepText(st))}</span>`).join('')}</div></div>
+      <div class="actions">
+        <input type="checkbox" data-a="toggle" ${s.on ? 'checked' : ''} aria-label="Включён" title="Включён">
+        ${run ? '<button class="btn sm danger-soft" data-a="stop">Остановить</button>' : '<button class="btn sm" data-a="run" title="Выполнить прямо сейчас">Запустить</button>'}
+        <button class="btn sm" data-a="edit">Изменить</button>
+      </div></div>`;
+  }).join('') : '<div class="empty">Сценариев пока нет. Например: «Ночь» — в 23:00 громкость 20% и «Алиса, включи режим не беспокоить».</div>';
+}
+const scSave = list => api('/api/scenes', { scenes: list }).then(r => { scData = r; renderScenes(); return r; });
+$('#sc-list').onclick = e => {
+  const b = e.target.closest('[data-a]'); if (!b) return;
+  const id = b.closest('.al-row').dataset.id, s = scData.scenes.find(x => x.id === id);
+  if (b.dataset.a === 'edit') return openScene(s);
+  if (b.dataset.a === 'run') return act(b, async () => { await api('/api/scenes/run', { id }); setTimeout(loadScenes, 1500); }, `Сценарий «${s.name}» запущен`);
+  if (b.dataset.a === 'stop') return act(b, async () => { scData = await api('/api/scenes/stop', { id }); renderScenes(); }, 'Сценарий остановлен');
+};
+$('#sc-list').onchange = e => {
+  if (e.target.dataset.a !== 'toggle') return;
+  const id = e.target.closest('.al-row').dataset.id;
+  act(e.target, () => scSave(scData.scenes.map(s => s.id === id ? { ...s, on: e.target.checked } : s)));
+};
+// ---- редактор ----
+$('#sc-days').innerHTML = DAY_NAMES.map((n, i) => `<button type="button" class="chip" data-d="${i + 1}" aria-pressed="false">${n}</button>`).join('');
+$('#sc-days').onclick = e => { const c = e.target.closest('.chip'); if (c) c.setAttribute('aria-pressed', c.getAttribute('aria-pressed') !== 'true'); };
+$('#sc-presets').onclick = e => { const c = e.target.closest('.chip'); if (c) $$('#sc-days .chip').forEach(x => x.setAttribute('aria-pressed', c.dataset.d.includes(x.dataset.d))); };
+const scDays = () => $$('#sc-days .chip').filter(c => c.getAttribute('aria-pressed') === 'true').map(c => c.dataset.d).join('');
+function scTriggerUI() {
+  const boot = $('#sc-trigger').value === 'boot';
+  $$('[data-sc-time]').forEach(x => x.hidden = boot);
+  $('#sc-boot-hint').hidden = !boot;
+}
+$('#sc-trigger').onchange = scTriggerUI;
+$('#sc-add-step').innerHTML = '<span class="meta" style="align-self:center">Добавить шаг:</span>' + Object.entries(SC_STEPS).map(([k, v]) =>
+  `<button type="button" class="btn sm" data-add="${k}">${icon(v.icon, 14)}${esc(v.name)}</button>`).join('');
+$('#sc-add-step').onclick = e => {
+  const b = e.target.closest('[data-add]'); if (!b) return;
+  scEdit.steps.push({ kind: b.dataset.add, ...SC_STEPS[b.dataset.add].def(), _u: Math.max(-1, ...scEdit.steps.map(x => x._u)) + 1 });
+  renderScSteps();
+};
+function soundOptions() {
+  const groups = {};
+  (sounds || []).forEach(n => { const [g, ...r] = n.split('/'); (groups[r.length ? g : ''] ||= []).push(n); });
+  return (alUploaded.length ? `<optgroup label="Свои">${alUploaded.map(u => `<option value="${esc(u.sound)}">${esc(u.sound_name)}</option>`).join('')}</optgroup>` : '')
+    + Object.entries(groups).map(([g, l]) => `<optgroup label="${esc(g || 'Система')}">${l.map(n => `<option value="sys:${esc(n)}">${esc(n.split('/').pop().replace(/\.[^.]+$/, ''))}</option>`).join('')}</optgroup>`).join('');
+}
+function stepFields(st) {
+  switch (st.kind) {
+    case 'query': return `<input type="text" class="field" data-f="text" maxlength="200" value="${esc(st.text)}" placeholder="включи режим не беспокоить" aria-label="Что попросить">`;
+    case 'say': return `<input type="text" class="field" data-f="text" maxlength="200" value="${esc(st.text)}" placeholder="Пора спать" aria-label="Что сказать">`;
+    case 'vol': return `<input type="range" min="0" max="10" data-f="level" value="${st.level}" aria-label="Громкость"><span class="mono meta" style="min-width:38px">${st.level * 10}%</span>
+      <select class="field" data-f="ramp" aria-label="Как менять">${SC_RAMPS.map(([v, n]) => `<option value="${v}" ${v === st.ramp ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
+    case 'sound': return `<select class="field" data-f="sound" style="flex:1;min-width:160px" aria-label="Звук">${soundOptions()}</select>`;
+    case 'ring': return `<input type="color" data-f="color" value="${esc(st.color)}" aria-label="Цвет"><input type="number" class="field mono" data-f="secs" min="1" max="600" value="${st.secs}" aria-label="Секунд"><span class="meta">с</span>`;
+    case 'wait': return `<input type="number" class="field mono" data-f="mins" min="0.1" max="120" step="0.5" value="${+(st.secs / 60).toFixed(2)}" aria-label="Минут"><span class="meta">мин</span>`;
+    default: return '<span class="meta">остановить музыку и ответ Алисы</span>';
+  }
+}
+function renderScSteps() {
+  const box = $('#sc-steps');
+  box.innerHTML = scEdit.steps.length ? scEdit.steps.map((st, i) => `<div class="sc-step" data-i="${i}">
+    <span class="n">${i + 1}</span><span class="k">${icon(SC_STEPS[st.kind].icon, 14)}${esc(SC_STEPS[st.kind].name)}</span>
+    <div class="v">${stepFields(st)}</div>
+    <span class="ctl"><button type="button" class="btn sm icon ghost" data-m="-1" aria-label="Выше" title="Выше">↑</button>
+      <button type="button" class="btn sm icon ghost" data-m="1" aria-label="Ниже" title="Ниже">↓</button>
+      <button type="button" class="btn sm icon ghost" data-m="del" aria-label="Удалить шаг" title="Удалить шаг">${icon('i-trash', 14)}</button></span></div>`).join('')
+    : '<div class="empty">Добавьте первый шаг кнопками ниже</div>';
+  scEdit.steps.forEach((st, i) => { if (st.kind === 'sound') { const s = box.querySelector(`[data-i="${i}"] [data-f="sound"]`); s.value = st.sound; if (s.selectedIndex < 0) s.value = 'sys:common/timer.wav'; } });
+  if (!$('#sc-field').hidden) renderScField();
+}
+// поля шага одинаковы в списке и на «Поле»
+function scStepInput(e) {
+  const row = e.target.closest('.sc-step, .sc-node'), f = e.target.dataset.f; if (!row || !f || row.dataset.i < 0) return;
+  const st = scEdit.steps[+row.dataset.i];
+  if (f === 'text' || f === 'sound' || f === 'color') st[f] = e.target.value;
+  else if (f === 'mins') st.secs = clamp(Math.round((+e.target.value || 1) * 60), 1, 7200);
+  else st[f] = +e.target.value;
+  if (f === 'level') e.target.nextElementSibling.textContent = st.level * 10 + '%';
+}
+$('#sc-steps').oninput = scStepInput;
+$('#sc-steps').onclick = e => {
+  const b = e.target.closest('[data-m]'); if (!b) return;
+  const i = +b.closest('.sc-step').dataset.i, s = scEdit.steps;
+  if (b.dataset.m === 'del') s.splice(i, 1);
+  else { const j = i + +b.dataset.m; if (j < 0 || j >= s.length) return; [s[i], s[j]] = [s[j], s[i]]; }
+  renderScSteps();
+};
+function openScene(s) {
+  scEdit = structuredClone(s || { id: '', name: '', trigger: 'time', time: '23:00', days: '1234567', on: true, steps: [] });
+  scEdit.steps.forEach((st, i) => st._u = i);   // ключ положения ноды на «Поле», переживает перестановки
+  $('#sc-ed-title').textContent = s ? 'Сценарий' : 'Новый сценарий';
+  $('#sc-name').value = scEdit.name;
+  $('#sc-trigger').value = scEdit.trigger;
+  $('#sc-time').value = scEdit.time || '23:00';
+  $$('#sc-days .chip').forEach(c => c.setAttribute('aria-pressed', scEdit.days.includes(c.dataset.d)));
+  $('#sc-del').hidden = !s;
+  scTriggerUI(); renderScSteps();
+  $('#sc-editor').hidden = false;
+  scView(store.get('sc.view') || 'list');
+  $('#sc-editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+$('#sc-add').onclick = () => openScene(null);
+$('#sc-cancel').onclick = () => { $('#sc-editor').hidden = true; scEdit = null; };
+$('#sc-form').onsubmit = e => {
+  e.preventDefault();
+  const s = { ...scEdit, name: $('#sc-name').value.trim(), trigger: $('#sc-trigger').value, time: $('#sc-time').value, days: scDays(),
+    steps: scEdit.steps.map(({ _u, ...st }) => st) };
+  delete s._pos;
+  if (!s.steps.length) return toast('Добавьте хотя бы один шаг', true);
+  const list = s.id ? scData.scenes.map(x => x.id === s.id ? s : x) : [...scData.scenes, s];
+  act($('#sc-save'), async () => {
+    const r = await scSave(list);
+    // положение нод — под id сохранённого сценария и новыми номерами шагов
+    const saved = s.id ? r.scenes.find(x => x.id === s.id) : r.scenes[r.scenes.length - 1];
+    if (scEdit._pos && saved) store.set('sc.layout.' + saved.id, Object.fromEntries(Object.entries(scEdit._pos)
+      .map(([k, p]) => [k === 't' ? 't' : String(scEdit.steps.findIndex(st => String(st._u) === k)), p]).filter(([k]) => k !== '-1')));
+    $('#sc-editor').hidden = true; scEdit = null;
+  }, `Сценарий «${s.name}» сохранён`);
+};
+// ---- «Поле»: те же шаги нодами. Порядок — цепочка связей: выход ноды → вход следующей. Протянуть связь
+// от выхода к любой ноде — поставить её сразу после этой. Положение нод запоминается в браузере.
+const scLayoutKey = () => 'sc.layout.' + (scEdit?.id || 'new');
+function scPos(i) {   // i = -1 — нода «Запуск»
+  scEdit._pos ||= store.get(scLayoutKey()) || {};
+  const k = i < 0 ? 't' : String(scEdit.steps[i]._u);
+  return scEdit._pos[k] ||= i < 0 ? { x: 24, y: 40 } : { x: 250 + (i % 3) * 245, y: 30 + Math.floor(i / 3) * 190 + (i % 2) * 40 };
+}
+function scTrigText() {
+  const boot = $('#sc-trigger').value === 'boot';
+  return boot ? 'после включения колонки' : `${$('#sc-time').value || '—'} · ${daysText(scDays())}`;
+}
+function renderScField() {
+  const f = $('#sc-field'), steps = scEdit.steps;
+  const node = (i, html, cls = '') => { const p = scPos(i); return `<div class="sc-node ${cls}" data-i="${i}" style="left:${p.x}px;top:${p.y}px">${html}</div>`; };
+  f.innerHTML = '<div class="sc-canvas"><svg class="sc-wires"></svg>'
+    + node(-1, `<header>${icon('i-power', 14)}Запуск</header><div class="v"><span class="meta">${esc(scTrigText())}</span></div><span class="port out"></span>`, 'trig')
+    + steps.map((st, i) => node(i, `<header><span class="n">${i + 1}</span>${icon(SC_STEPS[st.kind].icon, 14)}${esc(SC_STEPS[st.kind].name)}<button type="button" data-m="del" aria-label="Удалить шаг" title="Удалить шаг">×</button></header>
+      <div class="v">${stepFields(st)}</div><span class="port in"></span><span class="port out"></span>`)).join('') + '</div>';
+  steps.forEach((st, i) => { if (st.kind === 'sound') { const s = f.querySelector(`.sc-node[data-i="${i}"] [data-f="sound"]`); s.value = st.sound; if (s.selectedIndex < 0) s.value = 'sys:common/timer.wav'; } });
+  scWires();
+}
+function scPort(el, side) {
+  const n = el.getBoundingClientRect(), c = $('#sc-field .sc-canvas').getBoundingClientRect();
+  return { x: (side === 'out' ? n.right : n.left) - c.left, y: n.top - c.top + 25 };
+}
+const scCurve = (a, b) => { const dx = Math.max(40, Math.abs(b.x - a.x) / 2); return `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`; };
+function scWires(tmp) {
+  const c = $('#sc-field .sc-canvas'); if (!c) return;
+  const nodes = [...c.querySelectorAll('.sc-node')];
+  // холст растёт под ноды, чтобы до дальних можно было докрутить
+  c.style.width = Math.max(...nodes.map(n => n.offsetLeft + n.offsetWidth)) + 40 + 'px';
+  c.style.height = Math.max(...nodes.map(n => n.offsetTop + n.offsetHeight)) + 40 + 'px';
+  const at = i => c.querySelector(`.sc-node[data-i="${i}"]`);
+  let d = '';
+  for (let i = -1; i < scEdit.steps.length - 1; i++) d += `<path d="${scCurve(scPort(at(i), 'out'), scPort(at(i + 1), 'in'))}"/>`;
+  if (tmp) d += `<path class="tmp" d="${scCurve(tmp.a, tmp.b)}"/>`;
+  c.querySelector('.sc-wires').innerHTML = d;
+}
+$('#sc-field').addEventListener('pointerdown', e => {
+  const f = $('#sc-field'), c = f.querySelector('.sc-canvas'), nodeEl = e.target.closest('.sc-node');
+  if (!nodeEl || e.button) return;
+  const i = +nodeEl.dataset.i, cr = () => c.getBoundingClientRect();
+  if (e.target.classList.contains('port') && e.target.classList.contains('out')) {
+    // тянем связь: отпустили над нодой — она встаёт сразу после этой
+    e.preventDefault();
+    const a = scPort(nodeEl, 'out');
+    let over = null;
+    const move = ev => {
+      over?.classList.remove('drop');
+      over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('#sc-field .sc-node:not(.trig)');
+      if (over === nodeEl) over = null;
+      over?.classList.add('drop');
+      scWires({ a, b: { x: ev.clientX - cr().left, y: ev.clientY - cr().top } });
+    };
+    const up = () => {
+      removeEventListener('pointermove', move); removeEventListener('pointerup', up);
+      if (over) {
+        const s = scEdit.steps, j = +over.dataset.i, moved = s.splice(j, 1)[0];
+        s.splice(i < 0 ? 0 : i + (j < i ? 0 : 1), 0, moved);
+        renderScSteps();
+      } else scWires();
+    };
+    addEventListener('pointermove', move); addEventListener('pointerup', up);
+    return;
+  }
+  if (!e.target.closest('header') || e.target.closest('button')) return;
+  // перетаскиваем ноду за заголовок
+  e.preventDefault();
+  const p = scPos(i), sx = e.clientX - p.x, sy = e.clientY - p.y;
+  const move = ev => {
+    p.x = Math.max(0, ev.clientX - sx); p.y = Math.max(0, ev.clientY - sy);
+    nodeEl.style.left = p.x + 'px'; nodeEl.style.top = p.y + 'px';
+    scWires();
+  };
+  const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); store.set(scLayoutKey(), scEdit._pos); };
+  addEventListener('pointermove', move); addEventListener('pointerup', up);
+});
+$('#sc-field').oninput = scStepInput;
+$('#sc-field').addEventListener('click', e => {
+  const b = e.target.closest('[data-m="del"]'); if (!b) return;
+  scEdit.steps.splice(+b.closest('.sc-node').dataset.i, 1);
+  renderScSteps();
+});
+function scView(v) {
+  $$('#sc-view button').forEach(b => b.classList.toggle('active', b.dataset.v === v));
+  store.set('sc.view', v);
+  if (!scEdit) return;
+  $('#sc-steps').hidden = v === 'field';
+  $('#sc-field').hidden = v !== 'field';
+  if (v === 'field') renderScField();
+}
+$$('#sc-view button').forEach(b => b.onclick = () => scView(b.dataset.v));
+['#sc-trigger', '#sc-time'].forEach(s => $(s).addEventListener('change', () => !$('#sc-field').hidden && renderScField()));
+$('#sc-days').addEventListener('click', () => !$('#sc-field').hidden && setTimeout(renderScField));
+$('#sc-presets').addEventListener('click', () => !$('#sc-field').hidden && setTimeout(renderScField));
+$('#sc-del').onclick = e => confirm(`Удалить сценарий «${scEdit.name}»?`) &&
+  act(e.currentTarget, async () => { await scSave(scData.scenes.filter(x => x.id !== scEdit.id)); $('#sc-editor').hidden = true; scEdit = null; }, 'Сценарий удалён');
+
 $('#al-cancel').onclick = () => { $('#al-editor').hidden = true; };
 $('#al-form').onsubmit = e => {
   e.preventDefault();

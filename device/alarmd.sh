@@ -6,6 +6,12 @@
 # alarms.conf, по строке на будильник (пишет панель):
 #   id|вкл|ЧЧ:ММ|дни|режим|запрос|файл звука|название звука|громкость 1–10|нарастание, с|выкл. через, мин|отложить, мин|подпись
 # дни — цифры 1–7 (пн–вс), пусто — один раз; режим: sound | wave | show | music | text.
+#
+# scenes.conf — сценарии: строка S на сценарий и строки A — его шаги по порядку (пишет панель):
+#   S|id|вкл|повод|ЧЧ:ММ|дни|название      повод: time — по времени, boot — после включения колонки
+#   A|id|шаг|арг1|арг2                       шаги: query текст | say текст | vol 0–10 нарастание_с |
+#                                            sound файл | ring RRGGBB секунд | wait секунд | stop
+# Тексты — только данные: шаг выполняет case ниже, через eval/sh -c они не проходят.
 
 D=/data/quasar/webpanel/alarm
 CONF=$D/alarms.conf
@@ -15,6 +21,9 @@ LOG=$D/alarm.log
 STATE=/tmp/webpanel_alarm.state
 CMD=/tmp/webpanel_alarm.cmd
 FIRE=/tmp/webpanel_alarm.fire
+SCENES=$D/scenes.conf
+SFIRE=/tmp/webpanel_scene.fire       # «запустить сейчас» из панели: id сценария
+SRUN=/tmp/webpanel_scene.            # SRUN<id> — pid идущего сценария (панель останавливает по нему)
 MLOG=/data/quasar/daemons_logs/maind.log
 Q=/system/vendor/quasar
 [ -f $D/localtime ] && export TZ=:$D/localtime
@@ -152,6 +161,73 @@ fire() {
     echo "idle" > $STATE
 }
 
+# ---------- сценарии ----------
+step() {
+    kind=$1 a=$2 b=$3
+    case $kind in
+        query) alice "$a" ;;
+        say) alice "Повтори за мной: $a" ;;
+        vol)
+            # плавно — через микшер, а в конце говорим Алисе ту же громкость, чтобы она знала о ней
+            if [ "${b:-0}" -gt 0 ]; then
+                from=$(get_alsa) to=$(alsa_of "$a") t=0
+                while [ $t -lt "$b" ]; do set_alsa $((from + (to - from) * t / b)); sleep 1; t=$((t + 1)); done
+            fi
+            alice "громкость $a" ;;
+        sound) [ -f "$D/$a" ] && aplay -q "$D/$a" 2>/dev/null ;;
+        ring)
+            c=$a; r=${c%????} g=${c#??}; g=${g%??}; bl=${c#????}
+            ring "\\x$bl\\x$g\\x$r"; sleep "${b:-5}"; ring_release ;;
+        wait) sleep "${a:-1}" ;;
+        stop) alice "стоп" ;;
+    esac
+}
+
+run_scene() {
+    id=$1
+    line=$(grep "^S|$id|" $SCENES 2>/dev/null | head -n 1)
+    [ -n "$line" ] || return
+    name=${line##*|}
+    # шаги — из файла, а не через «grep | while»: так цикл живёт в той же подоболочке, и панель
+    # останавливает сценарий одним kill по её pid
+    grep "^A|$id|" $SCENES > $SRUN$id.steps
+    (
+        log "сценарий «$name»: начат"
+        while IFS='|' read -r _ _ kind a b; do step "$kind" "$a" "$b" < /dev/null; done < $SRUN$id.steps
+        log "сценарий «$name»: готово"
+        rm -f $SRUN$id $SRUN$id.steps
+    ) < /dev/null &
+    echo $! > $SRUN$id
+}
+
+check_scenes() {
+    [ -f $SCENES ] || return
+    due=
+    while IFS='|' read -r t id on trig tm days name; do
+        [ "$t" = S ] && [ "$on" = 1 ] && [ "$trig" = time ] && [ "$tm" = "$now" ] || continue
+        case "$days" in "" | *"$dow"*) ;; *) continue ;; esac
+        grep -q "^s$id $stamp\$" $LAST 2>/dev/null && continue
+        echo "s$id $stamp" >> $LAST
+        [ -z "$days" ] && sed -i "s/^S|$id|1|/S|$id|0|/" $SCENES
+        due="$due $id"
+    done < $SCENES
+    for id in $due; do run_scene "$id"; done
+}
+
+# После включения колонки: демон стартует из хука загрузки раньше Алисы — ждём её и ещё минуту.
+# Только при свежей загрузке: панель перезапускает демон при каждом сохранении.
+boot_scenes() {
+    [ -f $SCENES ] && grep -q "^S|[^|]*|1|boot|" $SCENES || return
+    up=$(cut -d. -f1 /proc/uptime); [ "$up" -lt 600 ] || return
+    [ -f /tmp/webpanel_scene.boot ] && return
+    touch /tmp/webpanel_scene.boot
+    (
+        i=0; while ! pidof maind >/dev/null && [ $i -lt 300 ]; do sleep 2; i=$((i + 2)); done
+        sleep 60
+        grep "^S|[^|]*|1|boot|" $SCENES | while IFS='|' read -r _ id _; do run_scene "$id"; done
+    ) < /dev/null &
+}
+
 # Строка конфига → fire
 run_id() {
     line=$(grep "^$1|" $CONF 2>/dev/null | head -n 1)
@@ -168,6 +244,7 @@ check_minute() {
         IFS='|' read -r sat sid < $SNOOZE
         if [ "$ep" -ge "${sat:-0}" ]; then rm -f $SNOOZE; run_id "$sid"; fi
     fi
+    check_scenes
     [ -f $CONF ] || return
     due=
     while IFS='|' read -r id on tm days mode rest; do
@@ -184,6 +261,7 @@ check_minute() {
 
 echo idle > $STATE
 log "запущен, время на колонке $(date '+%H:%M %Z')"
+boot_scenes
 while :; do
     check_minute
     # До начала следующей минуты; раз в секунду проверяем «проверить сейчас» из панели.
@@ -191,6 +269,7 @@ while :; do
     i=$((60 - s))
     while [ $i -gt 0 ]; do
         if [ -f $FIRE ]; then id=$(cat $FIRE); rm -f $FIRE; log "$id: проверка из панели"; run_id "$id"; break; fi
+        if [ -f $SFIRE ]; then id=$(cat $SFIRE); rm -f $SFIRE; run_scene "$id"; fi
         sleep 1; i=$((i - 1))
     done
 done

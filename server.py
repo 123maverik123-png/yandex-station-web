@@ -222,6 +222,9 @@ ALARM_STATE = "/tmp/webpanel_alarm.state"
 ALARM_CMD = "/tmp/webpanel_alarm.cmd"
 ALARM_FIRE = "/tmp/webpanel_alarm.fire"
 ALARM_SRC = Path(__file__).resolve().parent / "device" / "alarmd.sh"
+SCENES_CONF = f"{ALARM_DIR}/scenes.conf"
+SCENE_FIRE = "/tmp/webpanel_scene.fire"
+SCENE_RUN = "/tmp/webpanel_scene."      # + id: pid идущего сценария
 
 
 def alarm_script():
@@ -2342,7 +2345,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"grep -q ' {BOOT_TARGET} ' /proc/mounts && echo 1 || echo 0", q(BOOT_CUSTOM),
             f"grep -q ' {SOUND_TARGET} ' /proc/mounts && echo 1 || echo 0", q(SOUND_CUSTOM),
             q(BOOT_ALWAYS), q(YAM_AUTOSTART), q(ALARMD),
-            f"cat {ALARM_CONF} 2>/dev/null | grep -c .",
+            f"echo $(cat {ALARM_CONF} 2>/dev/null | grep -c .)/$(grep -c '^S|' {SCENES_CONF} 2>/dev/null)",
             q(BOOT_ORIG), q(SOUND_ORIG), q(f"{ROOTKEEPER}.webpanel.bak"),
             f"grep -q '{HOOK_MARK}' {ROOTKEEPER} 2>/dev/null && echo 1 || echo 0",
             f"[ -d {WEB_DIR} ] && du -sk {WEB_DIR} | cut -f1 || echo 0",
@@ -2367,7 +2370,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             {"key": "yamd", "name": "Автозапуск yamd", "on": b[5]},
             {"key": "privacy", "name": "Блокировка аналитики", "on": b[15] or b[16], "detail": "свой /etc/hosts"},
             {"key": "assistant", "name": "Голосовой помощник", "on": b[17], "size_kb": n(v[18])},
-            {"key": "alarm", "name": "Будильник", "on": b[6], "detail": f"будильников: {n(v[7])}", "size_kb": n(v[13])},
+            {"key": "alarm", "name": "Будильник и сценарии", "on": b[6],
+             "detail": f"будильников: {n(v[7].split('/')[0])}, сценариев: {n((v[7].split('/') + ['0'])[1])}", "size_kb": n(v[13])},
             {"key": "backup", "name": "Копии оригиналов", "on": b[8] or b[9] or b[10],
              "detail": "заставка, звук запуска, rootkeeper.sh — на случай отката"},
             {"key": "hook", "name": "Строка автозапуска в rootkeeper.sh", "on": b[11]},
@@ -2405,7 +2409,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     # были бы чужими; при восстановлении они снимаются заново с этой колонки. Хук и скрипт будильника — тоже
     # не берём: ставим текущую версию из панели.
     BACKUP_FILES = re.compile(r"(boot\.binscled\.zst|boot_sound\.wav|boot_every_time|yamd_autostart|hosts|"
-                              r"alarm/alarms\.conf|alarm/default\.wav|alarm/[su]_[0-9a-f]{10}\.wav|"
+                              r"alarm/alarms\.conf|alarm/scenes\.conf|alarm/default\.wav|alarm/[su]_[0-9a-f]{10}\.wav|"
                               r"override/sounds/(?:[\w-][\w.-]*/)*[\w-][\w.-]*|override/ledpatterns/(?:clock|oknix)/[\w-][\w.-]*)")
     BACKUP_LIMIT = 200 * 1024 * 1024
 
@@ -2599,19 +2603,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             query = clean(a.get("query"), 200)
             if mode in ("music", "text") and not query:
                 raise AdbError("укажите, что попросить у Алисы")
-            # Звук: системный (sys:путь) перекодируем в WAV на колонке один раз; свой — уже загружен (u_*.wav).
-            snd = str(a.get("sound") or "")
-            if snd.startswith("sys:"):
-                path = snd[4:]
-                if path == ALARM_DEFAULT_SOUND:
-                    dev = "default.wav"
-                else:
-                    dev = "s_" + hashlib.sha1(path.encode()).hexdigest()[:10] + ".wav"
-                    sys_needed[dev] = path
-            elif re.fullmatch(r"u_[0-9a-f]{10}\.wav", snd):
-                dev = snd
-            else:
-                dev = "default.wav"
+            dev = self._alarm_sound(a.get("sound"), sys_needed)
             used.add(dev)
             vol = max(1, min(10, int(a.get("volume") or 5)))
             ramp = max(0, min(1800, int(a.get("ramp") or 0)))
@@ -2622,6 +2614,26 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             lines.append("|".join([aid, "1" if a.get("on", True) else "0", tm, days, mode, query, dev,
                                    clean(a.get("sound_name"), 60), str(vol), str(ramp), str(dur), str(snz),
                                    clean(a.get("label"), 40)]))
+        self._alarm_sounds_ready(sys_needed)
+        self._alarm_write(ALARM_CONF, lines, f"rm -f {ALARM_DIR}/last_fired.t {ALARM_DIR}/snooze")
+        return self.alarms()
+
+    # ---------- общее для будильников и сценариев ----------
+    @staticmethod
+    def _alarm_sound(snd, sys_needed):
+        """Звук будильника или сценария → имя файла на колонке. Системный (sys:путь) перекодируется в WAV один раз;
+        свой уже загружен (u_*.wav)."""
+        snd = str(snd or "")
+        if snd.startswith("sys:"):
+            path = snd[4:]
+            if path == ALARM_DEFAULT_SOUND:
+                return "default.wav"
+            dev = "s_" + hashlib.sha1(path.encode()).hexdigest()[:10] + ".wav"
+            sys_needed[dev] = path
+            return dev
+        return snd if re.fullmatch(r"u_[0-9a-f]{10}\.wav", snd) else "default.wav"
+
+    def _alarm_sounds_ready(self, sys_needed):
         # не ls: у busybox он раскрашивает имена даже в не-терминал
         have = set(self.adb.shell(f"mkdir -p {ALARM_DIR}; for f in {ALARM_DIR}/*; do echo \"${{f##*/}}\"; done",
                                   check=False)[0].split())
@@ -2633,12 +2645,15 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 if path not in self.sounds():
                     raise AdbError(f"нет такого звука: {path}")
                 self._alarm_wav(self.adb.read_bytes(f"{SOUNDS_DIR}/{path}"), dev)
-        stale = [f for f in have if re.fullmatch(r"[su]_[0-9a-f]{10}\.wav", f) and f not in used]
+
+    def _alarm_write(self, conf, lines, extra=""):
+        """Пишет конфиг (будильников или сценариев), свежий скрипт демона и часовой пояс, чистит звуки, которые
+        больше никому не нужны, и перезапускает демон. alarms.conf создаётся всегда: по нему хук запускает демон."""
         tz_name, tz_data = self._pc_tz()
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
             write_unix(td / "conf", "".join(l + "\n" for l in lines))
-            self.adb.push(td / "conf", ALARM_CONF + ".new")
+            self.adb.push(td / "conf", conf + ".new")
             (td / "alarmd").write_bytes(alarm_script())
             self.adb.push(td / "alarmd", ALARMD)
             if tz_data:
@@ -2646,12 +2661,103 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 self.adb.push(td / "tz", f"{ALARM_DIR}/localtime")
                 write_unix(td / "tzn", tz_name or "")
                 self.adb.push(td / "tzn", f"{ALARM_DIR}/tzname")
-        self.adb.shell(f"mv {ALARM_CONF}.new {ALARM_CONF}; chmod 644 {ALARM_DIR}/*; chmod 755 {ALARMD}; "
-                       f"rm -f {ALARM_DIR}/last_fired.t {ALARM_DIR}/snooze"
-                       + "".join(f"; rm -f {ALARM_DIR}/{f}" for f in stale))
+        self.adb.shell(f"mv {conf}.new {conf}; touch {ALARM_CONF}; chmod 644 {ALARM_DIR}/*; chmod 755 {ALARMD}; "
+                       f"cd {ALARM_DIR} && for f in [su]_*.wav; do [ -f \"$f\" ] || continue; "
+                       f"cat {ALARM_CONF} {SCENES_CONF} 2>/dev/null | grep -qF \"$f\" || rm -f \"$f\"; done"
+                       + (f"; {extra}" if extra else "") + "; true")
         self._ensure_hook()
         self._alarm_daemon(restart=True)
-        return self.alarms()
+
+    # ---------- сценарии ----------
+    SCENE_KINDS = ("query", "say", "vol", "sound", "ring", "wait", "stop")
+
+    def scenes(self):
+        out, _, _ = self.adb.shell(
+            f"cat {SCENES_CONF} 2>/dev/null; echo '<<<'; for f in {SCENE_RUN}*; do case $f in *.steps|*\\*) continue;; esac; "
+            f"kill -0 $(cat $f) 2>/dev/null && echo \"${{f#{SCENE_RUN}}}\"; done; true", check=False)
+        conf, _, running = strip_ansi(out).partition("<<<")
+        items, by_id = [], {}
+        for line in conf.splitlines():
+            f = line.rstrip("\r").split("|")
+            if f[0] == "S" and len(f) == 7:
+                s = {"id": f[1], "on": f[2] == "1", "trigger": f[3], "time": f[4], "days": f[5], "name": f[6], "steps": []}
+                items.append(s); by_id[s["id"]] = s
+            elif f[0] == "A" and len(f) == 5 and f[1] in by_id:
+                kind, a, b = f[2], f[3], f[4]
+                step = {"kind": kind}
+                if kind in ("query", "say"):
+                    step["text"] = a
+                elif kind == "vol":
+                    step.update(level=int(a or 0), ramp=int(b or 0))
+                elif kind == "sound":
+                    step.update(sound=b or "sys:" + ALARM_DEFAULT_SOUND)
+                elif kind == "ring":
+                    step.update(color="#" + a, secs=int(b or 0))
+                elif kind == "wait":
+                    step["secs"] = int(a or 0)
+                by_id[f[1]]["steps"].append(step)
+        return {"scenes": items, "running": running.split()}
+
+    def scenes_save(self, data):
+        items = data.get("scenes")
+        if not isinstance(items, list) or len(items) > 20:
+            raise AdbError("неверный список сценариев")
+        text = lambda v, n: re.sub(r"[|\x00-\x1f]", " ", str(v or "")).strip()[:n]
+        num = lambda v, lo, hi: max(lo, min(hi, int(v or 0)))
+        lines, sys_needed = [], {}
+        for s in items:
+            sid = re.sub(r"[^a-z0-9]", "", str(s.get("id") or ""))[:12] or os.urandom(4).hex()
+            trig = "boot" if s.get("trigger") == "boot" else "time"
+            tm = str(s.get("time") or "")
+            if trig == "time" and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", tm):
+                raise AdbError(f"неверное время: {tm}")
+            days = "".join(sorted(set(re.sub(r"[^1-7]", "", str(s.get("days", ""))))))
+            steps = s.get("steps")
+            if not isinstance(steps, list) or not steps or len(steps) > 30:
+                raise AdbError("в сценарии должно быть от 1 до 30 шагов")
+            name = text(s.get("name"), 40) or "Сценарий"
+            lines.append("|".join(["S", sid, "1" if s.get("on", True) else "0", trig, tm if trig == "time" else "", days, name]))
+            for st in steps:
+                kind = st.get("kind")
+                if kind not in self.SCENE_KINDS:
+                    raise AdbError(f"неизвестный шаг: {kind}")
+                a = b = ""
+                if kind in ("query", "say"):
+                    a = text(st.get("text"), 200)
+                    if not a:
+                        raise AdbError(f"«{name}»: в шаге не задан текст")
+                elif kind == "vol":
+                    a, b = num(st.get("level"), 0, 10), num(st.get("ramp"), 0, 1800)
+                elif kind == "sound":
+                    b = str(st.get("sound") or "")
+                    a = self._alarm_sound(b, sys_needed)
+                    b = b if b.startswith("sys:") or a == b else ""
+                elif kind == "ring":
+                    c = str(st.get("color") or "").lstrip("#").lower()
+                    if not re.fullmatch(r"[0-9a-f]{6}", c):
+                        raise AdbError(f"«{name}»: неверный цвет кольца")
+                    a, b = c, num(st.get("secs"), 1, 600)
+                elif kind == "wait":
+                    a = num(st.get("secs"), 1, 7200)
+                lines.append("|".join(["A", sid, kind, str(a), str(b)]))
+        self._alarm_sounds_ready(sys_needed)
+        self._alarm_write(SCENES_CONF, lines)
+        return self.scenes()
+
+    def scene_run(self, sid):
+        if sid not in {s["id"] for s in self.scenes()["scenes"]}:
+            raise AdbError("нет такого сценария")
+        if not self.alarms().get("running"):
+            raise AdbError("демон будильника не запущен — сохраните сценарий ещё раз")
+        self.adb.shell(f"echo {shlex.quote(sid)} > {SCENE_FIRE}")
+        return {"ok": True}
+
+    def scene_stop(self, sid):
+        sid = re.sub(r"[^a-z0-9]", "", str(sid or ""))
+        self.adb.shell(f"p=$(cat {SCENE_RUN}{sid} 2>/dev/null) && kill $p 2>/dev/null; rm -f {SCENE_RUN}{sid} {SCENE_RUN}{sid}.steps; "
+                       f"killall aplay 2>/dev/null; true", check=False)
+        self.ring_reset()
+        return self.scenes()
 
     def alarm_install(self):
         """Ставит поддержку будильника на колонку (или обновляет скрипт): всё в ALARM_DIR + строка в хуке загрузки.
@@ -3738,6 +3844,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/yam/settings": p.yam_settings,
             "/api/yam/version": lambda: p.yam_version(q.get("refresh") == "1"),
             "/api/alarms": p.alarms,
+            "/api/scenes": p.scenes,
             "/api/footprint": p.footprint,
             "/api/privacy": p.privacy_status,
             "/api/assistant": p.assistant_status,
@@ -3891,6 +3998,9 @@ class Handler(BaseHTTPRequestHandler):
             "/api/panel/update": lambda: self.updater.update(),
             "/api/metrics/clear": lambda: p.metrics.clear(),
             "/api/alarms/uninstall": p.alarm_uninstall,
+            "/api/scenes": lambda: p.scenes_save(d),
+            "/api/scenes/run": lambda: p.scene_run(d.get("id")),
+            "/api/scenes/stop": lambda: p.scene_stop(d.get("id")),
         }
         if u.path in routes:
             return self._handle(routes[u.path])
