@@ -1987,9 +1987,10 @@ let volDragging = false, lastOk = 0, status = null, ymLogin = '';
 // Четыре слота, в каждом — что выбрано в «Настройках» → «Оформление» (ov.tiles). Значения — из статуса (раз в 5 с),
 // процессор и место — из истории «Графиков» (её и так собирает сервер; обновляется с мини-графиками).
 const TILES = {
-  temp: { label: 'Температура', spark: 'temp' }, mem: { label: 'Память', spark: 'mem' },
-  load: { label: 'Нагрузка', spark: 'load' }, cpu: { label: 'Процессор', spark: 'cpu' },
-  uptime: { label: 'Аптайм' }, rssi: { label: 'Wi‑Fi', spark: 'rssi' }, disk: { label: 'Место в /data', spark: 'disk' },
+  // span — наименьший размах графика: колебание на полградуса не должно рисоваться пиком во всю высоту
+  temp: { label: 'Температура', spark: 'temp', span: 8 }, mem: { label: 'Память', spark: 'mem', span: 40 },
+  load: { label: 'Нагрузка', spark: 'load', span: 2 }, cpu: { label: 'Процессор', spark: 'cpu', span: 30 },
+  uptime: { label: 'Аптайм' }, rssi: { label: 'Wi‑Fi', spark: 'rssi', span: 12 }, disk: { label: 'Место в /data', spark: 'disk', span: 10 },
 };
 const TILE_DEFAULT = ['temp', 'mem', 'load', 'uptime'];
 const tileVals = {};
@@ -2053,10 +2054,11 @@ $('#set-tiles').onchange = () => {
 // ---------- мини-графики в плитках «Обзора» ----------
 // Та же история, что у «Графиков» (сервер собирает её сам), — последние 15 минут; раз в 30 с, пока виден «Обзор».
 let sparkTimer, sparkData = null;
-function sparkPath(vals, w, h) {
+function sparkPath(vals, w, h, span = 0) {
   const xs = vals.map((v, i) => [i, v]).filter(([, v]) => v != null);
   if (xs.length < 2) return null;
   let lo = Math.min(...xs.map(x => x[1])), hi = Math.max(...xs.map(x => x[1]));
+  if (hi - lo < span) { const mid = (hi + lo) / 2; lo = mid - span / 2; hi = mid + span / 2; }
   if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
   const pad = (hi - lo) * .15, X = i => i / (vals.length - 1) * w, Y = v => h - 4 - (v - lo + pad) / (hi - lo + 2 * pad) * (h - 8);
   let line = '', area = '', run = [];
@@ -2091,7 +2093,7 @@ async function loadSparks() {
 function drawSparks(d) {
     $$('#stat-row > .stat').forEach(tile => { if (!tile.dataset.spark) tile.querySelector('.spark')?.remove(); });
     $$('.stat[data-spark]').forEach(tile => {
-      const p = sparkPath(d[tile.dataset.spark] || [], 300, 42);
+      const p = sparkPath(d[tile.dataset.spark] || [], 300, 42, TILES[tile.dataset.tile]?.span);
       let svg = tile.querySelector('.spark');
       if (!p) { svg?.remove(); return; }
       if (!svg) tile.insertAdjacentHTML('afterbegin', '<svg class="spark" viewBox="0 0 300 42" preserveAspectRatio="none" aria-hidden="true"><path class="a"/><path class="l"/></svg>'), svg = tile.querySelector('.spark');

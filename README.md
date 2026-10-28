@@ -31,18 +31,20 @@
     <td align="center">Интерактивная root-консоль</td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/screenshots/boot.png" alt="Запуск"></td>
+    <td width="50%"><img src="docs/screenshots/animations.png" alt="Анимации"></td>
+    <td width="50%"><img src="docs/screenshots/assistant.png" alt="Ассистент"></td>
+  </tr>
+  <tr>
+    <td align="center">Редактор анимаций: часы по кадрам с яркостью сегментов, кольцо</td>
+    <td align="center">Свой голосовой ассистент на любой OpenAI-совместимой модели</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/scenes.png" alt="Сценарии"></td>
     <td width="50%"><img src="docs/screenshots/overview-dark.png" alt="Тёмная тема"></td>
   </tr>
   <tr>
-    <td align="center">Редактор заставки часов</td>
+    <td align="center">Сценарии на поле нод: условия, речь Алисы, вопрос ассистенту</td>
     <td align="center">Тёмная тема</td>
-  </tr>
-  <tr>
-    <td colspan="2"><img src="docs/screenshots/scenes.png" alt="Сценарии"></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center">Сценарии на поле нод: условие по дням недели, речь Алисы, вопрос своему ассистенту, плавная громкость</td>
   </tr>
 </table>
 
