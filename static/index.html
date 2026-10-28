@@ -63,8 +63,8 @@
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 Manrope, system-ui, sans-serif; }
   /* мягкие пятна цвета акцента в углах — глубина без перекраски; фон стоит на месте при прокрутке */
   body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-    background: radial-gradient(900px 480px at 85% -12%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 65%),
-      radial-gradient(700px 420px at -5% 105%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 65%); }
+    background: radial-gradient(1000px 560px at 88% -14%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 68%),
+      radial-gradient(820px 500px at -6% 108%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 66%); }
   button, input, select, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; }
   button:disabled { opacity: .5; cursor: progress; }
@@ -113,6 +113,8 @@
   .page-head h1 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
   .page-head > div:first-child { flex: 1 1 260px; min-width: 0; }
   .page-head .sub { color: var(--muted); font-size: 14px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* место под кольцо «живой» точки: overflow строки иначе обрезает его */
+  #ov-sub { padding: 8px 0 8px 9px; margin: -6px 0 -8px -9px; }
   .page-head > .actions { flex: none; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
@@ -130,10 +132,10 @@
 
   .stat { gap: 6px; padding: 16px 18px; position: relative; overflow: hidden; }
   .stat > :not(.spark) { position: relative; }
-  /* мини-график за последний час — справа от значения, где плитка пустая */
-  .stat .spark { position: absolute; right: 16px; top: 38px; width: 36%; height: 34px; pointer-events: none; }
-  @media (max-width: 640px) { .stat .spark { display: none; } }   /* на телефоне плитки узкие — график мешал бы цифре */
-  .stat .spark path.l { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .85; }
+  /* мини-график за 15 минут — на всю ширину внизу плитки; слева проявляется из прозрачности, чтобы не мешать тексту */
+  .stat .spark { position: absolute; left: 0; bottom: 0; width: 100%; height: 42px; pointer-events: none;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, transparent 30%, #000 65%); mask-image: linear-gradient(90deg, transparent 0%, transparent 30%, #000 65%); }
+  .stat .spark path.l { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .9; }
   .stat .spark path.a { fill: url(#spark-fill); stroke: none; }
   .stat .label { font-size: 13px; color: var(--muted); font-weight: 600; }
   .stat .value { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
@@ -906,7 +908,7 @@
     <div class="wzone wz-top" id="wz-top">
     <section class="grid stats" aria-label="Состояние" data-widget="stats" data-title="Состояние">
       <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="var(--accent)" stop-opacity=".18"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs></svg>
+        <stop offset="0" stop-color="var(--accent)" stop-opacity=".34"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs></svg>
       <div class="card stat" data-spark="temp"><div class="label">Температура</div><div class="value"><b id="st-temp">—</b><span>°C</span></div><div class="bar"><i id="st-temp-bar"></i></div><div class="meta">процессор</div></div>
       <div class="card stat" data-spark="mem"><div class="label">Память</div><div class="value"><b id="st-mem">—</b><span id="st-mem-u">МБ</span></div><div class="bar"><i id="st-mem-bar"></i></div><div class="meta" id="st-mem-n">—</div></div>
       <div class="card stat" data-spark="rssi"><div class="label">Wi‑Fi</div><div class="value"><b id="st-rssi">—</b><span>дБм</span></div><div class="bar"><i id="st-rssi-bar"></i></div><div class="meta" id="st-wifi-n">—</div></div>
@@ -1965,7 +1967,7 @@ function splitUptime(s) {
 // ---------- статус ----------
 let volDragging = false, lastOk = 0, status = null, ymLogin = '';
 // ---------- мини-графики в плитках «Обзора» ----------
-// Та же история, что у «Графиков» (сервер собирает её сам), — последний час; раз в минуту, пока виден «Обзор».
+// Та же история, что у «Графиков» (сервер собирает её сам), — последние 15 минут; раз в 30 с, пока виден «Обзор».
 let sparkTimer;
 function sparkPath(vals, w, h) {
   const xs = vals.map((v, i) => [i, v]).filter(([, v]) => v != null);
@@ -1974,10 +1976,17 @@ function sparkPath(vals, w, h) {
   if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
   const pad = (hi - lo) * .15, X = i => i / (vals.length - 1) * w, Y = v => h - 4 - (v - lo + pad) / (hi - lo + 2 * pad) * (h - 8);
   let line = '', area = '', run = [];
+  // сглаживание: Catmull-Rom → кубические кривые; без острых углов на скачках
+  const smooth = pts => pts.map((p, k) => {
+    if (!k) return `M${p[0].toFixed(1)},${p[1].toFixed(1)}`;
+    const p0 = pts[k - 2] || pts[k - 1], p1 = pts[k - 1], p3 = pts[k + 1] || p;
+    const c1 = [p1[0] + (p[0] - p0[0]) / 6, p1[1] + (p[1] - p0[1]) / 6], c2 = [p[0] - (p3[0] - p1[0]) / 6, p[1] - (p3[1] - p1[1]) / 6];
+    return `C${c1.map(x => x.toFixed(1))} ${c2.map(x => x.toFixed(1))} ${p[0].toFixed(1)},${p[1].toFixed(1)}`;
+  }).join('');
   const flush = () => {
     if (run.length > 1) {
-      const seg = run.map(([i, v], k) => `${k ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join('');
-      line += seg; area += seg + `L${X(run[run.length - 1][0]).toFixed(1)},${h}L${X(run[0][0]).toFixed(1)},${h}Z`;
+      const pts = run.map(([i, v]) => [X(i), Y(v)]), seg = smooth(pts);
+      line += seg; area += seg + `L${pts[pts.length - 1][0].toFixed(1)},${h}L${pts[0][0].toFixed(1)},${h}Z`;
     }
     run = [];
   };
@@ -1989,17 +1998,17 @@ async function loadSparks() {
   clearTimeout(sparkTimer);
   if (!online || document.hidden || $('#tab-overview').hidden) { sparkTimer = setTimeout(loadSparks, 15000); return; }
   try {
-    const d = await api('/api/metrics?range=3600');
+    const d = await api('/api/metrics?range=900');
     $$('.stat[data-spark]').forEach(tile => {
-      const p = sparkPath(d[tile.dataset.spark] || [], 120, 34);
+      const p = sparkPath(d[tile.dataset.spark] || [], 300, 42);
       let svg = tile.querySelector('.spark');
       if (!p) { svg?.remove(); return; }
-      if (!svg) tile.insertAdjacentHTML('afterbegin', '<svg class="spark" viewBox="0 0 120 34" preserveAspectRatio="none" aria-hidden="true"><path class="a"/><path class="l"/></svg>'), svg = tile.querySelector('.spark');
+      if (!svg) tile.insertAdjacentHTML('afterbegin', '<svg class="spark" viewBox="0 0 300 42" preserveAspectRatio="none" aria-hidden="true"><path class="a"/><path class="l"/></svg>'), svg = tile.querySelector('.spark');
       svg.querySelector('.a').setAttribute('d', p.area);
       svg.querySelector('.l').setAttribute('d', p.line);
     });
   } catch {}
-  sparkTimer = setTimeout(loadSparks, 60000);
+  sparkTimer = setTimeout(loadSparks, 30000);
 }
 
 async function refreshStatus() {
