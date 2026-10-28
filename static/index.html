@@ -4810,8 +4810,20 @@ function scSoundValues(box) {
 
 // ---- поле: ноды, связи и перетаскивание ----
 const SC_W = 236;
-const scStartPos = () => scEdit._start ||= store.get('sc.start.' + (scEdit.id || 'new')) || { x: 24, y: 40 };
+// Место ноды «Запуск» — в браузере. store хранит только строки: объект — через JSON, иначе вместо места
+// сохранится «[object Object]», и всё, что ставится рядом с «Запуском», получит NaN.
+const scXY = v => Number.isFinite(v?.x) && Number.isFinite(v?.y);
+function scStartPos() {
+  if (!scXY(scEdit._start)) {
+    let v = null;
+    try { v = JSON.parse(store.get('sc.start.' + (scEdit.id || 'new'))); } catch {}
+    scEdit._start = scXY(v) ? v : { x: 24, y: 40 };
+  }
+  return scEdit._start;
+}
+const scStartSave = (id, p) => store.set('sc.start.' + (id || 'new'), JSON.stringify({ x: p.x, y: p.y }));
 function renderScField() {
+  if (scEdit.nodes.some(n => !scXY(n))) scLayout();   // место без чисел — пересчитываем, иначе нода застрянет в углу
   const f = $('#sc-field'), s = scEdit, st = scStartPos();
   const port = (key, label) => `<span class="port out" data-port="${key}">${label ? `<i>${label}</i>` : ''}</span>`;
   f.innerHTML = '<div class="sc-canvas"><svg class="sc-wires"></svg>'
@@ -4887,7 +4899,7 @@ $('#sc-field').addEventListener('pointerdown', e => {
   };
   const up = () => {
     head.removeEventListener('pointermove', move); head.removeEventListener('pointerup', up); head.removeEventListener('pointercancel', up);
-    if (id === 'start') store.set('sc.start.' + (scEdit.id || 'new'), p);
+    if (id === 'start') scStartSave(scEdit.id, p);
   };
   head.addEventListener('pointermove', move); head.addEventListener('pointerup', up); head.addEventListener('pointercancel', up);
 });
@@ -4922,7 +4934,7 @@ $('#sc-add-step').onclick = e => {
   } else {
     // поле: рядом с выбранной нодой и сразу с ней связанная, если у неё свободный выход
     const from = scSel && scNode(scEdit, scSel) || null, f = $('#sc-field');
-    const base = from || (scEdit.nodes.length ? null : scStartPos());
+    const base = (scXY(from) ? from : null) || (scEdit.nodes.length ? null : scStartPos());
     n.x = base ? base.x + (base === scStartPos() ? 230 : SC_W + 40) : f.scrollLeft + 40;
     n.y = base ? base.y : f.scrollTop + 60 + (scEdit.nodes.length % 4) * 40;
     scEdit.nodes.push(n);
@@ -4962,7 +4974,7 @@ function scLayout(all) {
   const order = [...chain, ...scEdit.nodes.filter(n => !chain.includes(n))];
   const seen = new Set();
   order.forEach((n, i) => {
-    if (all || (!n.x && !n.y) || seen.has(n.x + ',' + n.y)) { n.x = 260 + (i % 3) * (SC_W + 14); n.y = 30 + Math.floor(i / 3) * 190 + (i % 2) * 30; }
+    if (all || !scXY(n) || (!n.x && !n.y) || seen.has(n.x + ',' + n.y)) { n.x = 260 + (i % 3) * (SC_W + 14); n.y = 30 + Math.floor(i / 3) * 190 + (i % 2) * 30; }
     seen.add(n.x + ',' + n.y);
   });
 }
@@ -4993,7 +5005,7 @@ $('#sc-form').onsubmit = e => {
   act($('#sc-save'), async () => {
     const r = await scSave(list);
     const saved = s.id ? r.scenes.find(x => x.id === s.id) : r.scenes[r.scenes.length - 1];
-    if (_start && saved) store.set('sc.start.' + saved.id, _start);
+    if (scXY(_start) && saved) scStartSave(saved.id, _start);
     $('#sc-editor').hidden = true; scEdit = null;
   }, `Сценарий «${s.name}» сохранён`);
 };
