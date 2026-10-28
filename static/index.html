@@ -1219,18 +1219,10 @@
 
   <main id="tab-boot" data-page hidden>
     <header class="page-head"><div><h1>Анимации</h1><div class="sub">Анимации кольца и часов, заставка при включении</div></div></header>
-    <section class="card">
-      <div class="card-head"><h2>Когда показывать</h2><span class="badge" id="boot-hook-badge">—</span></div>
-      <label class="toggle">
-        <span>Показывать при каждой загрузке</span>
-        <input type="checkbox" id="boot-always">
-      </label>
-      <p class="hint">По умолчанию заставка и звук запуска появляются только при первом включении. С этой опцией — при каждом. Свой звук запуска — в «Звуках» на «Обзоре» (boot).</p>
-    </section>
     <!-- заставка часов -->
     <section class="card" id="boot-card">
       <div class="card-head"><h2>Анимации часов</h2>
-        <div class="row anim-pick"><select class="field" id="anim-clock" aria-label="Анимация часов"></select><div class="status-line" id="boot-status">—</div></div></div>
+        <div class="row anim-pick"><select class="field" id="anim-clock" aria-label="Анимация часов"></select><div class="status-line" id="boot-status">—</div><span class="badge" data-hook-badge>—</span></div></div>
       <div class="frames" id="boot-frames" aria-label="Кадры"></div>
       <div class="boot-grid">
         <div class="col">
@@ -1265,6 +1257,12 @@
             <input type="number" id="boot-pause" class="field mono" min="0" max="65535" step="100" value="3300" style="width:100px"><span class="meta">мс</span>
           </div>
           <p class="hint" id="boot-pause-hint" data-boot-only>В стандартной заставке 3,3 с пустого экрана: в первые секунды загрузки дисплей ещё не показывает картинку, и более ранние кадры не видны.</p>
+          <label class="toggle" data-boot-only>
+            <span>Показывать при каждой загрузке</span>
+            <input type="checkbox" id="boot-always">
+          </label>
+          <p class="hint" data-boot-only>По умолчанию заставка и звук запуска появляются только при первом включении, с этой
+            опцией — при каждом. Свой звук запуска — в «Звуках» на «Обзоре» (boot).</p>
           <div class="row" style="gap:8px; padding-top:12px; border-top:1px solid var(--line-2)">
             <button class="btn sm" id="boot-preview"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg>В браузере</button>
             <button class="btn sm" id="boot-device"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg>На колонке</button>
@@ -1280,7 +1278,7 @@
     <!-- анимации кольца -->
     <section class="card" id="ring-anim-card">
       <div class="card-head"><h2>Анимации кольца</h2>
-        <div class="row anim-pick"><select class="field" id="anim-ring" aria-label="Анимация кольца"></select><div class="status-line" id="ra-status">—</div></div></div>
+        <div class="row anim-pick"><select class="field" id="anim-ring" aria-label="Анимация кольца"></select><div class="status-line" id="ra-status">—</div><span class="badge" data-hook-badge>—</span></div></div>
       <div class="boot-grid">
         <div class="col">
           <div class="ra-preview" id="ra-preview" aria-hidden="true"></div>
@@ -2288,9 +2286,14 @@ function renderBootStatus() {
   $('#boot-always').checked = !!s.always;
   // своё сохранено, а строки автозапуска нет — после перезагрузки заставка и звук не подменятся
   const needHook = s.custom || s.sound_custom || s.always;
-  $('#boot-hook-badge').textContent = s.hook ? 'хук подключён' : needHook ? 'хук не подключён' : 'хук не нужен';
-  $('#boot-hook-badge').className = 'badge' + (s.hook ? ' ok' : needHook ? ' bad' : '');
-  $('#boot-hook-badge').title = !s.hook && needHook ? 'Своя заставка или звук сохранены, но строки запуска в rootkeeper.sh нет. Сохраните их ещё раз — панель подключит хук.' : '';
+  const needHookAll = needHook || animCustom.clock.length || animCustom.ring.length;
+  $$('[data-hook-badge]').forEach(b => {
+    b.textContent = s.hook ? 'хук подключён' : needHookAll ? 'хук не подключён' : 'хук не нужен';
+    b.className = 'badge' + (s.hook ? ' ok' : needHookAll ? ' bad' : '');
+    b.title = s.hook ? 'Строка в rootkeeper.sh подключает свои анимации и звуки при каждой загрузке колонки.'
+      : needHookAll ? 'Свои анимации или звуки сохранены, но строки запуска в rootkeeper.sh нет — после перезагрузки вернутся стандартные. Сохраните их ещё раз — панель подключит хук.'
+      : 'Хук понадобится, когда появится что-то своё: без него после перезагрузки вернутся стандартные.';
+  });
   renderClockStatus();
 }
 function renderClockStatus() {
@@ -2379,7 +2382,10 @@ $('#boot-load-default').onclick = () => {
 const clockAnimTitle = () => isBootAnim() ? 'заставку' : `анимацию «${animLabel('clock', boot.name).replace(' · своя', '')}»`;
 $('#boot-install').onclick = e => confirm(`Установить эту ${clockAnimTitle()} на колонку?`) && act(e.currentTarget, async () => {
   if (isBootAnim()) boot.status = await api('/api/clock/boot', { frames: bootFull() });
-  else animCustom = await api('/api/anim/install', { kind: 'clock', name: boot.name, frames: bootFull() });
+  else {
+    animCustom = await api('/api/anim/install', { kind: 'clock', name: boot.name, frames: bootFull() });
+    boot.status = await api('/api/clock/boot');
+  }
   if (isBootAnim()) animCustom = await api('/api/anim/custom');
   fillAnimSelect('clock'); renderBootStatus();
 }, isBootAnim() ? 'Заставка установлена — покажется при следующей загрузке' : 'Анимация установлена');
@@ -2483,11 +2489,13 @@ $('#ra-load-default').onclick = e => act(e.currentTarget, async () => {
 const ringAnimTitle = () => `«${animLabel('ring', ra.name).replace(' · своя', '')}»`;
 $('#ra-install').onclick = e => confirm(`Установить анимацию кольца ${ringAnimTitle()} на колонку?`) && act(e.currentTarget, async () => {
   animCustom = await api('/api/anim/install', { kind: 'ring', name: ra.name, text: $('#ra-text').value });
-  fillAnimSelect('ring'); renderRa();
+  boot.status = await api('/api/clock/boot');   // хук мог подключиться только что
+  fillAnimSelect('ring'); renderRa(); renderBootStatus();
 }, 'Анимация кольца установлена');
 $('#ra-reset').onclick = e => confirm(`Вернуть стандартную анимацию кольца ${ringAnimTitle()}?`) && act(e.currentTarget, async () => {
   animCustom = await api('/api/anim/reset', { kind: 'ring', name: ra.name });
-  fillAnimSelect('ring'); await loadRingAnim();
+  boot.status = await api('/api/clock/boot');
+  fillAnimSelect('ring'); renderBootStatus(); await loadRingAnim();
 }, 'Стандартная анимация восстановлена');
 
 // ---------- bluetooth ----------
