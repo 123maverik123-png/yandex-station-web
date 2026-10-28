@@ -156,6 +156,9 @@
   .stat .value span { color: var(--muted); font-size: 14px; font-weight: 600; }
   .bar { height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
   .bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width .4s; }
+  .stat .bar.none { visibility: hidden; }
+  .tile-picks { display: grid; grid-template-columns: repeat(2, minmax(0, 150px)); gap: 6px; }
+  .tile-picks select { min-height: 36px; padding: 0 10px; }
 
   /* кнопки */
   .btn { min-height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--btn-line); background: var(--card);
@@ -919,13 +922,9 @@
     </section>
 
     <div class="wzone wz-top" id="wz-top">
-    <section class="grid stats" aria-label="Состояние" data-widget="stats" data-title="Состояние">
+    <section class="grid stats" id="stat-row" aria-label="Состояние" data-widget="stats" data-title="Состояние">
       <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0" stop-color="var(--accent)" stop-opacity=".34"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs></svg>
-      <div class="card stat" data-spark="temp"><div class="label">Температура</div><div class="value"><b id="st-temp">—</b><span>°C</span></div><div class="bar"><i id="st-temp-bar"></i></div><div class="meta">процессор</div></div>
-      <div class="card stat" data-spark="mem"><div class="label">Память</div><div class="value"><b id="st-mem">—</b><span id="st-mem-u">МБ</span></div><div class="bar"><i id="st-mem-bar"></i></div><div class="meta" id="st-mem-n">—</div></div>
-      <div class="card stat" data-spark="rssi"><div class="label">Wi‑Fi</div><div class="value"><b id="st-rssi">—</b><span>дБм</span></div><div class="bar"><i id="st-rssi-bar"></i></div><div class="meta" id="st-wifi-n">—</div></div>
-      <div class="card stat" data-spark="load"><div class="label">Аптайм</div><div class="value"><b id="st-up">—</b><span id="st-up-u"></span></div><div class="bar"><i id="st-load-bar"></i></div><div class="meta" id="st-load-n">—</div></div>
     </section>
     </div>
 
@@ -1144,6 +1143,8 @@
           <div class="set-ctl"><input type="checkbox" class="switch" id="set-minibar"></div></label>
         <div class="set-item"><div class="set-label"><b>«Обзор»</b><small>Виджеты, 3D-модель и визуализатор</small></div>
           <div class="set-ctl"><button class="btn sm" id="set-layout-edit">Настроить «Обзор»</button><button class="btn sm" id="set-layout-reset">По умолчанию</button></div></div>
+        <div class="set-item"><div class="set-label"><b>Плитки сверху «Обзора»</b><small>Что показывать в четырёх плитках: значение, полоска и график за 15 минут</small></div>
+          <div class="set-ctl"><div class="tile-picks" id="set-tiles"></div></div></div>
         <div class="set-item"><div class="set-label"><b>Галерея 3D-моделей</b><small>Все корпуса, которые знает панель, — без подключения к колонке</small></div>
           <div class="set-ctl"><a class="btn sm" id="model-gallery" href="./static/model-preview.html" target="_blank" rel="noopener">Открыть ↗</a></div></div>
       </section>
@@ -1981,9 +1982,76 @@ function splitUptime(s) {
 
 // ---------- статус ----------
 let volDragging = false, lastOk = 0, status = null, ymLogin = '';
+// ---------- плитки «Обзора» ----------
+// Четыре слота, в каждом — что выбрано в «Настройках» → «Оформление» (ov.tiles). Значения — из статуса (раз в 5 с),
+// процессор и место — из истории «Графиков» (её и так собирает сервер; обновляется с мини-графиками).
+const TILES = {
+  temp: { label: 'Температура', spark: 'temp' }, mem: { label: 'Память', spark: 'mem' },
+  load: { label: 'Нагрузка', spark: 'load' }, cpu: { label: 'Процессор', spark: 'cpu' },
+  uptime: { label: 'Аптайм' }, rssi: { label: 'Wi‑Fi', spark: 'rssi' }, disk: { label: 'Место в /data', spark: 'disk' },
+};
+const TILE_DEFAULT = ['temp', 'mem', 'load', 'uptime'];
+const tileVals = {};
+function tileSlots() {
+  try { const v = JSON.parse(store.get('ov.tiles')); if (Array.isArray(v) && v.length === 4 && v.every(k => TILES[k])) return v; } catch {}
+  return TILE_DEFAULT;
+}
+const dec = x => String(x).replace('.', ',');
+function tilesFromStatus(s) {
+  const temp = s.temp ? s.temp / 1000 : null;
+  tileVals.temp = { v: temp === null ? '—' : temp.toFixed(0), u: '°C', bar: temp === null ? 0 : temp / 85, meta: 'процессор' };
+  const used = (s.mem_total - s.mem_avail) / 1024, total = s.mem_total / 1024;
+  tileVals.mem = { v: Math.round(used), u: `из ${Math.round(total)} МБ`, bar: used / total, meta: `свободно ${Math.round(s.mem_avail / 1024)} МБ` };
+  const rssi = +s.RSSI;
+  tileVals.rssi = { v: s.RSSI ? String(rssi).replace('-', '−') : '—', u: 'дБм', bar: s.RSSI ? (rssi + 90) / 60 : 0,
+    metaHtml: [s.ssid && { html: secret('ssid', s.ssid) }, s.freq && dec((s.freq / 1000).toFixed(1)) + ' ГГц', s.LINKSPEED && s.LINKSPEED + ' Мбит/с']
+      .filter(Boolean).map(x => x.html ?? esc(x)).join(' · ') || '—' };
+  const [uv, uu] = splitUptime(s.uptime), boot = new Date(Date.now() - (+s.uptime || 0) * 1000);
+  tileVals.uptime = { v: uv, u: uu, bar: null, meta: 'включена ' + boot.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) };
+  const la = (s.load || '').split(' ');
+  tileVals.load = { v: la[0] ? dec(la[0]) : '—', u: 'за минуту', bar: +la[0] / 4,   // 4 ядра: 4 — загружены все
+    meta: la[1] ? `5 мин ${dec(la[1])} · 15 мин ${dec(la[2])}` : '—' };
+  renderTiles();
+}
+function tilesFromMetrics(d) {
+  const last = a => { for (let i = (a || []).length - 1; i >= 0; i--) if (a[i] != null) return a[i]; return null; };
+  const cpu = last(d.cpu), disk = last(d.disk), dt = d.totals?.disk;
+  tileVals.cpu = { v: cpu === null ? '—' : Math.round(cpu), u: '%', bar: cpu === null ? 0 : cpu / 100, meta: 'все ядра' };
+  tileVals.disk = { v: disk === null ? '—' : Math.round(disk), u: dt ? `из ${dt} МБ` : 'МБ', bar: disk !== null && dt ? disk / dt : 0,
+    meta: disk !== null && dt ? `свободно ${Math.round(dt - disk)} МБ` : 'занято' };
+  renderTiles();
+}
+function buildTiles() {
+  const row = $('#stat-row');
+  $$('#stat-row > .stat').forEach(x => x.remove());
+  row.insertAdjacentHTML('beforeend', tileSlots().map(k => `<div class="card stat" data-tile="${k}"${TILES[k].spark ? ` data-spark="${TILES[k].spark}"` : ''}>
+    <div class="label">${esc(TILES[k].label)}</div><div class="value"><b>—</b><span></span></div><div class="bar"><i></i></div><div class="meta">—</div></div>`).join(''));
+  renderTiles();
+  if (sparkData) drawSparks(sparkData);
+}
+function renderTiles() {
+  $$('#stat-row > .stat').forEach(el => {
+    const t = tileVals[el.dataset.tile]; if (!t) return;
+    el.querySelector('.value b').textContent = t.v;
+    el.querySelector('.value span').textContent = t.u || '';
+    el.querySelector('.bar').classList.toggle('none', t.bar === null);
+    el.querySelector('.bar i').style.width = t.bar === null ? '0' : clamp(t.bar * 100, 0, 100) + '%';
+    if (t.metaHtml !== undefined) el.querySelector('.meta').innerHTML = t.metaHtml; else el.querySelector('.meta').textContent = t.meta;
+  });
+}
+function fillTileSettings() {
+  const slots = tileSlots();
+  $('#set-tiles').innerHTML = slots.map((k, i) => `<select class="field" data-slot="${i}" aria-label="Плитка ${i + 1}">${Object.entries(TILES)
+    .map(([key, d]) => `<option value="${key}" ${key === k ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}</select>`).join('');
+}
+$('#set-tiles').onchange = () => {
+  store.set('ov.tiles', JSON.stringify($$('#set-tiles select').map(s => s.value)));
+  buildTiles();
+};
+
 // ---------- мини-графики в плитках «Обзора» ----------
 // Та же история, что у «Графиков» (сервер собирает её сам), — последние 15 минут; раз в 30 с, пока виден «Обзор».
-let sparkTimer;
+let sparkTimer, sparkData = null;
 function sparkPath(vals, w, h) {
   const xs = vals.map((v, i) => [i, v]).filter(([, v]) => v != null);
   if (xs.length < 2) return null;
@@ -2013,7 +2081,14 @@ async function loadSparks() {
   clearTimeout(sparkTimer);
   if (!online || document.hidden || $('#tab-overview').hidden) { sparkTimer = setTimeout(loadSparks, 15000); return; }
   try {
-    const d = await api('/api/metrics?range=900');
+    const d = sparkData = await api('/api/metrics?range=900');
+    drawSparks(d);
+    tilesFromMetrics(d);
+  } catch {}
+  sparkTimer = setTimeout(loadSparks, 30000);
+}
+function drawSparks(d) {
+    $$('#stat-row > .stat').forEach(tile => { if (!tile.dataset.spark) tile.querySelector('.spark')?.remove(); });
     $$('.stat[data-spark]').forEach(tile => {
       const p = sparkPath(d[tile.dataset.spark] || [], 300, 42);
       let svg = tile.querySelector('.spark');
@@ -2022,8 +2097,6 @@ async function loadSparks() {
       svg.querySelector('.a').setAttribute('d', p.area);
       svg.querySelector('.l').setAttribute('d', p.line);
     });
-  } catch {}
-  sparkTimer = setTimeout(loadSparks, 30000);
 }
 
 async function refreshStatus() {
@@ -2034,27 +2107,7 @@ async function refreshStatus() {
     $('#conn-text').textContent = 'Подключено по adb';
     $('#conn-ip').innerHTML = secret('ip', s.ip_address);
 
-    const temp = s.temp ? s.temp / 1000 : null;
-    $('#st-temp').textContent = temp === null ? '—' : temp.toFixed(0);
-    $('#st-temp-bar').style.width = temp === null ? '0' : clamp(temp / 85 * 100, 0, 100) + '%';
-
-    const used = (s.mem_total - s.mem_avail) / 1024, total = s.mem_total / 1024;
-    $('#st-mem').textContent = Math.round(used);
-    $('#st-mem-u').textContent = `из ${Math.round(total)} МБ`;
-    $('#st-mem-bar').style.width = (used / total * 100).toFixed(0) + '%';
-    $('#st-mem-n').textContent = `свободно ${Math.round(s.mem_avail / 1024)} МБ`;
-
-    const rssi = +s.RSSI;
-    $('#st-rssi').textContent = s.RSSI ? String(rssi).replace('-', '−') : '—';
-    $('#st-rssi-bar').style.width = s.RSSI ? clamp((rssi + 90) / 60 * 100, 0, 100) + '%' : '0';
-    $('#st-wifi-n').innerHTML = [s.ssid && { html: secret('ssid', s.ssid) }, s.freq && (s.freq / 1000).toFixed(1).replace('.', ',') + ' ГГц', s.LINKSPEED && s.LINKSPEED + ' Мбит/с']
-      .filter(Boolean).map(x => x.html ?? esc(x)).join(' · ') || '—';
-
-    const [uv, uu] = splitUptime(s.uptime);
-    $('#st-up').textContent = uv; $('#st-up-u').textContent = uu;
-    const la = (s.load || '').split(' ');
-    $('#st-load-bar').style.width = clamp(+la[0] / 4 * 100, 0, 100) + '%';
-    $('#st-load-n').textContent = 'нагрузка ' + la.map(x => x.replace('.', ',')).join(' · ');
+    tilesFromStatus(s);
 
     if (!volDragging) {
       const [m, b] = [+s.vol_level || 0, +s.vol_bt || 0];
@@ -3989,6 +4042,7 @@ $('#set-viz-idle').onchange = e => { store.set('ui.vizIdle', e.target.checked ? 
 $('#set-private').onchange = e => { store.set('ui.private', e.target.checked ? '1' : '0'); applyUI(); };
 $('#set-minibar').onchange = e => { store.set('ui.minibar', e.target.checked ? '1' : '0'); applyUI(); loadMusic(); };
 applyUI();
+buildTiles(); fillTileSettings();
 
 // Доступ: пароль панели и установка как приложение.
 let accessInfo = null, installEvt = null;
@@ -4453,7 +4507,7 @@ $('#bk-file').onchange = async e => {
   const r = await act($('#bk-restore'), () => api('/api/backup/restore', f, { raw: true, headers: { 'Content-Type': 'application/gzip' } }));
   if (!r) return;
   try { for (const [k, v] of Object.entries(r.ui || {})) if (UI_KEYS.test(k)) localStorage.setItem(PanelContext.storageKey(k), v); } catch {}
-  applyUI();
+  applyUI(); buildTiles(); fillTileSettings();
   try { const saved = JSON.parse(store.get(LAYOUT_KEY)); if (saved) applyLayout(saved); } catch {}
   bootLoaded = false; alarmsData = null;
   await loadFootprint();
