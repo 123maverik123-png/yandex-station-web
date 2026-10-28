@@ -115,3 +115,22 @@ class AnimOverrides(unittest.TestCase):
         self.assertTrue(ok("override/ledpatterns/oknix/timer.led"))
         for bad in ("override/ledpatterns/x/a", "override/ledpatterns/oknix/../a", "override/ledpatterns/oknix/a/b"):
             self.assertFalse(ok(bad), bad)
+
+
+class HookStatus(unittest.TestCase):
+    """Общая плашка: своё есть, а хука нет или он от старой версии панели."""
+
+    def status(self, out):
+        p = server.Panel(Mock())
+        p.adb.shell.return_value = (out, "", 0)
+        return p.hook_status()
+
+    def test_states(self):
+        import hashlib
+        md5 = hashlib.md5(server.BOOT_HOOK_SCRIPT.encode()).hexdigest()
+        s = self.status(f"@будильник\n@свои звуки\nhook\npossible\n{md5}  {server.BOOT_HOOK}\n")
+        self.assertEqual((s["broken"], s["users"]), (False, ["будильник", "свои звуки"]))
+        self.assertTrue(self.status("@будильник\nhook\npossible\n0123  x\n")["broken"])   # старый хук
+        s = self.status("@будильник\n")
+        self.assertEqual((s["broken"], s["possible"]), (True, False))   # подключать не к чему
+        self.assertFalse(self.status("possible\n")["broken"])   # своего нет — хук не нужен

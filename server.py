@@ -1554,12 +1554,39 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         if rc != 0:
             raise AdbError(err.strip() or "не удалось подключить хук к загрузке")
 
+    # Что держится на хуке: без него после перезагрузки колонки пропадает
+    HOOK_USERS = (("заставка", BOOT_CUSTOM), ("звук запуска", SOUND_CUSTOM), ("заставка при каждой загрузке", BOOT_ALWAYS),
+                  ("автозапуск yamd", YAM_AUTOSTART), ("будильник", ALARM_CONF), ("блокировка аналитики", HOSTS_CUSTOM),
+                  ("ассистент", ASSIST_CONF))
+
+    def _hook_users_script(self):
+        """Печатает по строке на каждую функцию, которой нужен хук."""
+        return ("; ".join(f"[ -f {path} ] && echo {shlex.quote('@' + name)}" for name, path in self.HOOK_USERS)
+                + f"; find {OVR_DIR}/sounds -type f 2>/dev/null | grep -q . && echo '@свои звуки'"
+                + f"; find {OVR_DIR}/ledpatterns -type f 2>/dev/null | grep -q . && echo '@свои анимации'")
+
+    def hook_status(self):
+        """Подключён ли хук, свежий ли он и нужен ли — для общей плашки «не переживёт перезагрузку»."""
+        out, _, _ = self.adb.shell(
+            f"{self._hook_users_script()}; grep -q '{HOOK_MARK}' {ROOTKEEPER} 2>/dev/null && echo hook; "
+            f"{{ [ -f {ROOTKEEPER} ] || grep -q {ROOTKEEPER} {ROOTKEEPER_CALLER} 2>/dev/null; }} && echo possible; "
+            f"md5sum {BOOT_HOOK} 2>/dev/null; true", check=False)
+        out = strip_ansi(out)
+        flags = set(out.split())
+        users = [l.strip()[1:] for l in out.splitlines() if l.strip().startswith("@")]
+        hook = "hook" in flags
+        fresh = hashlib.md5(BOOT_HOOK_SCRIPT.encode()).hexdigest() in out
+        return {"hook": hook, "fresh": hook and fresh, "users": users, "possible": "possible" in flags,
+                "broken": bool(users) and not (hook and fresh), "rootkeeper": ROOTKEEPER}
+
+    def hook_repair(self):
+        self._ensure_hook()
+        return self.hook_status()
+
     def _drop_hook_if_unused(self):
         # Хук нужен, пока есть хоть что-то своё; иначе возвращаем rootkeeper.sh к исходному виду.
         self.adb.shell(
-            f"if [ ! -f {BOOT_CUSTOM} ] && [ ! -f {SOUND_CUSTOM} ] && [ ! -f {BOOT_ALWAYS} ] && [ ! -f {YAM_AUTOSTART} ] "
-            f"&& [ ! -f {ALARM_CONF} ] && [ ! -f {HOSTS_CUSTOM} ] && [ ! -f {ASSIST_CONF} ] "
-            f"&& [ -z \"$(find {OVR_DIR} -type f 2>/dev/null | head -1)\" ]; then "
+            f"if [ -z \"$({self._hook_users_script()})\" ]; then "
             f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; {ROOTKEEPER_DROP_CREATED}; rm -f {BOOT_HOOK}; fi; true")
 
     def _install_override(self, data, custom, target, orig=None):
@@ -3503,6 +3530,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/display": p.display_status,
             "/api/ring/frames": lambda: p.ring_frames(q.get("name", "")),
             "/api/anim/custom": p.anim_custom,
+            "/api/hook": p.hook_status,
             "/api/anim/original": lambda: p.anim_original(q.get("kind", ""), q.get("name", "")),
             "/api/yam/status": p.yam_status,
             "/api/music": p.music,
@@ -3609,6 +3637,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/clock/play": lambda: p.play_clock(d["frames"], d.get("seconds", 10)),
             "/api/anim/install": lambda: p.anim_install(d.get("kind"), d.get("name"), d.get("frames"), d.get("text")),
             "/api/anim/reset": lambda: p.anim_reset(d.get("kind"), d.get("name")),
+            "/api/hook/repair": p.hook_repair,
             "/api/ring/try": lambda: p.ring_try(d.get("text"), d.get("seconds", 5)),
             "/api/clock/boot": lambda: p.boot_install(d["frames"]),
             "/api/clock/boot/reset": p.boot_reset,

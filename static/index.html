@@ -753,6 +753,12 @@
   </main>
 
   <!-- ================= ОБЗОР ================= -->
+  <!-- общая плашка: своё есть, а хук загрузки не подключён — переносится в шапку открытой вкладки -->
+  <div class="untested" id="hook-warn" role="alert" hidden>
+    <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 1 21h22L12 2zm1 15h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg>
+    <div><strong id="hook-warn-title"></strong><p id="hook-warn-text"></p>
+      <div class="row" style="margin-top:10px"><button class="btn sm primary" id="hook-repair">Подключить хук</button></div></div>
+  </div>
   <main id="tab-overview" data-page hidden>
     <header class="page-head">
       <div>
@@ -2692,6 +2698,7 @@ function showTab() {
   }
   if (tab === 'console') setTimeout(() => { termConnect(); try { termFit?.fit(); } catch {} term?.focus(); }, 0);
   if (tab === 'boot' && !bootLoaded) { bootLoaded = true; loadBoot(); }
+  loadHook();
   if (tab === 'apps') loadYam();
   if (tab === 'alarm') loadAlarms();
   rdPoll(tab === 'radio');
@@ -4642,6 +4649,36 @@ $('#cs-login').onsubmit = async e => {
 $('#cs-retry').onclick = e => act(e.currentTarget, async () => { await PanelContext.fetch('/api/conn/retry', { method: 'POST' }); await connCheck(); });
 
 let statusTimer;
+// ---------- хук загрузки ----------
+// Своё на колонке (звуки, анимации, будильник, ассистент…) после перезагрузки держится на строке в rootkeeper.sh.
+// Панель подключает её сама при сохранении; плашка — на случай, когда строки нет или она от старой версии.
+let hookInfo = null;
+async function loadHook() {
+  try { hookInfo = await api('/api/hook'); } catch { return; }
+  renderHook();
+}
+function renderHook() {
+  const w = $('#hook-warn'), h = hookInfo;
+  w.hidden = !h || !h.broken;
+  if (w.hidden) return;
+  const what = h.users.join(', ');
+  $('#hook-warn-title').textContent = 'После перезагрузки колонки своё пропадёт';
+  $('#hook-warn-text').textContent = !h.possible
+    ? `На колонке есть своё (${what}), но подключить его к загрузке не к чему: нет ${h.rootkeeper}, и штатная загрузка его не вызывает. До перезагрузки всё работает, после — вернутся стандартные, а будильник и ассистент не запустятся.`
+    : h.hook
+      ? `Строка запуска в ${h.rootkeeper} — от прошлой версии панели и подключит не всё (${what}). Обновите её.`
+      : `На колонке есть своё (${what}), но строки запуска в ${h.rootkeeper} нет — после перезагрузки вернутся стандартные, а будильник и ассистент не запустятся.`;
+  $('#hook-repair').hidden = !h.possible;
+  $('#hook-repair').textContent = h.hook ? 'Обновить хук' : 'Подключить хук';
+  const head = $('main[data-page]:not([hidden]) .page-head');
+  if (head && w.parentElement !== head) head.append(w);
+}
+$('#hook-repair').onclick = e => act(e.currentTarget, async () => {
+  hookInfo = await api('/api/hook/repair', {});
+  renderHook();
+  if (bootLoaded) loadBoot();
+}, 'Хук подключён — своё переживёт перезагрузку');
+
 function onConnected() {
   // После переподключения всё, что могло не загрузиться, грузим заново.
   fs.loaded = false; logsLoaded = false; bootLoaded = false;

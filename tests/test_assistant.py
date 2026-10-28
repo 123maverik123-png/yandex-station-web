@@ -75,7 +75,7 @@ class AssistantHook(unittest.TestCase):
         # пока помощник настроен, строку автозапуска из rootkeeper.sh не убираем
         panel = server.Panel(Mock())
         panel._drop_hook_if_unused()
-        self.assertIn(f"[ ! -f {server.ASSIST_CONF} ]", panel.adb.shell.call_args.args[0])
+        self.assertIn(f"[ -f {server.ASSIST_CONF} ] && echo", panel.adb.shell.call_args.args[0])   # ассистент держит хук
 
 
 if __name__ == "__main__":
