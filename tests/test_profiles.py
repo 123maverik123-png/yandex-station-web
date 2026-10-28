@@ -71,6 +71,23 @@ class ProfileTests(unittest.TestCase):
         p.adb.assert_not_called()
         self.assertEqual(p.adb.mock_calls, [])
 
+    def test_lite1_ring_uses_micro_leds_and_keeps_lite2_yam(self):
+        s = fresh_server()
+        profiles.install(s, 'lite')
+        p = s.Panel(Mock())
+        calls = []
+        p.adb.shell = lambda cmd, *a, **k: (calls.append(cmd), ('10 20 30 0 0 0 1 2 3\n', '', 0))[1]
+        p.ring({'red': 255, 'green': 16, 'blue': 1})
+        self.assertIn('micro:red:ring1', calls[-1])
+        self.assertNotIn('plum:', calls[-1])
+        self.assertIn('\\x01\\x10\\xff', calls[-1])           # в fb0 — B, G, R
+        self.assertEqual(p.clock_state()['ring'], [[10, 20, 30], [0, 0, 0], [1, 2, 3]])
+        self.assertEqual(s.YAM_DIR, '/data/quazar/yam')
+        self.assertEqual(s.LED_PREFIX, 'micro')
+        self.assertEqual(s.detect_model(SimpleNamespace(shell=lambda *a, **k: ('yandex,station-micro amlogic,axg', '', 0))),
+                         ('lite', 'station-micro'))
+        self.assertEqual(profiles.PROFILES['lite'].get('tested', ()), ())   # пока никто не подтвердил — на пробу
+
     def test_mini2_maps_lite2_clock_names_to_its_segments(self):
         s = fresh_server()
         profiles.install(s, 'mini2')

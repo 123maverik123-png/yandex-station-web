@@ -4707,7 +4707,7 @@ class PanelUpdater:
 # Платформа в device-tree (compatible «yandex,plum», модель «Yandex Plum EVT2») → профиль колонки.
 # Имя хоста тут не годится: владелец мог его переименовать.
 PLATFORM_MODELS = {"plum": "lite2", "pickle": "mini3pro", "bergamot": "mini3", "yandexmidi": "station2",
-                   "station-mini2": "mini2"}
+                   "station-mini2": "mini2", "station-micro": "lite", "yandexmicro": "lite"}
 
 
 def detect_model(adb):
@@ -4927,7 +4927,7 @@ def main():
                     help="где хранить токен, пароль, сертификаты и историю (по умолчанию — рядом с server.py) [PANEL_DATA_DIR]")
     ap.add_argument("--open", action="store_true", help="открыть панель в браузере после запуска")
     ap.add_argument("--model", choices=[*profiles.PROFILES, "auto"], default=env("PANEL_MODEL", "auto"),
-                    help="профиль колонки: lite2, mini3pro, mini3, mini2, station2 или auto — определить по плате [PANEL_MODEL]")
+                    help="профиль колонки: lite2, lite, mini3pro, mini3, mini2, station2 или auto — определить по плате [PANEL_MODEL]")
     args = ap.parse_args()
     for stream in (sys.stdout, sys.stderr):   # консоль Windows: русский текст не должен ронять сервер
         try:
