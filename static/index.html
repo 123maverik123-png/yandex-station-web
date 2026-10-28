@@ -365,6 +365,8 @@
   .sc-palette .grp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .sc-palette .grp > .meta { min-width: 92px; font-weight: 600; }
   .sc-node.sel { border-color: var(--accent); }
+  /* у условия и повтора выходы на 52 и 86 px — нода не короче, чтобы нижний не висел в воздухе */
+  .sc-node.k-if, .sc-node.k-repeat { min-height: 108px; }
   .sc-node.k-if header, .sc-node.k-repeat header { background: var(--accent-soft); border-radius: 12px 12px 0 0; }
   .sc-node.k-note { background: #fff7d6; border-color: #f0dc8a; }
   .sc-node.k-note textarea { width: 100%; resize: vertical; background: transparent; border: 0; padding: 0; font-size: 13px; }
@@ -4624,6 +4626,7 @@ const SC_NODES = {
   vol: { name: 'Громкость', icon: 'i-vol', group: 'Звук и свет', def: () => ({ level: 3, ramp: 0 }) },
   sound: { name: 'Звук', icon: 'i-music', group: 'Звук и свет', def: () => ({ sound: 'sys:common/timer.wav' }) },
   ring: { name: 'Кольцо', icon: 'i-palette', group: 'Звук и свет', def: () => ({ color: ringHex || '#6c47ff', secs: 10 }) },
+  anim: { name: 'Анимация', icon: 'i-palette', group: 'Звук и свет', def: () => ({ anim: 'ring:' + ((patterns.ring || []).find(n => n.startsWith('alice_thinking')) || (patterns.ring || [])[0] || ''), secs: 5 }) },
   stop: { name: 'Стоп', icon: 'i-stop', group: 'Звук и свет', def: () => ({}) },
   wait: { name: 'Пауза', icon: 'i-alarm', group: 'Время', def: () => ({ secs: 60 }) },
   wait_until: { name: 'Ждать до', icon: 'i-alarm', group: 'Время', def: () => ({ time: '07:00' }) },
@@ -4656,11 +4659,13 @@ function nodeText(n) {
     case 'if': return `если ${SC_CHECKS[n.check]?.name || ''}${n.arg && SC_CHECKS[n.check]?.ph ? ' ' + n.arg : ''}`;
     case 'repeat': return `повторить ${n.count} раз`;
     case 'scene': return `сценарий «${scData?.scenes.find(s => s.id === n.target)?.name || '?'}»`;
+    case 'anim': return `анимация «${animName(n.anim)}»`;
     case 'note': return 'заметка';
     default: return 'стоп';
   }
 }
 const scNode = (s, id) => s.nodes.find(n => n.id === id);
+const animName = v => { const b = patBase(String(v || '').replace(/^\w+:/, '')); return PAT_NAMES[b] || b.replace(/_/g, ' '); };
 // цепочка от «Запуска» по next; linear — сценарий без ветвлений, все ноды (кроме заметок) в ней
 function scChain(s) {
   const out = [], seen = new Set();
@@ -4673,6 +4678,7 @@ async function loadScenes() {
   clearTimeout(scTimer);
   try {
     [scData, scHasAssistant] = await Promise.all([api('/api/scenes'), api('/api/assistant').then(a => !!a.installed, () => false)]);
+    if (!patterns.ring) patterns = await api('/api/patterns').catch(() => ({}));   // для ноды «Анимация»
   } catch (e) { if (!e.offline) $('#sc-list').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   renderScenes();
   // пока что-то идёт — обновляем, чтобы кнопка «Остановить» и журнал не отставали
@@ -4749,7 +4755,10 @@ function nodeFields(n) {
       .filter(s => s.id && s.id !== scEdit.id).map(s => `<option value="${esc(s.id)}" ${s.id === n.target ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>`;
     case 'if': return `<select class="field" data-f="check" aria-label="Условие">${Object.entries(SC_CHECKS).map(([k, c]) => `<option value="${k}" ${k === n.check ? 'selected' : ''}>${c.name}</option>`).join('')}</select>`
       + (SC_CHECKS[n.check]?.ph ? `<input type="text" class="field mono" data-f="arg" value="${esc(n.arg)}" placeholder="${SC_CHECKS[n.check].ph}" aria-label="Значение" style="width:120px">` : '');
-    case 'repeat': return `<input type="number" class="field mono" data-f="count" min="1" max="100" value="${n.count}" aria-label="Сколько раз"><span class="meta">раз, потом «готово»</span>`;
+    case 'repeat': return `<input type="number" class="field mono" data-f="count" min="1" max="20" value="${n.count}" aria-label="Сколько раз"><span class="meta">раз (до 20), потом «готово»</span>`;
+    case 'anim': return `<select class="field" data-f="anim" aria-label="Анимация" style="flex:1;min-width:140px">${[['ring', 'Кольцо'], ['clock', 'Часы']]
+      .filter(([k]) => (patterns[k] || []).length).map(([k, g]) => `<optgroup label="${g}">${patterns[k].map(p => `<option value="${k}:${esc(p)}" ${n.anim === k + ':' + p ? 'selected' : ''}>${esc(animName(p))}</option>`).join('')}</optgroup>`).join('')}</select>
+      <input type="number" class="field mono" data-f="secs" min="1" max="600" value="${n.secs}" aria-label="Секунд"><span class="meta">с</span>`;
     case 'note': return `<textarea class="field" data-f="text" rows="2" maxlength="200" placeholder="Заметка для себя" aria-label="Заметка">${esc(n.text)}</textarea>`;
     default: return '<span class="meta">остановить музыку и ответ Алисы</span>';
   }

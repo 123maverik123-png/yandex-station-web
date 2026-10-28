@@ -11,7 +11,8 @@
 #   S|id|вкл|повод|ЧЧ:ММ|дни|первая нода|название      повод: time — по времени, boot — после включения
 #   N|id|нода|вид|арг1|арг2|дальше|иначе|x|y            x, y — место ноды в редакторе, демону не нужны
 # Виды: query/say/ask текст, vol 0–10 нарастание_с, sound файл, ring RRGGBB секунд, wait секунд,
-# wait_until ЧЧ:ММ, wait_quiet до_секунд, stop, scene id, if проверка аргумент, repeat раз, note (не выполняется).
+# wait_until ЧЧ:ММ, wait_quiet до_секунд, stop, scene id, anim ring:имя|clock:имя секунд,
+# if проверка аргумент, repeat раз, note (не выполняется). Анимацию часов панель кладёт готовым скриптом anim_<имя>.sh.
 # У if и repeat два выхода: «дальше» — да / ещё круг, «иначе» — нет / круги кончились.
 # Тексты — только данные: ноду выполняет case ниже, через eval/sh -c они не проходят.
 
@@ -219,6 +220,15 @@ node() {
         wait_quiet) i=0; while playing && [ $i -lt "${a:-600}" ]; do sleep 1; i=$((i + 1)); done ;;
         stop) alice "стоп" ;;
         scene) ( run_scene "$a" ) ;;
+        anim)
+            # предустановленная анимация на «секунд» b: кольцо — штатным led_util, часы — скриптом от панели
+            ap=   # ap пишет и alice() — не убить бы чужой pid
+            case $a in
+                ring:*) LD_LIBRARY_PATH=$Q/libs $Q/led_util "$Q/ledpatterns/oknix/${a#ring:}" >/dev/null 2>&1 & ap=$! ;;
+                clock:*) [ -f "$D/anim_${a#clock:}.sh" ] && { sh "$D/anim_${a#clock:}.sh" & ap=$!; } ;;
+            esac
+            if [ -n "$ap" ]; then sleep "${b:-5}"; kill $ap 2>/dev/null; ap=; fi
+            case $a in ring:*) ring_release ;; esac ;;
         if) check "$a" "$b"; return ;;
         repeat)
             f=$SRUN$sid.c$nid; rc=$(cat $f 2>/dev/null || echo 0)
@@ -239,20 +249,24 @@ EOF
     grep "^N|$id|" $SCENES > $SRUN$id.nodes
     (
         slog "«$name»: начат"
-        # счётчик шагов — со своим именем: функции колонки (ring_release и др.) свободно пишут в n, i, t
-        pc=$start sc_steps=0
-        while [ -n "$pc" ] && [ $sc_steps -lt 1000 ]; do
+        # Защита от зацикливания: каждая нода — не больше 20 раз за запуск (у «Повтора» свой счёт, до 20 кругов).
+        # Счёт — в файлах: переменные с номером ноды в имени потребовали бы eval.
+        pc=$start
+        while [ -n "$pc" ]; do
             l=$(grep "^N|$id|$pc|" $SRUN$id.nodes | head -n 1)
             [ -n "$l" ] || break
             IFS='|' read -r _ _ _ kind a b nx el _ <<EOF
 $l
 EOF
+            if [ "$kind" != repeat ]; then
+                v=$(cat $SRUN$id.v$pc 2>/dev/null || echo 0)
+                if [ "$v" -ge 20 ]; then slog "«$name»: остановлен — нода $pc прошла 20 раз, похоже, цикл без выхода"; break; fi
+                echo $((v + 1)) > $SRUN$id.v$pc
+            fi
             if node "$kind" "$a" "$b" "$id" "$pc" < /dev/null; then pc=$nx; else pc=$el; fi
-            sc_steps=$((sc_steps + 1))
         done
-        [ $sc_steps -ge 1000 ] && slog "«$name»: остановлен — больше 1000 шагов, похоже, зациклился без выхода"
         slog "«$name»: готово"
-        rm -f $SRUN$id $SRUN$id.nodes $SRUN$id.c*
+        rm -f $SRUN$id $SRUN$id.nodes $SRUN$id.c* $SRUN$id.v*
     ) < /dev/null &
     echo $! > $SRUN$id
 }

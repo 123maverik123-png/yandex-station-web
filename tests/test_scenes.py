@@ -37,6 +37,22 @@ class ScenesSave(unittest.TestCase):
                                  "N|ab1|3|if|time|22:00-07:00|4||0|0", "N|ab1|4|ring|6c47ff|600|||0|0",
                                  "N|ab1|5|note|заметка||||0|0"])
 
+    def test_anim_and_repeat_cap(self):
+        p = panel()
+        p.patterns = lambda: {"ring": ["timer.led"], "clock": ["blink.binscled.zst"]}
+        p.clock_frames = lambda name: [{"flag": 0, "v": [255] * len(server.CLOCK_LEDS), "ms": 100}]
+        p.scenes_save({"scenes": [{"id": "ab1", "name": "А", "time": "23:00", "start": "1", "nodes": [
+            {"id": "1", "kind": "anim", "anim": "ring:timer.led", "secs": 5, "next": "2"},
+            {"id": "2", "kind": "anim", "anim": "clock:blink.binscled.zst", "secs": 3, "next": "3"},
+            {"id": "3", "kind": "repeat", "count": 500}]}]})
+        self.assertEqual(p.written[1][1:], ["N|ab1|1|anim|ring:timer.led|5|2||0|0", "N|ab1|2|anim|clock:blink.binscled.zst|3|3||0|0",
+                                            "N|ab1|3|repeat|20||||0|0"])
+        p.adb.push.assert_called_once()   # готовый скрипт для анимации часов
+        self.assertTrue(str(p.adb.push.call_args.args[1]).endswith("/anim_blink.binscled.zst.sh"))
+        for bad in ("ring:../../etc/passwd", "clock:timer.led", "x:timer.led"):
+            with self.assertRaises(server.AdbError, msg=bad):
+                p.scenes_save({"scenes": [{"id": "ab1", "name": "А", "time": "23:00", "start": "1", "nodes": [{"id": "1", "kind": "anim", "anim": bad}]}]})
+
     def test_boot_trigger_has_no_time(self):
         p = self.save([{"id": "1", "kind": "stop"}], trigger="boot", time="")
         self.assertEqual(p.written[1][0], "S|ab1|1|boot||12345|1|Ночь")
@@ -98,7 +114,12 @@ class SceneInterpreter(unittest.TestCase):
 
     def test_endless_loop_stops(self):
         trace = self.run_graph("S|s1|1|time|23:00||1|Цикл\nN|s1|1|query|x||1||0|0\n")
-        self.assertEqual(len(trace), 1000)
+        self.assertEqual(len(trace), 20)   # каждая нода — не больше 20 раз за запуск
+
+    def test_repeat_twenty_rounds_is_allowed(self):
+        conf = "S|s1|1|time|23:00||1|Т\nN|s1|1|repeat|20||2|3|0|0\nN|s1|2|query|круг||1||0|0\nN|s1|3|query|всё||||0|0\n"
+        trace = self.run_graph(conf)
+        self.assertEqual((trace.count("alice круг"), trace[-1]), (20, "alice всё"))
 
     def test_else_branch(self):
         conf = "S|s1|1|time|23:00||1|Т\nN|s1|1|if|chance|0|2|3|0|0\nN|s1|2|query|да||||0|0\nN|s1|3|query|нет||||0|0\n"

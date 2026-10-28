@@ -2664,7 +2664,9 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 self.adb.push(td / "tzn", f"{ALARM_DIR}/tzname")
         self.adb.shell(f"mv {conf}.new {conf}; touch {ALARM_CONF}; chmod 644 {ALARM_DIR}/*; chmod 755 {ALARMD}; "
                        f"cd {ALARM_DIR} && for f in [su]_*.wav; do [ -f \"$f\" ] || continue; "
-                       f"cat {ALARM_CONF} {SCENES_CONF} 2>/dev/null | grep -qF \"$f\" || rm -f \"$f\"; done"
+                       f"cat {ALARM_CONF} {SCENES_CONF} 2>/dev/null | grep -qF \"$f\" || rm -f \"$f\"; done; "
+                       f"for f in anim_*.sh; do [ -f \"$f\" ] || continue; n=${{f#anim_}}; "
+                       f"grep -qF \"clock:${{n%.sh}}|\" {SCENES_CONF} 2>/dev/null || rm -f \"$f\"; done"
                        + (f"; {extra}" if extra else "") + "; true")
         self._ensure_hook()
         self._alarm_daemon(restart=True)
@@ -2672,7 +2674,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     # ---------- сценарии ----------
     # Сценарий — граф нод (scenes.conf, разбирает device/alarmd.sh). У if и repeat два выхода: next и else.
     SCENE_KINDS = ("query", "say", "ask", "vol", "sound", "ring", "wait", "wait_until", "wait_quiet", "stop", "scene",
-                   "if", "repeat", "note")
+                   "anim", "if", "repeat", "note")
     SCENE_CHECKS = ("time", "days", "playing", "online", "vol_above", "chance", "assistant_mode")
 
     def scenes(self):
@@ -2706,6 +2708,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                     n["time"] = a
                 elif kind == "scene":
                     n["target"] = a
+                elif kind == "anim":
+                    n.update(anim=a, secs=num(b))
                 elif kind == "if":
                     n.update(check=a, arg=b)
                 elif kind == "repeat":
@@ -2723,7 +2727,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         num = lambda v, lo, hi: max(lo, min(hi, int(float(v or 0))))
         hm = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
         ids = {re.sub(r"[^a-z0-9]", "", str(s.get("id") or ""))[:12] for s in items}
-        lines, sys_needed = [], {}
+        lines, sys_needed, clock_anims = [], {}, set()
+        patterns = None
         for s in items:
             sid = re.sub(r"[^a-z0-9]", "", str(s.get("id") or ""))[:12] or os.urandom(4).hex()
             name = text(s.get("name"), 40) or "Сценарий"
@@ -2777,6 +2782,14 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                     a = re.sub(r"[^a-z0-9]", "", str(n.get("target") or ""))[:12]
                     if a not in ids or a == sid:
                         raise AdbError(f"«{name}»: выберите, какой другой сценарий запустить")
+                elif kind == "anim":
+                    patterns = patterns or self.patterns()
+                    pkind, _, pname = str(n.get("anim") or "").partition(":")
+                    if pkind not in ("ring", "clock") or pname not in patterns.get(pkind, []) or not re.fullmatch(r"[\w.-]+", pname):
+                        raise AdbError(f"«{name}»: выберите анимацию из списка")
+                    if pkind == "clock":
+                        clock_anims.add(pname)
+                    a, b = f"{pkind}:{pname}", num(n.get("secs"), 1, 600)
                 elif kind == "if":
                     a = n.get("check")
                     if a not in self.SCENE_CHECKS:
@@ -2794,11 +2807,18 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                     elif a == "chance":
                         b = num(arg, 0, 100)
                 elif kind == "repeat":
-                    a = num(n.get("count"), 1, 100)
+                    a = num(n.get("count"), 1, 20)
                 two = kind in ("if", "repeat")
                 lines.append("|".join(["N", sid, nid, kind, str(a), str(b), "" if kind == "note" else link(n.get("next")),
                                        link(n.get("else")) if two else "", str(num(n.get("x"), 0, 20000)), str(num(n.get("y"), 0, 20000))]))
         self._alarm_sounds_ready(sys_needed)
+        # анимацию часов колонка сама не разберёт (zstd, свой формат кадров) — кладём готовый скрипт, как для «На колонке»
+        if clock_anims:
+            with tempfile.TemporaryDirectory() as td:
+                for pname in clock_anims:
+                    f = Path(td) / f"anim_{pname}.sh"
+                    write_unix(f, clock_player_script(self.clock_frames(pname)))
+                    self.adb.push(f, f"{ALARM_DIR}/anim_{pname}.sh")
         self._alarm_write(SCENES_CONF, lines)
         return self.scenes()
 
