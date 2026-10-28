@@ -19,6 +19,8 @@
   // тема и акцент из настроек «Обзора» — до отрисовки, чтобы не мигало
   try {
     const th = localStorage.getItem('ui.theme'), ac = localStorage.getItem('ui.accent');
+    const gl = localStorage.getItem('ui.glow') || 'cursor';
+    if (gl !== 'off') document.documentElement.dataset.glow = gl;
     if (th === 'light' || th === 'dark') document.documentElement.dataset.theme = th;
     if (ac) {
       const s = document.documentElement.style;
@@ -124,6 +126,22 @@
   @media (max-width: 1100px) { .cols { grid-template-columns: 1fr; } }
   .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; box-shadow: var(--shadow); }
+  /* Подсветка блоков («Настройки» → «Оформление»): hover — край под мышью в цвет акцента и мягкое свечение вокруг;
+     cursor — подложка: свечение под блоком там, где указатель (--mx/--my ставит pointermove), и свет по краю.
+     Внутрь блока не светим: фон под текстом не меняется. Появляется и гаснет плавно (opacity). */
+  :root[data-glow] .card { position: relative; }
+  :root[data-glow="hover"] .card { transition: border-color .25s, box-shadow .3s; }
+  :root[data-glow="hover"] .card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+    box-shadow: var(--shadow), 0 10px 34px -10px color-mix(in srgb, var(--accent) 55%, transparent); }
+  :root[data-glow="cursor"] .card::before { content: ""; position: absolute; inset: -18px; border-radius: 30px; z-index: -1; pointer-events: none;
+    background: radial-gradient(300px circle at calc(var(--mx, -999px) + 18px) calc(var(--my, -999px) + 18px),
+      color-mix(in srgb, var(--accent) 45%, transparent), transparent 70%);
+    filter: blur(14px); opacity: 0; transition: opacity .45s ease; }
+  :root[data-glow="cursor"] .card::after { content: ""; position: absolute; inset: -1px; padding: 1px; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(240px circle at var(--mx, -999px) var(--my, -999px), var(--accent), transparent 70%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+    opacity: 0; transition: opacity .45s ease; }
+  :root[data-glow="cursor"] .card:hover::before, :root[data-glow="cursor"] .card:hover::after { opacity: 1; }
   .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   .card h2 { margin: 0; font-size: 17px; font-weight: 800; }
   .meta { font-size: 12.5px; color: var(--muted); }
@@ -1115,6 +1133,8 @@
         <div class="set-head"><span class="set-ic"><svg width="18" height="18" aria-hidden="true"><use href="#i-palette"/></svg></span><div><h2>Оформление</h2><p>Хранится в этом браузере и попадает в резервную копию</p></div></div>
         <div class="set-item"><div class="set-label"><b>Тема</b><small>«Как в системе» следует за светлой и тёмной темой устройства</small></div>
           <div class="set-ctl"><div class="seg" id="set-theme" role="group" aria-label="Тема"><button data-v="auto">Как в системе</button><button data-v="light">Светлая</button><button data-v="dark">Тёмная</button></div></div></div>
+        <div class="set-item"><div class="set-label"><b>Подсветка блоков</b><small>Край блока под мышью — цветом акцента: целиком при наведении или светом там, где указатель</small></div>
+          <div class="set-ctl"><div class="seg" id="set-glow" role="group" aria-label="Подсветка блоков"><button data-v="off">Нет</button><button data-v="hover">При наведении</button><button data-v="cursor">За указателем</button></div></div></div>
         <div class="set-item"><div class="set-label"><b>Цвет акцента</b><small>Кнопки, ссылки, графики и подсветка выбранного</small></div>
           <div class="set-ctl"><div class="swatches" id="set-accent" role="group" aria-label="Цвет акцента">
             <button class="sw" style="--c:#6C47FF" data-v="" aria-label="Фиолетовый (по умолчанию)"></button>
@@ -3943,6 +3963,9 @@ function applyUI() {
     v ? root.style.setProperty(k, v) : root.style.removeProperty(k);
   window.__vizOff = store.get('ui.viz') === '0';
   $$('#set-theme button').forEach(b => b.classList.toggle('active', b.dataset.v === theme));
+  const glow = store.get('ui.glow') || 'cursor';
+  if (glow === 'off') delete root.dataset.glow; else root.dataset.glow = glow;
+  $$('#set-glow button').forEach(b => b.classList.toggle('active', b.dataset.v === glow));
   $$('#set-accent .sw').forEach(b => b.classList.toggle('sel', b.dataset.v === accent));
   $('#set-viz').checked = !window.__vizOff;
   window.__vizIdleOff = store.get('ui.vizIdle') === '0';
@@ -3957,6 +3980,14 @@ function applyUI() {
   window.dispatchEvent(new Event('themechange'));
 }
 $$('#set-theme button').forEach(b => b.onclick = () => { store.set('ui.theme', b.dataset.v); applyUI(); });
+$$('#set-glow button').forEach(b => b.onclick = () => { store.set('ui.glow', b.dataset.v); applyUI(); });
+// «За указателем»: где мышь внутри блока — оттуда и светит
+document.addEventListener('pointermove', e => {
+  if (document.documentElement.dataset.glow !== 'cursor' || e.pointerType === 'touch') return;
+  const c = e.target.closest?.('.card'); if (!c) return;
+  const r = c.getBoundingClientRect();
+  c.style.setProperty('--mx', (e.clientX - r.left) + 'px'); c.style.setProperty('--my', (e.clientY - r.top) + 'px');
+}, { passive: true });
 $$('#set-accent .sw').forEach(b => b.onclick = () => { store.set('ui.accent', b.dataset.v); applyUI(); });
 $('#set-viz').onchange = e => { store.set('ui.viz', e.target.checked ? '1' : '0'); applyUI(); };
 $('#set-viz-idle').onchange = e => { store.set('ui.vizIdle', e.target.checked ? '1' : '0'); applyUI(); };
