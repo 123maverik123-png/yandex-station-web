@@ -9,6 +9,7 @@
 #
 # scenes.conf — сценарии (пишет панель). Сценарий — граф нод: строка S на сценарий, строки N — ноды:
 #   S|id|вкл|повод|ЧЧ:ММ|дни|первая нода|название      повод: time — по времени, boot — после включения,
+#                                                       manual — только вручную (панель, нода «Другой сценарий»),
 #                                                       voice — по команде ассистенту (вместо времени — фразы
 #                                                       через запятую; ищет и запускает их сам ассистент)
 #   N|id|нода|вид|арг1|арг2|дальше|иначе|x|y            x, y — место ноды в редакторе, демону не нужны
@@ -230,9 +231,11 @@ node() {
         anim)
             # предустановленная анимация на «секунд» b: кольцо — штатным led_util, часы — скриптом от панели
             ap=   # ap пишет и alice() — не убить бы чужой pid
+            # своя анимация — «my/имя»: лежит в webpanel/anims, а не в Quasar; скрипт часов — с «~» вместо «/»
             case $a in
+                ring:my/*) LD_LIBRARY_PATH=$Q/libs $Q/led_util "/data/quasar/webpanel/anims/ring/${a#ring:my/}" >/dev/null 2>&1 & ap=$! ;;
                 ring:*) LD_LIBRARY_PATH=$Q/libs $Q/led_util "$Q/ledpatterns/oknix/${a#ring:}" >/dev/null 2>&1 & ap=$! ;;
-                clock:*) [ -f "$D/anim_${a#clock:}.sh" ] && { sh "$D/anim_${a#clock:}.sh" & ap=$!; } ;;
+                clock:*) f="$D/anim_$(echo "${a#clock:}" | tr / '~').sh"; [ -f "$f" ] && { sh "$f" & ap=$!; } ;;
             esac
             if [ -n "$ap" ]; then sleep "${b:-5}"; kill $ap 2>/dev/null; ap=; fi
             case $a in ring:*) ring_release ;; esac ;;

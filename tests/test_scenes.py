@@ -65,6 +65,20 @@ class ScenesSave(unittest.TestCase):
         s = q.scenes()["scenes"][0]
         self.assertEqual((s["trigger"], s["time"], s["phrases"], s["nodes"][0]["mode"]), ("voice", "", ["пора спать", "спать"], True))
 
+    def test_manual_trigger(self):
+        p = self.save([{"id": "1", "kind": "stop"}], trigger="manual", time="12:00")
+        self.assertEqual(p.written[1][0], "S|ab1|1|manual|||1|Ночь")
+
+    def test_anim_my(self):
+        p = panel()
+        p.patterns = lambda: {"ring": ["my/Закат.led"], "clock": ["my/c1.binscled"]}
+        p.clock_frames = lambda name: [{"flag": 0, "v": [255] * len(server.CLOCK_LEDS), "ms": 100}]
+        p.scenes_save({"scenes": [{"id": "ab1", "name": "А", "time": "23:00", "start": "1", "nodes": [
+            {"id": "1", "kind": "anim", "anim": "ring:my/Закат.led", "secs": 5, "next": "2"},
+            {"id": "2", "kind": "anim", "anim": "clock:my/c1.binscled", "secs": 3}]}]})
+        self.assertEqual(p.written[1][1], "N|ab1|1|anim|ring:my/Закат.led|5|2||0|0")
+        self.assertTrue(str(p.adb.push.call_args.args[1]).endswith("/anim_my~c1.binscled.sh"))
+
     def test_boot_trigger_has_no_time(self):
         p = self.save([{"id": "1", "kind": "stop"}], trigger="boot", time="")
         self.assertEqual(p.written[1][0], "S|ab1|1|boot||12345|1|Ночь")

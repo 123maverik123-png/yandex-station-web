@@ -134,3 +134,34 @@ class HookStatus(unittest.TestCase):
         s = self.status("@будильник\n")
         self.assertEqual((s["broken"], s["possible"]), (True, False))   # подключать не к чему
         self.assertFalse(self.status("possible\n")["broken"])   # своего нет — хук не нужен
+
+
+class MyAnims(unittest.TestCase):
+    """Свои анимации — отдельные файлы в webpanel/anims; встроенные не трогают."""
+
+    def panel(self):
+        p = server.Panel(Mock())
+        p.patterns = lambda: {"ring": ["timer.led", "my/Закат.led"], "clock": ["boot.binscled.zst", "my/Часы.binscled"]}
+        return p
+
+    def test_save(self):
+        p = self.panel()
+        pushed = []
+        p.adb.push = lambda local, remote, *a, **k: pushed.append((Path(local).read_bytes(), remote))
+        r = p.my_anim_save("ring", "Мой закат", text="loop\nff0000 00ff00 0000ff 200\n")
+        self.assertEqual(r["name"], "my/Мой_закат.led")
+        self.assertEqual(pushed[0][1], f"{server.MY_ANIM_DIR}/ring/Мой_закат.led")
+        p.my_anim_save("clock", "c1", frames=[{"flag": 0, "v": [255] * len(server.CLOCK_LEDS), "ms": 100}])
+        self.assertEqual(pushed[1][1], f"{server.MY_ANIM_DIR}/clock/c1.binscled")
+        for bad in ("../x", "a/b", "", "x" * 41, "a;b"):
+            with self.assertRaises(server.AdbError, msg=bad):
+                p.my_anim_save("ring", bad, text="ff0000 00ff00 0000ff 200")
+
+    def test_paths_and_delete(self):
+        p = self.panel()
+        self.assertEqual(p._pattern_path("ring", "my/Закат.led"), f"{server.MY_ANIM_DIR}/ring/Закат.led")
+        self.assertEqual(p._pattern_path("ring", "timer.led"), f"{server.PATTERNS['ring']}/timer.led")
+        with self.assertRaises(server.AdbError):
+            p.my_anim_delete("ring", "timer.led")   # встроенную так не удалить
+        with self.assertRaises(server.AdbError):
+            p.anim_reset("ring", "my/Закат.led")    # и подменой своя не считается

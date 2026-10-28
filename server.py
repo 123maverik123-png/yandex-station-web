@@ -76,6 +76,10 @@ SOUND_ORIG = f"{WEB_DIR}/boot_sound.orig.wav"
 # Свои системные файлы Quasar: override/<путь от QUASAR> накрывает QUASAR/<путь> через bind mount. Оригинал в
 # /system только для чтения и остаётся под подменой — копии не нужны, «вернуть» = снять подмену и удалить свой.
 OVR_DIR = f"{WEB_DIR}/override"
+# Свои анимации — отдельно от подмен, встроенные не трогают: anims/ring/<имя>.led, anims/clock/<имя>.binscled.
+# В списках анимаций они — «my/<имя>…» рядом со встроенными.
+MY_ANIM_DIR = f"{WEB_DIR}/anims"
+MY_ANIM_NAME = re.compile(r"[\w-]{1,40}")
 # YAM (github.com/nyakokitsu/yam): менеджер пакетов для Станций. На колонке — демон yamd с HTTP API на :8099.
 YAM_DIR = "/data/quazar/yam"
 YAMD = f"{YAM_DIR}/bin/yamd"
@@ -1343,14 +1347,49 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     def patterns(self):
         res = {}
         for kind, d in PATTERNS.items():
-            out, _, _ = self.adb.shell(f"ls {d}")
-            res[kind] = sorted(strip_ansi(out).split())
+            # свои — не через ls: busybox показывает не-ASCII имена знаками «?»
+            out, _, _ = self.adb.shell(f"ls {d}; echo '<<<'; for f in {MY_ANIM_DIR}/{kind}/*; do [ -f \"$f\" ] && echo \"${{f##*/}}\"; done; true")
+            std, _, mine = strip_ansi(out).partition("<<<")
+            res[kind] = sorted(std.split()) + ["my/" + n for n in sorted(mine.split())]
         return res
+
+    @staticmethod
+    def _pattern_path(kind, name):
+        """Файл анимации на колонке: встроенная — в Quasar, своя (my/…) — в MY_ANIM_DIR."""
+        if name.startswith("my/"):
+            return f"{MY_ANIM_DIR}/{kind}/{name[3:]}"
+        return f"{PATTERNS[kind]}/{name}"
+
+    # ---------- свои анимации ----------
+    def my_anim_save(self, kind, name, frames=None, text=None):
+        """Сохранить свою анимацию (новую или поверх своей же). Имя — буквы, цифры, «_» и «-»."""
+        name = re.sub(r"\s+", "_", str(name or "").strip())
+        if kind not in PATTERNS or not MY_ANIM_NAME.fullmatch(name):
+            raise AdbError("имя своей анимации — до 40 букв, цифр, «_» или «-»")
+        if kind == "clock":
+            if not isinstance(frames, list) or not frames:
+                raise AdbError("нет кадров")
+            data, fname = encode_clock_pattern(frames), name + ".binscled"
+        else:
+            data, fname = check_led(text).encode(), name + ".led"
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "a"
+            f.write_bytes(data)
+            self.adb.shell(f"mkdir -p {MY_ANIM_DIR}/{kind}")
+            self.adb.push(f, f"{MY_ANIM_DIR}/{kind}/{fname}")
+        return {"name": "my/" + fname, "patterns": self.patterns()}
+
+    def my_anim_delete(self, kind, name):
+        if kind not in PATTERNS or not name.startswith("my/") or name not in self.patterns()[kind]:
+            raise AdbError("нет такой своей анимации")
+        self.adb.shell(f"rm -f {shlex.quote(self._pattern_path(kind, name))}; "
+                       f"rmdir {MY_ANIM_DIR}/{kind} {MY_ANIM_DIR} 2>/dev/null; true")
+        return {"patterns": self.patterns()}
 
     def play_pattern(self, kind, name, seconds):
         if kind not in PATTERNS or name not in self.patterns()[kind]:
             raise AdbError("нет такого паттерна")
-        path = f"{PATTERNS[kind]}/{name}"
+        path = self._pattern_path(kind, name)
         if kind == "clock":
             return self.play_clock(decode_clock_pattern(name, self.adb.read_bytes(path)), seconds)
         self._run_timed(kind, f"{QRUN}/led_util {shlex.quote(path)}", seconds)
@@ -1444,7 +1483,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     def clock_frames(self, name):
         if name not in self.patterns()["clock"]:
             raise AdbError("нет такого паттерна")
-        return decode_clock_pattern(name, self.adb.read_bytes(f"{PATTERNS['clock']}/{name}"))
+        return decode_clock_pattern(name, self.adb.read_bytes(self._pattern_path("clock", name)))
 
     def stop_pattern(self, kind=None):
         kinds = [kind] if kind else list(PATTERNS)
@@ -1516,11 +1555,11 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     def ring_frames(self, name):
         if name not in self.patterns()["ring"]:
             raise AdbError("нет такого паттерна")
-        return parse_led(self.adb.read_bytes(f"{PATTERNS['ring']}/{name}").decode("utf-8", "replace"))
+        return parse_led(self.adb.read_bytes(self._pattern_path("ring", name)).decode("utf-8", "replace"))
 
     # ---------- свои анимации: подмена файлов ledpatterns, как у звуков ----------
     def _anim_paths(self, kind, name):
-        if kind not in PATTERNS or name not in self.patterns()[kind]:
+        if kind not in PATTERNS or name not in self.patterns()[kind] or name.startswith("my/"):
             raise AdbError("нет такой анимации")
         target = f"{PATTERNS[kind]}/{name}"
         return target, f"{OVR_DIR}/{posixpath.relpath(target, QUASAR)}"
@@ -2375,9 +2414,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             q(ASSISTD), f"[ -d {ASSIST_DIR} ] && du -sk {ASSIST_DIR} | cut -f1 || echo 0",
             f"find {OVR_DIR}/sounds -type f 2>/dev/null | wc -l",
             f"[ -d {OVR_DIR}/sounds ] && du -sk {OVR_DIR}/sounds | cut -f1 || echo 0",
-            f"find {OVR_DIR}/ledpatterns -type f 2>/dev/null | wc -l"])
+            f"find {OVR_DIR}/ledpatterns -type f 2>/dev/null | wc -l",
+            f"find {MY_ANIM_DIR} -type f 2>/dev/null | wc -l"])
         v = self.adb.shell(cmd, check=False)[0].split()
-        v = (v + ["0"] * 22)[:22]
+        v = (v + ["0"] * 23)[:23]
         b = [x == "1" for x in v]
         n = lambda x: int(x) if x.isdigit() else 0
         items = [
@@ -2385,7 +2425,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             {"key": "sound", "name": "Свой звук запуска", "on": b[2] or b[3]},
             {"key": "sounds", "name": "Свои системные звуки", "on": n(v[19]) > 0, "detail": f"заменено: {n(v[19])}",
              "size_kb": n(v[20])},
-            {"key": "anims", "name": "Свои анимации кольца и часов", "on": n(v[21]) > 0, "detail": f"заменено: {n(v[21])}"},
+            {"key": "anims", "name": "Свои анимации кольца и часов", "on": n(v[21]) + n(v[22]) > 0,
+             "detail": f"заменено встроенных: {n(v[21])}, своих: {n(v[22])}"},
             {"key": "always", "name": "Заставка при каждой загрузке", "on": b[4]},
             {"key": "yamd", "name": "Автозапуск yamd", "on": b[5]},
             {"key": "privacy", "name": "Блокировка аналитики", "on": b[15] or b[16], "detail": "свой /etc/hosts"},
@@ -2430,7 +2471,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     # не берём: ставим текущую версию из панели.
     BACKUP_FILES = re.compile(r"(boot\.binscled\.zst|boot_sound\.wav|boot_every_time|yamd_autostart|hosts|"
                               r"alarm/alarms\.conf|alarm/scenes\.conf|alarm/default\.wav|alarm/[su]_[0-9a-f]{10}\.wav|"
-                              r"override/sounds/(?:[\w-][\w.-]*/)*[\w-][\w.-]*|override/ledpatterns/(?:clock|oknix)/[\w-][\w.-]*)")
+                              r"override/sounds/(?:[\w-][\w.-]*/)*[\w-][\w.-]*|override/ledpatterns/(?:clock|oknix)/[\w-][\w.-]*|"
+                              r"anims/(?:ring/[\w-]{1,40}\.led|clock/[\w-]{1,40}\.binscled))")
     BACKUP_LIMIT = 200 * 1024 * 1024
 
     def backup(self, ui):
@@ -2499,9 +2541,18 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 else:
                     skipped += 1
             report.append(f"свои системные звуки ({len(sounds) - skipped})" + (f", пропущено {skipped}: на этой прошивке их нет" if skipped else ""))
+        mine = {n: data for n, data in files.items() if n.startswith("anims/")}
+        if mine:
+            with tempfile.TemporaryDirectory() as td:
+                self.adb.shell(f"mkdir -p {MY_ANIM_DIR}/ring {MY_ANIM_DIR}/clock")
+                for n, data in mine.items():
+                    f = Path(td) / "a"
+                    f.write_bytes(data)
+                    self.adb.push(f, f"{WEB_DIR}/{n}")
+            report.append(f"свои анимации ({len(mine)})")
         anims = {n[len("override/ledpatterns/"):]: data for n, data in files.items() if n.startswith("override/ledpatterns/")}
         if anims:
-            have, done = self.patterns(), 0
+            have, done = self.patterns(), 0   # my/… сюда не попадут: в override только встроенные
             for rel, data in anims.items():
                 folder, name = rel.split("/")
                 kind = next(k for k, d in PATTERNS.items() if posixpath.basename(d) == folder)
@@ -2684,8 +2735,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         self.adb.shell(f"mv {conf}.new {conf}; touch {ALARM_CONF}; chmod 644 {ALARM_DIR}/*; chmod 755 {ALARMD}; "
                        f"cd {ALARM_DIR} && for f in [su]_*.wav; do [ -f \"$f\" ] || continue; "
                        f"cat {ALARM_CONF} {SCENES_CONF} 2>/dev/null | grep -qF \"$f\" || rm -f \"$f\"; done; "
-                       f"for f in anim_*.sh; do [ -f \"$f\" ] || continue; n=${{f#anim_}}; "
-                       f"grep -qF \"clock:${{n%.sh}}|\" {SCENES_CONF} 2>/dev/null || rm -f \"$f\"; done"
+                       f"for f in anim_*.sh; do [ -f \"$f\" ] || continue; n=${{f#anim_}}; n=$(echo \"${{n%.sh}}\" | tr '~' /); "
+                       f"grep -qF \"clock:$n|\" {SCENES_CONF} 2>/dev/null || rm -f \"$f\"; done"
                        + (f"; {extra}" if extra else "") + "; true")
         self._ensure_hook()
         self._alarm_daemon(restart=True)
@@ -2754,7 +2805,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         for s in items:
             sid = re.sub(r"[^a-z0-9]", "", str(s.get("id") or ""))[:12] or os.urandom(4).hex()
             name = text(s.get("name"), 40) or "Сценарий"
-            trig = s.get("trigger") if s.get("trigger") in ("boot", "voice") else "time"
+            # manual — сам не запускается: кнопкой в панели или нодой «Другой сценарий»
+            trig = s.get("trigger") if s.get("trigger") in ("boot", "voice", "manual") else "time"
             tm = str(s.get("time") or "")
             if trig == "time" and not hm.fullmatch(tm):
                 raise AdbError(f"«{name}»: неверное время {tm}")
@@ -2774,7 +2826,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             start = link(s.get("start"))
             if not start and any(n.get("kind") != "note" for n in nodes):
                 raise AdbError(f"«{name}»: соедините «Запуск» с первой нодой")
-            lines.append("|".join(["S", sid, "1" if s.get("on", True) else "0", trig, tm if trig != "boot" else "", days, start, name]))
+            lines.append("|".join(["S", sid, "1" if s.get("on", True) else "0", trig, tm if trig in ("time", "voice") else "",
+                                   days if trig != "manual" else "", start, name]))
             for nid, n in zip(nids, nodes):
                 kind = n.get("kind")
                 if kind not in self.SCENE_KINDS:
@@ -2814,7 +2867,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 elif kind == "anim":
                     patterns = patterns or self.patterns()
                     pkind, _, pname = str(n.get("anim") or "").partition(":")
-                    if pkind not in ("ring", "clock") or pname not in patterns.get(pkind, []) or not re.fullmatch(r"[\w.-]+", pname):
+                    if pkind not in ("ring", "clock") or pname not in patterns.get(pkind, []) or not re.fullmatch(r"(my/)?[\w.-]+", pname):
                         raise AdbError(f"«{name}»: выберите анимацию из списка")
                     if pkind == "clock":
                         clock_anims.add(pname)
@@ -2845,9 +2898,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         if clock_anims:
             with tempfile.TemporaryDirectory() as td:
                 for pname in clock_anims:
-                    f = Path(td) / f"anim_{pname}.sh"
+                    script = "anim_" + pname.replace("/", "~") + ".sh"   # my/… — «~» вместо «/» в имени файла
+                    f = Path(td) / "anim.sh"
                     write_unix(f, clock_player_script(self.clock_frames(pname)))
-                    self.adb.push(f, f"{ALARM_DIR}/anim_{pname}.sh")
+                    self.adb.push(f, f"{ALARM_DIR}/{script}")
         self._alarm_write(SCENES_CONF, lines)
         return self.scenes()
 
@@ -4051,6 +4105,8 @@ class Handler(BaseHTTPRequestHandler):
             "/api/clock/play": lambda: p.play_clock(d["frames"], d.get("seconds", 10)),
             "/api/anim/install": lambda: p.anim_install(d.get("kind"), d.get("name"), d.get("frames"), d.get("text")),
             "/api/anim/reset": lambda: p.anim_reset(d.get("kind"), d.get("name")),
+            "/api/anim/my": lambda: p.my_anim_save(d.get("kind"), d.get("name"), d.get("frames"), d.get("text")),
+            "/api/anim/my/delete": lambda: p.my_anim_delete(d.get("kind"), d.get("name")),
             "/api/hook/repair": p.hook_repair,
             "/api/ring/try": lambda: p.ring_try(d.get("text"), d.get("seconds", 5)),
             "/api/clock/boot": lambda: p.boot_install(d["frames"]),
