@@ -3499,20 +3499,44 @@ class Handler(BaseHTTPRequestHandler):
         b = self._body()
         return json.loads(b) if b else {}
 
-    def _conn_find(self):
+    # Поиск колонок идёт в фоне (секунды), экран подключения опрашивает ход: GET /api/conn/find
+    finder = {"running": False, "stage": "", "done": 0, "total": 0, "nets": [], "found": [], "error": None, "auto": None, "t": 0}
+    finder_lock = threading.Lock()
+
+    def _conn_find(self, start=False):
         """Колонки в локальных сетях этого компьютера — то же, что --find, но из панели."""
-        import profiles
-        if os.environ.get("PANEL_GATEWAY_SECRET"):
-            raise AdbError("в режиме нескольких колонок адреса задаются в speakers.json")
-        nets = local_networks()
-        if not nets:
-            raise AdbError("не нашлось домашней сети: компьютер не в локальной сети, или панель в Docker без сети хоста")
+        f = Handler.finder
+        if start:
+            if os.environ.get("PANEL_GATEWAY_SECRET"):
+                raise AdbError("в режиме нескольких колонок адреса задаются в speakers.json")
+            with Handler.finder_lock:
+                if not f["running"]:
+                    f.update(running=True, stage="nets", done=0, total=0, nets=[], found=[], error=None, auto=None, t=time.time())
+                    threading.Thread(target=self._conn_find_run, daemon=True, name="find").start()
         current = self.panel.adb.serial
-        found = find_devices(self.panel.adb.adb, nets)
-        JOURNAL.add(f"поиск колонок в {', '.join(map(str, nets))}: найдено {len(found)}")
-        return {"nets": [str(n) for n in nets], "current": current,
-                "found": [{"serial": s, "ip": s.rpartition(":")[0], "model": m, "name": profiles.PROFILES[m]["name"],
-                           "current": s == current} for s, m, _ in found]}
+        return {**f, "current": current, "found": [{**x, "current": x["serial"] == current} for x in f["found"]]}
+
+    def _conn_find_run(self):
+        import profiles
+        f = Handler.finder
+        try:
+            nets = local_networks()
+            if not nets:
+                raise AdbError("не нашлось домашней сети: компьютер не в локальной сети, или панель в Docker без сети хоста")
+            f["nets"] = [str(n) for n in nets]
+            found = find_devices(self.panel.adb.adb, nets, lambda stage, done, total: f.update(stage=stage, done=done, total=total))
+            f["found"] = [{"serial": s, "ip": s.rpartition(":")[0], "model": m, "name": profiles.PROFILES[m]["name"]}
+                          for s, m, _ in found]
+            JOURNAL.add(f"поиск колонок в {', '.join(f['nets'])}: найдено {len(found)}")
+            # первый запуск без адреса и колонка в сети одна — подключаемся сами, даже если страницу закрыли
+            if not self.panel.adb.serial and len(found) == 1:
+                f["auto"] = found[0][0]
+                self._conn_use(found[0][0])
+        except Exception as e:  # noqa: BLE001
+            f["error"] = str(e)
+            JOURNAL.add(f"поиск колонок: {e}", "warn")
+        finally:
+            f.update(running=False, stage="done")
 
     def _conn_use(self, serial):
         """Подключиться к другой колонке: запоминаем адрес и перезапускаем панель с ним."""
@@ -3670,6 +3694,8 @@ class Handler(BaseHTTPRequestHandler):
                               headers=[("Content-Disposition", 'attachment; filename="stantsiya-panel-ca.crt"')])
         if u.path == "/api/conn":
             return self._send(200, self.panel.conn.info())
+        if u.path == "/api/conn/find":
+            return self._handle(self._conn_find)
         if self._offline(u.path):
             return
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -3754,7 +3780,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/conn/retry":
             return self._send(200, self.panel.conn.retry_now())
         if u.path == "/api/conn/find":
-            return self._handle(self._conn_find)
+            return self._handle(lambda: self._conn_find(start=True))
         if u.path == "/api/conn/use":
             try:
                 d = self._json()
@@ -4028,10 +4054,17 @@ def local_networks():
     return nets
 
 
-def find_devices(adb_path, nets):
+def find_devices(adb_path, nets, progress=None):
     """Ищет колонки в подсетях: открытый порт adb 5555, затем проверка платы по device-tree.
-    → [(«ip:5555», профиль, имя хоста)]."""
+    progress(этап, сделано, всего) — для экрана подключения. → [(«ip:5555», профиль, имя хоста)]."""
     from concurrent.futures import ThreadPoolExecutor
+    progress = progress or (lambda *a: None)
+    lock, done = threading.Lock(), [0]
+
+    def tick(stage, total):
+        with lock:
+            done[0] += 1
+            progress(stage, done[0], total)
 
     def port_open(ip):
         try:
@@ -4039,12 +4072,23 @@ def find_devices(adb_path, nets):
             return ip
         except OSError:
             return None
+        finally:
+            tick("ports", len(hosts))
 
     hosts = [str(h) for net in nets for h in net.hosts()]
+    progress("ports", 0, len(hosts))
     with ThreadPoolExecutor(64) as pool:
         candidates = [ip for ip in pool.map(port_open, hosts) if ip]
+    done[0] = 0
+    progress("check", 0, len(candidates))
 
     def check(ip):
+        try:
+            return _check(ip)
+        finally:
+            tick("check", len(candidates))
+
+    def _check(ip):
         serial = f"{ip}:5555"
         try:
             subprocess.run([adb_path, "connect", serial], capture_output=True, timeout=10)
@@ -4207,7 +4251,8 @@ def main():
     device = normalize_device(args.device) or settings.get("device")
     if args.find:
         device = pick_device(find_adb(), args.find) or device
-    if not device and sys.stdin and sys.stdin.isatty():
+    # С --open (start.bat/start.sh) не спрашиваем в консоли: страница сама найдёт колонку в сети
+    if not device and not args.open and sys.stdin and sys.stdin.isatty():
         try:
             device = normalize_device(input("IP-адрес колонки (Enter — колонка по USB): "))
         except EOFError:
