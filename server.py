@@ -2997,6 +2997,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                                          headers={"User-Agent": "webpanel", "Accept": "application/vnd.github+json"})
             with urllib.request.urlopen(req, timeout=20) as r:
                 rels = [x for x in json.load(r) if not x.get("draft") and not x.get("prerelease")]
+            # С yam 0.2 (октябрь 2026) это новый пакетный менеджер без yamd; старый yam с демоном и веб-страницей,
+            # на которых держится вкладка «Приложения», выходит дальше (v0.1.x). Берём только релизы с yamd.
+            rels = [x for x in rels if any(a.get("name") == self.YAM_ASSET for a in x.get("assets", []))]
+            rels.sort(key=lambda x: x.get("published_at") or "", reverse=True)
             self._yam_releases = (time.time(), rels)
         return rels
 
@@ -3040,13 +3044,14 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 "update": bool(installed) and installed["tag_name"] != latest["tag_name"]}
 
     def yam_install_daemon(self):
-        """Как install.sh из репозитория yam: последний релиз, проверка SHA256SUMS, yamd на колонку, запуск."""
-        api = "https://api.github.com/repos/nyakokitsu/yam/releases/latest"
-        with urllib.request.urlopen(urllib.request.Request(api, headers={"User-Agent": "webpanel"}), timeout=20) as r:
-            rel = json.load(r)
+        """Как install.sh из репозитория yam: последний релиз с yamd, проверка SHA256SUMS, yamd на колонку, запуск."""
+        rels = self._yam_release_list(refresh=True)
+        if not rels:
+            raise AdbError("на GitHub нет релиза yam с yamd-aarch64-linux-musl")
+        rel = rels[0]
         assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
         if "yamd-aarch64-linux-musl" not in assets or "SHA256SUMS" not in assets:
-            raise AdbError("в последнем релизе yam нет yamd-aarch64-linux-musl или SHA256SUMS")
+            raise AdbError(f"в релизе yam {rel.get('tag_name')} нет SHA256SUMS")
         with urllib.request.urlopen(assets["SHA256SUMS"], timeout=30) as r:
             sums = r.read().decode()
         expected = next((ln.split()[0] for ln in sums.splitlines()
