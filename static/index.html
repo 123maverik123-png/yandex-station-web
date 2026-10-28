@@ -1218,29 +1218,15 @@
   </main>
 
   <main id="tab-boot" data-page hidden>
-    <header class="page-head"><div><h1>Анимации</h1><div class="sub">Анимации кольца и часов, заставка и звук при включении</div></div></header>
-    <div class="cols">
-      <section class="card">
-        <div class="card-head"><h2>Когда показывать</h2><span class="badge" id="boot-hook-badge">—</span></div>
-        <label class="toggle">
-          <span>Показывать при каждой загрузке</span>
-          <input type="checkbox" id="boot-always">
-        </label>
-        <p class="hint">По умолчанию заставка и звук запуска появляются только при первом включении. С этой опцией — при каждом.</p>
-      </section>
-      <section class="card">
-        <div class="card-head"><h2>Звук запуска</h2><span class="badge" id="snd-badge">—</span></div>
-        <div class="row" style="gap:8px">
-          <button class="btn sm" id="bs-play-default"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg>Стандартный</button>
-          <button class="btn sm" id="bs-play-custom"><svg width="14" height="14" aria-hidden="true"><use href="#i-play"/></svg>Свой</button>
-          <button class="btn sm danger-soft" id="bs-stop"><svg width="14" height="14" aria-hidden="true"><use href="#i-stop"/></svg>Стоп</button>
-        </div>
-        <button class="drop" id="bs-drop">Перетащите аудиофайл или нажмите, чтобы выбрать — он станет звуком запуска</button>
-        <input type="file" id="bs-file" accept="audio/*" hidden>
-        <div class="row"><button class="btn danger" id="bs-reset">Вернуть стандартный звук</button></div>
-        <p class="hint">Файл перекодируется в MP3 44,1 кГц стерео, как оригинальный sounds/common/boot.wav (длительность стандартного — 8 с).</p>
-      </section>
-    </div>
+    <header class="page-head"><div><h1>Анимации</h1><div class="sub">Анимации кольца и часов, заставка при включении</div></div></header>
+    <section class="card">
+      <div class="card-head"><h2>Когда показывать</h2><span class="badge" id="boot-hook-badge">—</span></div>
+      <label class="toggle">
+        <span>Показывать при каждой загрузке</span>
+        <input type="checkbox" id="boot-always">
+      </label>
+      <p class="hint">По умолчанию заставка и звук запуска появляются только при первом включении. С этой опцией — при каждом. Свой звук запуска — в «Звуках» на «Обзоре» (boot).</p>
+    </section>
     <!-- заставка часов -->
     <section class="card" id="boot-card">
       <div class="card-head"><h2>Анимации часов</h2>
@@ -1249,12 +1235,19 @@
       <div class="boot-grid">
         <div class="col">
           <div class="display editable" id="boot-editor"></div>
-          <p class="hint">Нажимайте на сегменты, чтобы включать и выключать их.</p>
+          <p class="hint">Нажимайте на сегменты, чтобы зажечь их выбранной яркостью или погасить. Правая кнопка мыши (на телефоне —
+            долгое нажатие) берёт яркость сегмента в ползунок.</p>
         </div>
         <div class="col">
           <div class="row" style="gap:8px">
             <input type="text" id="boot-text" class="field mono" maxlength="10" placeholder="HI:YA" aria-label="Текст в кадр" style="flex:1;min-width:100px">
             <button class="btn" id="boot-text-apply" style="min-height:42px">Текст в кадр</button>
+          </div>
+          <div class="row" style="gap:8px">
+            <label for="boot-br" style="min-width:auto">Яркость сегмента</label>
+            <input type="range" id="boot-br" min="1" max="255" value="255" style="flex:1;min-width:100px;width:auto">
+            <span class="mono meta" id="boot-br-v" style="min-width:32px;text-align:right">255</span>
+            <button class="btn sm" id="boot-br-all" title="Все горящие сегменты кадра — этой яркостью">Весь кадр</button>
           </div>
           <div class="row" style="gap:8px">
             <label for="boot-ms" style="min-width:auto">Длительность кадра</label>
@@ -1975,7 +1968,8 @@ function segShapes(x) {
 function clockSVG(v, { thumb = false } = {}) {
   const lvl = i => v[i] / 255;
   const cls = i => v[i] > 0 ? 'seg-on' : 'seg-off';
-  const op = i => v[i] > 0 ? ` fill-opacity="${(0.5 + 0.5 * lvl(i)).toFixed(2)}"` : '';   // горящий сегмент заметно ярче погасшего
+  // горящий сегмент заметно ярче погасшего, а полутона различимы между собой
+  const op = i => v[i] > 0 ? ` fill-opacity="${(0.3 + 0.7 * lvl(i)).toFixed(2)}"` : '';
   let s = `<svg viewBox="-4 -4 340 112" role="img" aria-label="Дисплей часов">`;
   DIGIT_X.forEach((x, p) => {
     for (const [seg, d] of segShapes(x)) {
@@ -2273,25 +2267,6 @@ function checkPause() {
   $('#boot-pause-hint').style.color = short ? 'var(--danger)' : '';
 }
 $('#boot-pause').oninput = checkPause;
-async function uploadBootSound(f) {
-  if (!f) return;
-  toast('Перекодирую и устанавливаю ' + f.name + '…');
-  await act($('#bs-drop'), async () => {
-    boot.status = await api('/api/boot/sound', f, { raw: true, headers: { 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(f.name) } });
-    renderBootStatus();
-  }, 'Звук запуска заменён');
-}
-const bsDrop = $('#bs-drop');
-bsDrop.onclick = () => $('#bs-file').click();
-$('#bs-file').onchange = e => { uploadBootSound(e.target.files[0]); e.target.value = ''; };
-bsDrop.ondragover = e => { e.preventDefault(); bsDrop.classList.add('over'); };
-bsDrop.ondragleave = () => bsDrop.classList.remove('over');
-bsDrop.ondrop = e => { e.preventDefault(); bsDrop.classList.remove('over'); uploadBootSound(e.dataTransfer.files[0]); };
-$('#bs-play-default').onclick = e => act(e.currentTarget, () => api('/api/boot/sound/play', { which: 'default' }), '▶ стандартный звук запуска');
-$('#bs-play-custom').onclick = e => act(e.currentTarget, () => api('/api/boot/sound/play', { which: 'custom' }), '▶ свой звук запуска');
-$('#bs-stop').onclick = e => act(e.currentTarget, () => api('/api/stop', {}));
-$('#bs-reset').onclick = e => confirm('Вернуть стандартный звук запуска?') &&
-  act(e.currentTarget, async () => { boot.status = await api('/api/boot/sound/reset', {}); renderBootStatus(); }, 'Стандартный звук восстановлен');
 $('#boot-always').onchange = e => act(e.target, async () => {
   try { boot.status = await api('/api/clock/boot/always', { enabled: e.target.checked }); }
   finally { renderBootStatus(); }
@@ -2316,10 +2291,6 @@ function renderBootStatus() {
   $('#boot-hook-badge').textContent = s.hook ? 'хук подключён' : needHook ? 'хук не подключён' : 'хук не нужен';
   $('#boot-hook-badge').className = 'badge' + (s.hook ? ' ok' : needHook ? ' bad' : '');
   $('#boot-hook-badge').title = !s.hook && needHook ? 'Своя заставка или звук сохранены, но строки запуска в rootkeeper.sh нет. Сохраните их ещё раз — панель подключит хук.' : '';
-  $('#snd-badge').textContent = !s.sound_supported ? 'не поддерживается' : s.sound_custom ? 'свой' : 'стандартный';
-  $('#snd-badge').className = 'badge' + (s.sound_custom ? ' ok' : '');
-  $('#bs-play-custom').disabled = !s.sound_custom;
-  $('#bs-reset').disabled = !s.sound_custom;
   renderClockStatus();
 }
 function renderClockStatus() {
@@ -2359,15 +2330,27 @@ async function loadClockAnim() {
   renderClockStatus(); renderBoot();
 }
 $('#anim-clock').onchange = () => loadClockAnim().catch(e => e.offline || toast(e.message, true));
+// Кисть яркости: щелчок зажигает сегмент её яркостью, повторный по такому же — гасит; правый — пипетка.
+const bootBrush = () => clamp(+$('#boot-br').value || 255, 1, +$('#boot-br').max);
+const setBrush = x => { $('#boot-br').value = x; $('#boot-br-v').textContent = bootBrush(); };
+$('#boot-br').oninput = () => setBrush($('#boot-br').value);
 $('#boot-editor').onclick = e => {
   const i = e.target.closest('[data-i]')?.dataset.i;
   if (i === undefined) return;
   const v = bootCur().v;
-  v[i] = v[i] > 0 ? 0 : 255;
+  v[i] = v[i] === bootBrush() ? 0 : bootBrush();
   renderBoot();
 };
+$('#boot-editor').oncontextmenu = e => {
+  const i = e.target.closest('[data-i]')?.dataset.i;
+  if (i === undefined) return;
+  e.preventDefault();
+  const x = bootCur().v[i];
+  if (x > 0) setBrush(x);
+};
+$('#boot-br-all').onclick = () => { bootCur().v = bootCur().v.map(x => x > 0 ? bootBrush() : 0); renderBoot(); };
 $('#boot-ms').onchange = e => { bootCur().ms = clamp(+e.target.value || 100, 10, 65535); renderBoot(); };
-const applyBootText = () => { bootCur().v = textToFrame($('#boot-text').value); renderBoot(); };
+const applyBootText = () => { bootCur().v = textToFrame($('#boot-text').value).map(x => x > 0 ? bootBrush() : 0); renderBoot(); };
 $('#boot-text-apply').onclick = applyBootText;
 $('#boot-text').onkeydown = e => { if (e.key === 'Enter') applyBootText(); };
 $('#boot-dup').onclick = () => { boot.frames.splice(boot.sel + 1, 0, structuredClone(bootCur())); boot.sel++; renderBoot(); };
@@ -4515,6 +4498,8 @@ async function loadPanelModel() {
     slider.value = Math.min(+slider.value, p.clock_max);
     $('#clock-br-v').textContent = slider.value;
     clockPreview();
+    $('#boot-br').max = p.clock_max;
+    setBrush(Math.min(bootBrush(), p.clock_max));
   }
   $('#upd-model').textContent = p.name;
   $('#upd-model-how').textContent = p.auto
