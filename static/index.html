@@ -4287,6 +4287,13 @@ const UPD_HOW = {
 async function loadPanelModel() {
   let p;
   try { p = await api('/api/profile'); } catch { return; }
+  if (p.clock_max) {
+    const slider = $('#clock-br');
+    slider.max = p.clock_max;
+    slider.value = Math.min(+slider.value, p.clock_max);
+    $('#clock-br-v').textContent = slider.value;
+    clockPreview();
+  }
   $('#upd-model').textContent = p.name;
   $('#upd-model-how').textContent = p.auto
     ? 'Определена автоматически по плате колонки. Задать вручную — параметр --model'
@@ -4433,6 +4440,7 @@ function onConnected() {
   loadDispState();
   loadAlarms();
   loadBt();
+  loadPanelModel();
 }
 
 // ---------- старт ----------

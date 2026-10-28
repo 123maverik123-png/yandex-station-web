@@ -53,6 +53,7 @@ if(visual.id!==profile.id){
 const hide=element=>element?.setAttribute('data-profile-hidden','');
 if(!profile.clock)hide(document.querySelector('[data-widget="clock"]'));
 if(!profile.light)hide(document.querySelector('[data-widget="light"]'));
+if(profile.bt_volume===false)hide(document.querySelector('.vol-bt'));
 if(!profile.boot)hide(document.getElementById('privacy-row'));
 if(profile.id!=='lite2'){
   hide(document.getElementById('pat-play'));

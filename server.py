@@ -429,7 +429,9 @@ class Adb:
         if p.returncode != 0:
             raise AdbError((p.stderr.decode("utf-8", "replace") or out).strip())
         res = []
-        for line in out.split("\n"):
+        # adb.exe uses CRLF on Windows; splitlines() keeps the carriage return
+        # out of the remote filename (otherwise folder clicks address "name\r").
+        for line in out.splitlines():
             parts = line.split(" ", 3)
             if len(parts) == 4:
                 res.append((int(parts[0], 16), int(parts[1], 16), int(parts[2], 16), parts[3]))
