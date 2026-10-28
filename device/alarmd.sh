@@ -7,11 +7,13 @@
 #   id|вкл|ЧЧ:ММ|дни|режим|запрос|файл звука|название звука|громкость 1–10|нарастание, с|выкл. через, мин|отложить, мин|подпись
 # дни — цифры 1–7 (пн–вс), пусто — один раз; режим: sound | wave | show | music | text.
 #
-# scenes.conf — сценарии: строка S на сценарий и строки A — его шаги по порядку (пишет панель):
-#   S|id|вкл|повод|ЧЧ:ММ|дни|название      повод: time — по времени, boot — после включения колонки
-#   A|id|шаг|арг1|арг2                       шаги: query текст | say текст | vol 0–10 нарастание_с |
-#                                            sound файл | ring RRGGBB секунд | wait секунд | stop
-# Тексты — только данные: шаг выполняет case ниже, через eval/sh -c они не проходят.
+# scenes.conf — сценарии (пишет панель). Сценарий — граф нод: строка S на сценарий, строки N — ноды:
+#   S|id|вкл|повод|ЧЧ:ММ|дни|первая нода|название      повод: time — по времени, boot — после включения
+#   N|id|нода|вид|арг1|арг2|дальше|иначе|x|y            x, y — место ноды в редакторе, демону не нужны
+# Виды: query/say/ask текст, vol 0–10 нарастание_с, sound файл, ring RRGGBB секунд, wait секунд,
+# wait_until ЧЧ:ММ, wait_quiet до_секунд, stop, scene id, if проверка аргумент, repeat раз, note (не выполняется).
+# У if и repeat два выхода: «дальше» — да / ещё круг, «иначе» — нет / круги кончились.
+# Тексты — только данные: ноду выполняет case ниже, через eval/sh -c они не проходят.
 
 D=/data/quasar/webpanel/alarm
 CONF=$D/alarms.conf
@@ -162,11 +164,43 @@ fire() {
 }
 
 # ---------- сценарии ----------
-step() {
-    kind=$1 a=$2 b=$3
+SLOG=$D/scenes.log
+slog() {
+    echo "$(date '+%d.%m %H:%M:%S') $*" >> $SLOG
+    [ "$(wc -c < $SLOG)" -gt 30000 ] && tail -n 150 $SLOG > $SLOG.t && mv $SLOG.t $SLOG
+}
+mins() { h=${1%:*} m=${1#*:}; echo $(( ${h#0} * 60 + ${m#0} )); }
+
+# Спросить своего ассистента (device/assistant) и дождаться, пока он ответит.
+ask() {
+    [ -f /tmp/webpanel_assistant.json ] || { slog "ассистент не запущен — «$1» пропущен"; return; }
+    printf '{"ask":"%s"}\n' "$1" > /tmp/webpanel_assistant.cmd.new && mv /tmp/webpanel_assistant.cmd.new /tmp/webpanel_assistant.cmd
+    sleep 3
+    i=0; while ! grep -q '"state":"idle"' /tmp/webpanel_assistant.json && [ $i -lt 180 ]; do sleep 1; i=$((i + 1)); done
+}
+
+check() {
+    case $1 in
+        time)   # «22:00-07:00»: через полночь тоже
+            now=$(mins "$(date +%H:%M)") f=$(mins "${2%-*}") to=$(mins "${2#*-}")
+            if [ $f -le $to ]; then [ $now -ge $f ] && [ $now -lt $to ]; else [ $now -ge $f ] || [ $now -lt $to ]; fi ;;
+        days) case "$2" in *"$(date +%u)"*) return 0 ;; esac; return 1 ;;
+        playing) playing ;;
+        online) online ;;
+        vol_above) [ "$(get_alsa)" -gt "$(alsa_of "$2")" ] ;;
+        chance) [ $(($(od -An -N2 -tu2 /dev/urandom) % 100)) -lt "$2" ] ;;
+        assistant_mode) grep -q '"mode":true' /tmp/webpanel_assistant.json 2>/dev/null ;;
+        *) return 1 ;;
+    esac
+}
+
+# Нода: 0 — идти по «дальше», иначе — по «иначе».
+node() {
+    kind=$1 a=$2 b=$3 sid=$4 nid=$5
     case $kind in
         query) alice "$a" ;;
         say) alice "Повтори за мной: $a" ;;
+        ask) ask "$a" ;;
         vol)
             # плавно — через микшер, а в конце говорим Алисе ту же громкость, чтобы она знала о ней
             if [ "${b:-0}" -gt 0 ]; then
@@ -179,23 +213,46 @@ step() {
             c=$a; r=${c%????} g=${c#??}; g=${g%??}; bl=${c#????}
             ring "\\x$bl\\x$g\\x$r"; sleep "${b:-5}"; ring_release ;;
         wait) sleep "${a:-1}" ;;
+        wait_until)
+            s=$(( $(mins "$a") * 60 - $(mins "$(date +%H:%M)") * 60 - $(date +%S | sed 's/^0//') ))
+            [ $s -le 0 ] && s=$((s + 86400)); sleep $s ;;
+        wait_quiet) i=0; while playing && [ $i -lt "${a:-600}" ]; do sleep 1; i=$((i + 1)); done ;;
         stop) alice "стоп" ;;
+        scene) ( run_scene "$a" ) ;;
+        if) check "$a" "$b"; return ;;
+        repeat)
+            f=$SRUN$sid.c$nid; rc=$(cat $f 2>/dev/null || echo 0)
+            [ "$rc" -lt "$a" ] && { echo $((rc + 1)) > $f; return 0; }
+            rm -f $f; return 1 ;;
     esac
+    return 0
 }
 
 run_scene() {
     id=$1
     line=$(grep "^S|$id|" $SCENES 2>/dev/null | head -n 1)
     [ -n "$line" ] || return
-    name=${line##*|}
-    # шаги — из файла, а не через «grep | while»: так цикл живёт в той же подоболочке, и панель
-    # останавливает сценарий одним kill по её pid
-    grep "^A|$id|" $SCENES > $SRUN$id.steps
+    IFS='|' read -r _ _ _ _ _ _ start name <<EOF
+$line
+EOF
+    # ноды — в файл, а цикл — в одной подоболочке: панель останавливает сценарий одним kill по её pid
+    grep "^N|$id|" $SCENES > $SRUN$id.nodes
     (
-        log "сценарий «$name»: начат"
-        while IFS='|' read -r _ _ kind a b; do step "$kind" "$a" "$b" < /dev/null; done < $SRUN$id.steps
-        log "сценарий «$name»: готово"
-        rm -f $SRUN$id $SRUN$id.steps
+        slog "«$name»: начат"
+        # счётчик шагов — со своим именем: функции колонки (ring_release и др.) свободно пишут в n, i, t
+        pc=$start sc_steps=0
+        while [ -n "$pc" ] && [ $sc_steps -lt 1000 ]; do
+            l=$(grep "^N|$id|$pc|" $SRUN$id.nodes | head -n 1)
+            [ -n "$l" ] || break
+            IFS='|' read -r _ _ _ kind a b nx el _ <<EOF
+$l
+EOF
+            if node "$kind" "$a" "$b" "$id" "$pc" < /dev/null; then pc=$nx; else pc=$el; fi
+            sc_steps=$((sc_steps + 1))
+        done
+        [ $sc_steps -ge 1000 ] && slog "«$name»: остановлен — больше 1000 шагов, похоже, зациклился без выхода"
+        slog "«$name»: готово"
+        rm -f $SRUN$id $SRUN$id.nodes $SRUN$id.c*
     ) < /dev/null &
     echo $! > $SRUN$id
 }
@@ -203,7 +260,7 @@ run_scene() {
 check_scenes() {
     [ -f $SCENES ] || return
     due=
-    while IFS='|' read -r t id on trig tm days name; do
+    while IFS='|' read -r t id on trig tm days rest; do
         [ "$t" = S ] && [ "$on" = 1 ] && [ "$trig" = time ] && [ "$tm" = "$now" ] || continue
         case "$days" in "" | *"$dow"*) ;; *) continue ;; esac
         grep -q "^s$id $stamp\$" $LAST 2>/dev/null && continue
@@ -224,7 +281,7 @@ boot_scenes() {
     (
         i=0; while ! pidof maind >/dev/null && [ $i -lt 300 ]; do sleep 2; i=$((i + 2)); done
         sleep 60
-        grep "^S|[^|]*|1|boot|" $SCENES | while IFS='|' read -r _ id _; do run_scene "$id"; done
+        for id in $(grep "^S|[^|]*|1|boot|" $SCENES | cut -d'|' -f2); do run_scene "$id"; done
     ) < /dev/null &
 }
 
@@ -269,7 +326,7 @@ while :; do
     i=$((60 - s))
     while [ $i -gt 0 ]; do
         if [ -f $FIRE ]; then id=$(cat $FIRE); rm -f $FIRE; log "$id: проверка из панели"; run_id "$id"; break; fi
-        if [ -f $SFIRE ]; then id=$(cat $SFIRE); rm -f $SFIRE; run_scene "$id"; fi
+        if [ -f $SFIRE ]; then id=$(cat $SFIRE); rm -f $SFIRE; slog "запуск из панели"; run_scene "$id"; fi
         sleep 1; i=$((i - 1))
     done
 done

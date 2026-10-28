@@ -225,6 +225,7 @@ ALARM_SRC = Path(__file__).resolve().parent / "device" / "alarmd.sh"
 SCENES_CONF = f"{ALARM_DIR}/scenes.conf"
 SCENE_FIRE = "/tmp/webpanel_scene.fire"
 SCENE_RUN = "/tmp/webpanel_scene."      # + id: pid идущего сценария
+SCENES_LOG = f"{ALARM_DIR}/scenes.log"
 
 
 def alarm_script():
@@ -2669,77 +2670,134 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         self._alarm_daemon(restart=True)
 
     # ---------- сценарии ----------
-    SCENE_KINDS = ("query", "say", "vol", "sound", "ring", "wait", "stop")
+    # Сценарий — граф нод (scenes.conf, разбирает device/alarmd.sh). У if и repeat два выхода: next и else.
+    SCENE_KINDS = ("query", "say", "ask", "vol", "sound", "ring", "wait", "wait_until", "wait_quiet", "stop", "scene",
+                   "if", "repeat", "note")
+    SCENE_CHECKS = ("time", "days", "playing", "online", "vol_above", "chance", "assistant_mode")
 
     def scenes(self):
         out, _, _ = self.adb.shell(
-            f"cat {SCENES_CONF} 2>/dev/null; echo '<<<'; for f in {SCENE_RUN}*; do case $f in *.steps|*\\*) continue;; esac; "
-            f"kill -0 $(cat $f) 2>/dev/null && echo \"${{f#{SCENE_RUN}}}\"; done; true", check=False)
-        conf, _, running = strip_ansi(out).partition("<<<")
+            f"cat {SCENES_CONF} 2>/dev/null; echo '<<<'; for f in {SCENE_RUN}*; do case $f in *.nodes|*.c*|*\\*) continue;; esac; "
+            f"kill -0 $(cat $f) 2>/dev/null && echo \"${{f#{SCENE_RUN}}}\"; done; echo '<<<'; tail -n 40 {SCENES_LOG} 2>/dev/null; "
+            f"echo '<<<'; p=$(cat {ALARM_SD} 2>/dev/null) && kill -0 $p 2>/dev/null && echo run; true", check=False)
+        conf, running, log, daemon = (strip_ansi(out).split("<<<") + ["", "", "", ""])[:4]
         items, by_id = [], {}
+        num = lambda v: int(v) if v.lstrip("-").isdigit() else 0
         for line in conf.splitlines():
             f = line.rstrip("\r").split("|")
-            if f[0] == "S" and len(f) == 7:
-                s = {"id": f[1], "on": f[2] == "1", "trigger": f[3], "time": f[4], "days": f[5], "name": f[6], "steps": []}
+            if f[0] == "S" and len(f) == 8:
+                s = {"id": f[1], "on": f[2] == "1", "trigger": f[3], "time": f[4], "days": f[5], "start": f[6],
+                     "name": f[7], "nodes": []}
                 items.append(s); by_id[s["id"]] = s
-            elif f[0] == "A" and len(f) == 5 and f[1] in by_id:
-                kind, a, b = f[2], f[3], f[4]
-                step = {"kind": kind}
-                if kind in ("query", "say"):
-                    step["text"] = a
+            elif f[0] == "N" and len(f) == 10 and f[1] in by_id:
+                _, sid, nid, kind, a, b, nx, el, x, y = f
+                n = {"id": nid, "kind": kind, "next": nx, "else": el, "x": num(x), "y": num(y)}
+                if kind in ("query", "say", "ask", "note"):
+                    n["text"] = a
                 elif kind == "vol":
-                    step.update(level=int(a or 0), ramp=int(b or 0))
+                    n.update(level=num(a), ramp=num(b))
                 elif kind == "sound":
-                    step.update(sound=b or "sys:" + ALARM_DEFAULT_SOUND)
+                    n["sound"] = b or "sys:" + ALARM_DEFAULT_SOUND
                 elif kind == "ring":
-                    step.update(color="#" + a, secs=int(b or 0))
-                elif kind == "wait":
-                    step["secs"] = int(a or 0)
-                by_id[f[1]]["steps"].append(step)
-        return {"scenes": items, "running": running.split()}
+                    n.update(color="#" + a, secs=num(b))
+                elif kind in ("wait", "wait_quiet"):
+                    n["secs"] = num(a)
+                elif kind == "wait_until":
+                    n["time"] = a
+                elif kind == "scene":
+                    n["target"] = a
+                elif kind == "if":
+                    n.update(check=a, arg=b)
+                elif kind == "repeat":
+                    n["count"] = num(a)
+                by_id[sid]["nodes"].append(n)
+        return {"scenes": items, "running": running.split(), "log": [l for l in log.splitlines() if l.strip()],
+                "daemon": daemon.strip() == "run"}
 
     def scenes_save(self, data):
         items = data.get("scenes")
         if not isinstance(items, list) or len(items) > 20:
             raise AdbError("неверный список сценариев")
-        text = lambda v, n: re.sub(r"[|\x00-\x1f]", " ", str(v or "")).strip()[:n]
-        num = lambda v, lo, hi: max(lo, min(hi, int(v or 0)))
+        # тексты идут в конфиг через «|» и в JSON для ассистента — без разделителей, кавычек и обратной косой
+        text = lambda v, n: re.sub(r'[|"\\\x00-\x1f]', " ", str(v or "")).strip()[:n]
+        num = lambda v, lo, hi: max(lo, min(hi, int(float(v or 0))))
+        hm = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
+        ids = {re.sub(r"[^a-z0-9]", "", str(s.get("id") or ""))[:12] for s in items}
         lines, sys_needed = [], {}
         for s in items:
             sid = re.sub(r"[^a-z0-9]", "", str(s.get("id") or ""))[:12] or os.urandom(4).hex()
+            name = text(s.get("name"), 40) or "Сценарий"
             trig = "boot" if s.get("trigger") == "boot" else "time"
             tm = str(s.get("time") or "")
-            if trig == "time" and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", tm):
-                raise AdbError(f"неверное время: {tm}")
+            if trig == "time" and not hm.fullmatch(tm):
+                raise AdbError(f"«{name}»: неверное время {tm}")
             days = "".join(sorted(set(re.sub(r"[^1-7]", "", str(s.get("days", ""))))))
-            steps = s.get("steps")
-            if not isinstance(steps, list) or not steps or len(steps) > 30:
-                raise AdbError("в сценарии должно быть от 1 до 30 шагов")
-            name = text(s.get("name"), 40) or "Сценарий"
-            lines.append("|".join(["S", sid, "1" if s.get("on", True) else "0", trig, tm if trig == "time" else "", days, name]))
-            for st in steps:
-                kind = st.get("kind")
+            nodes = s.get("nodes")
+            if not isinstance(nodes, list) or len(nodes) > 60:
+                raise AdbError(f"«{name}»: нод должно быть не больше 60")
+            nids = [re.sub(r"[^0-9]", "", str(n.get("id") or ""))[:4] for n in nodes]
+            if "" in nids or len(set(nids)) != len(nids):
+                raise AdbError(f"«{name}»: у нод должны быть разные номера")
+            link = lambda v: (str(v) if str(v or "") in nids else "")
+            start = link(s.get("start"))
+            if not start and any(n.get("kind") != "note" for n in nodes):
+                raise AdbError(f"«{name}»: соедините «Запуск» с первой нодой")
+            lines.append("|".join(["S", sid, "1" if s.get("on", True) else "0", trig, tm if trig == "time" else "", days, start, name]))
+            for nid, n in zip(nids, nodes):
+                kind = n.get("kind")
                 if kind not in self.SCENE_KINDS:
-                    raise AdbError(f"неизвестный шаг: {kind}")
+                    raise AdbError(f"«{name}»: неизвестная нода {kind}")
                 a = b = ""
-                if kind in ("query", "say"):
-                    a = text(st.get("text"), 200)
+                if kind in ("query", "say", "ask"):
+                    a = text(n.get("text"), 200)
                     if not a:
-                        raise AdbError(f"«{name}»: в шаге не задан текст")
+                        raise AdbError(f"«{name}»: в ноде не задан текст")
+                elif kind == "note":
+                    a = text(n.get("text"), 200)
                 elif kind == "vol":
-                    a, b = num(st.get("level"), 0, 10), num(st.get("ramp"), 0, 1800)
+                    a, b = num(n.get("level"), 0, 10), num(n.get("ramp"), 0, 1800)
                 elif kind == "sound":
-                    b = str(st.get("sound") or "")
+                    b = str(n.get("sound") or "")
                     a = self._alarm_sound(b, sys_needed)
                     b = b if b.startswith("sys:") or a == b else ""
                 elif kind == "ring":
-                    c = str(st.get("color") or "").lstrip("#").lower()
+                    c = str(n.get("color") or "").lstrip("#").lower()
                     if not re.fullmatch(r"[0-9a-f]{6}", c):
                         raise AdbError(f"«{name}»: неверный цвет кольца")
-                    a, b = c, num(st.get("secs"), 1, 600)
+                    a, b = c, num(n.get("secs"), 1, 600)
                 elif kind == "wait":
-                    a = num(st.get("secs"), 1, 7200)
-                lines.append("|".join(["A", sid, kind, str(a), str(b)]))
+                    a = num(n.get("secs"), 1, 86400)
+                elif kind == "wait_quiet":
+                    a = num(n.get("secs"), 10, 7200)
+                elif kind == "wait_until":
+                    a = str(n.get("time") or "")
+                    if not hm.fullmatch(a):
+                        raise AdbError(f"«{name}»: неверное время ожидания")
+                elif kind == "scene":
+                    a = re.sub(r"[^a-z0-9]", "", str(n.get("target") or ""))[:12]
+                    if a not in ids or a == sid:
+                        raise AdbError(f"«{name}»: выберите, какой другой сценарий запустить")
+                elif kind == "if":
+                    a = n.get("check")
+                    if a not in self.SCENE_CHECKS:
+                        raise AdbError(f"«{name}»: неизвестное условие")
+                    arg = str(n.get("arg") or "")
+                    if a == "time":
+                        f, _, to = arg.partition("-")
+                        if not (hm.fullmatch(f) and hm.fullmatch(to)):
+                            raise AdbError(f"«{name}»: время в условии — как 22:00-07:00")
+                        b = arg
+                    elif a == "days":
+                        b = "".join(sorted(set(re.sub(r"[^1-7]", "", arg)))) or "1234567"
+                    elif a == "vol_above":
+                        b = num(arg, 0, 10)
+                    elif a == "chance":
+                        b = num(arg, 0, 100)
+                elif kind == "repeat":
+                    a = num(n.get("count"), 1, 100)
+                two = kind in ("if", "repeat")
+                lines.append("|".join(["N", sid, nid, kind, str(a), str(b), "" if kind == "note" else link(n.get("next")),
+                                       link(n.get("else")) if two else "", str(num(n.get("x"), 0, 20000)), str(num(n.get("y"), 0, 20000))]))
         self._alarm_sounds_ready(sys_needed)
         self._alarm_write(SCENES_CONF, lines)
         return self.scenes()
@@ -2747,14 +2805,14 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     def scene_run(self, sid):
         if sid not in {s["id"] for s in self.scenes()["scenes"]}:
             raise AdbError("нет такого сценария")
-        if not self.alarms().get("running"):
-            raise AdbError("демон будильника не запущен — сохраните сценарий ещё раз")
+        if not self.scenes()["daemon"]:
+            raise AdbError("сценарии на колонке не запущены — сохраните сценарий ещё раз")
         self.adb.shell(f"echo {shlex.quote(sid)} > {SCENE_FIRE}")
         return {"ok": True}
 
     def scene_stop(self, sid):
         sid = re.sub(r"[^a-z0-9]", "", str(sid or ""))
-        self.adb.shell(f"p=$(cat {SCENE_RUN}{sid} 2>/dev/null) && kill $p 2>/dev/null; rm -f {SCENE_RUN}{sid} {SCENE_RUN}{sid}.steps; "
+        self.adb.shell(f"p=$(cat {SCENE_RUN}{sid} 2>/dev/null) && kill $p 2>/dev/null; rm -f {SCENE_RUN}{sid} {SCENE_RUN}{sid}.*; "
                        f"killall aplay 2>/dev/null; true", check=False)
         self.ring_reset()
         return self.scenes()
