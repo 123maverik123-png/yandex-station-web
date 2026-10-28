@@ -465,7 +465,8 @@ func (d *Daemon) onEvent(ev logEvent) {
 	d.ask(question, "voice")
 }
 
-// command — запрос из панели: {"ask": "текст"} (проверка без голоса), {"stop": true}, {"mode": true|false},
+// command — запрос из панели: {"ask": "текст"} (проверка без голоса), {"say": "текст"} (произнести как есть),
+// {"stop": true}, {"mode": true|false},
 // {"radio": {"name": …, "url": …}}, {"radio_stop": true}.
 func (d *Daemon) command() {
 	b, err := os.ReadFile(d.cmdPath)
@@ -475,6 +476,7 @@ func (d *Daemon) command() {
 	os.Remove(d.cmdPath)
 	var cmd struct {
 		Ask       string   `json:"ask"`
+		Say       string   `json:"say"`
 		Stop      bool     `json:"stop"`
 		Mode      *bool    `json:"mode"`
 		Radio     *Station `json:"radio"`
@@ -492,6 +494,16 @@ func (d *Daemon) command() {
 	}
 	if cmd.Ask != "" {
 		d.ask(cmd.Ask, "panel")
+	}
+	if cmd.Say != "" {
+		d.mu.Lock()
+		c := d.cfg
+		d.mu.Unlock()
+		go func() {
+			if err := d.speak(context.Background(), c, cmd.Say); err != nil {
+				log.Printf("сказать: %v", err)
+			}
+		}()
 	}
 	if cmd.RadioStop {
 		d.radio.Stop()

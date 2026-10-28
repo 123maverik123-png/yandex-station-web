@@ -2032,6 +2032,25 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         self.adb.shell(f"mv {ASSIST_CMD}.new {ASSIST_CMD}")
         return {"ok": True}
 
+    def say(self, text, voice="alice"):
+        """Произнести текст на колонке: голосом Алисы («Повтори за мной» через её отладочный CLI — без входа
+        в Яндекс, но через её облако) или синтезатором ассистента."""
+        text = re.sub(r"[\x00-\x1f]", " ", str(text or "")).strip()
+        if not 1 <= len(text) <= 300:
+            raise AdbError("текст — от 1 до 300 символов")
+        if voice == "assistant":
+            return self.assistant_command({"say": text})
+        # текст — файлом: в команду оболочки он не попадает
+        path = "/tmp/webpanel_say.txt"
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "say"
+            f.write_text("Повтори за мной: " + text + "\n", encoding="utf-8")
+            self.adb.push(f, path)
+        self.detach("say", f"t=$(cat {path}); rm -f {path}; "
+                           f"{{ sleep 2; printf 'q\\n'; sleep 0.5; printf '%s\\n' \"$t\"; sleep 3; printf 'x\\n'; sleep 1; }} "
+                           f"| {QRUN}/maind --cli >/dev/null 2>&1")
+        return {"ok": True}
+
     def assistant_ask(self, text):
         text = str(text or "").strip()
         if not 1 <= len(text) <= 1000:
@@ -4088,6 +4107,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/alarms/uninstall": p.alarm_uninstall,
             "/api/scenes": lambda: p.scenes_save(d),
             "/api/scenes/run": lambda: p.scene_run(d.get("id")),
+            "/api/say": lambda: p.say(d.get("text"), d.get("voice", "alice")),
             "/api/scenes/stop": lambda: p.scene_stop(d.get("id")),
         }
         if u.path in routes:

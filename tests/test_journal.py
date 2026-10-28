@@ -89,3 +89,27 @@ class SpeakerFinder(unittest.TestCase):
             self.assertEqual(server.Handler._conn_use(h, "192.168.1.50")["serial"], "192.168.1.50:5555")
         save.assert_called_once_with({"device": "192.168.1.50:5555"})
         self.assertEqual(timer.call_args.kwargs["kwargs"], {"device": "192.168.1.50:5555"})
+
+
+class SayOnSpeaker(unittest.TestCase):
+    """«Сказать на колонке»: текст уходит файлом, в команду оболочки не попадает."""
+
+    def test_alice_voice(self):
+        p = server.Panel(Mock())
+        p.detach = Mock()
+        pushed = []
+        p.adb.push = lambda local, remote, *a, **k: pushed.append((Path(local).read_text(encoding="utf-8"), remote))
+        p.say("ужин; rm -rf / $(id)\nвторая строка")
+        self.assertEqual(pushed, [("Повтори за мной: ужин; rm -rf / $(id) вторая строка\n", "/tmp/webpanel_say.txt")])
+        script = p.detach.call_args.args[1]
+        self.assertNotIn("rm -rf", script)
+        self.assertIn("maind --cli", script)
+
+    def test_assistant_voice_and_limits(self):
+        p = server.Panel(Mock())
+        p.assistant_command = Mock(return_value={"ok": True})
+        p.say("привет", "assistant")
+        p.assistant_command.assert_called_once_with({"say": "привет"})
+        for bad in ("", "   ", "x" * 301):
+            with self.assertRaises(server.AdbError):
+                p.say(bad)

@@ -917,6 +917,17 @@
                 <button class="voice-retry" type="button">Попробовать снова</button><button class="voice-dismiss" type="button" aria-label="Скрыть сообщение" title="Скрыть">×</button></div>
             </form>
         </section>
+        <!-- сказать на колонке -->
+        <section class="card" data-widget="say" data-title="Сказать на колонке">
+          <div class="card-head"><h2>Сказать на колонке</h2></div>
+          <form class="row" id="say-form" style="gap:8px;align-items:stretch">
+            <input type="text" class="field" id="say-text" maxlength="300" placeholder="Ужин готов, все к столу!" aria-label="Что сказать" style="flex:1;min-width:180px">
+            <select class="field" id="say-voice" aria-label="Каким голосом" hidden style="width:auto">
+              <option value="alice">голосом Алисы</option><option value="assistant">голосом ассистента</option></select>
+            <button class="btn sm primary" style="min-height:42px">Сказать</button>
+          </form>
+          <p class="hint" id="say-hint">Колонка произнесёт текст голосом Алисы — без входа в Яндекс, но нужен интернет: Алиса озвучивает через своё облако.</p>
+        </section>
 
         <!-- громкость -->
         <section class="card" data-widget="volume" data-title="Громкость">
@@ -2047,6 +2058,24 @@ function setSndCustom(r) {
   renderSounds();
   if (!$('#tab-boot').hidden) loadBoot();   // звук запуска показывает и вкладка «Анимации»
 }
+// ---------- сказать на колонке ----------
+const SAY_HINT = {
+  alice: 'Голосом Алисы («Повтори за мной») — без входа в Яндекс, но нужен интернет: Алиса озвучивает через своё облако.',
+  assistant: 'Голосом ассистента — его синтезатор из вкладки «Ассистент» (или тоже голос Алисы, если он так настроен).',
+};
+async function loadSay() {
+  const a = await api('/api/assistant').catch(() => null);
+  $('#say-voice').hidden = !(a?.installed && a?.running);
+  if ($('#say-voice').hidden) $('#say-voice').value = 'alice';
+  else $('#say-voice').value = store.get('say.voice') || 'alice';
+  $('#say-hint').textContent = SAY_HINT[$('#say-voice').value];
+}
+$('#say-voice').onchange = e => { store.set('say.voice', e.target.value); $('#say-hint').textContent = SAY_HINT[e.target.value]; };
+$('#say-form').onsubmit = e => {
+  e.preventDefault();
+  const text = $('#say-text').value.trim(); if (!text) return;
+  act(e.submitter, async () => { await api('/api/say', { text, voice: $('#say-voice').value }); $('#say-text').select(); }, '🗣 ' + text);
+};
 $('#snd-replace-file').onchange = async e => {
   const f = e.target.files[0], name = sndTarget;
   e.target.value = '';
@@ -3685,7 +3714,7 @@ function readLayout() {
 }
 const DEFAULT_LAYOUT = { zones: {
   'wz-top': ['stats'],
-  'wz-left': ['model', 'alice', 'volume', 'bt', 'sounds'],
+  'wz-left': ['model', 'alice', 'volume', 'say', 'bt', 'sounds'],
   'wz-right': ['music', 'clock', 'light', 'device'],
 }, hidden: [] };
 const homeZone = id => ZONES.find(z => DEFAULT_LAYOUT.zones[z].includes(id)) || 'wz-right';
@@ -5349,6 +5378,7 @@ function onConnected() {
   clearInterval(statusTimer);
   statusTimer = setInterval(refreshStatus, 5000);
   loadSounds().catch(e => { if (!e.offline) $('#sounds').innerHTML = `<div class="empty">${esc(e.message)}</div>`; });
+  loadSay();
   api('/api/patterns').then(p => { patterns = p; renderPatterns(); }).catch(e => e.offline || toast(e.message, true));
   loadMusic();
   loadDispState();
