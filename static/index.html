@@ -233,6 +233,11 @@
   .seg-on { fill: var(--display-text); }
   .seg-off { fill: var(--display-text); fill-opacity: .07; }
   .deg-on { stroke: var(--display-text); fill: none; }
+  /* свечение горящих сегментов, как у настоящего дисплея: у тусклых (fill-opacity) оно слабее само */
+  .display .seg-on, .display .deg-on { filter: drop-shadow(0 0 2.5px rgb(242 242 245 / .8)) drop-shadow(0 0 9px rgb(242 242 245 / .35)); }
+  .frame-thumb .seg-on, .frame-thumb .deg-on { filter: drop-shadow(0 0 1.5px rgb(242 242 245 / .7)); }
+  .display { background: radial-gradient(120% 90% at 50% 0%, rgb(255 255 255 / .05), transparent 60%), var(--display);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .05), inset 0 -18px 36px rgb(0 0 0 / .25); }
   .deg-off { stroke: var(--display-text); stroke-opacity: .07; fill: none; }
   .editable [data-i] { cursor: pointer; }
   .editable [data-i]:hover { fill-opacity: .35; stroke-opacity: .5; }
