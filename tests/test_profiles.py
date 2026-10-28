@@ -177,3 +177,29 @@ class ConfigTests(unittest.TestCase):
 
 
 if __name__ == '__main__': unittest.main()
+
+
+class TrialFeatures(unittest.TestCase):
+    """Новые функции — на всех моделях на пробу; подтверждённые людьми (tested) — без предупреждения."""
+
+    def test_lite2_tested_everything_others_trial(self):
+        self.assertEqual(set(profiles.PROFILES['lite2']['tested']), set(profiles.TRIAL_FEATURES))
+        for model, p in profiles.PROFILES.items():
+            self.assertTrue(set(p.get('tested', ())) <= set(profiles.TRIAL_FEATURES), model)
+
+    def test_assistant_warning_follows_tested(self):
+        for tested, expect in (((), True), (('assistant',), False)):
+            s = fresh_server()
+            saved = profiles.PROFILES['mini2'].get('tested')
+            profiles.PROFILES['mini2']['tested'] = tested
+            try:
+                profiles.install(s, 'mini2')
+            finally:
+                if saved is None:
+                    profiles.PROFILES['mini2'].pop('tested')
+                else:
+                    profiles.PROFILES['mini2']['tested'] = saved
+            p = s.Panel(Mock())
+            p.adb.shell = lambda cmd, *a, **k: ('@status\n{}\n', '', 0)
+            p._assist_config = lambda: {}
+            self.assertEqual(p.assistant_status()['experimental'], expect)

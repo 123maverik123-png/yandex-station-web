@@ -7,8 +7,14 @@ import threading
 import time
 from pathlib import Path
 
+# Функции, которые на других моделях открыты «на пробу» с предупреждением. Когда люди подтвердили, что функция
+# работает на модели, — впишите её в tested этой модели: предупреждение пропадёт. Новые функции — сюда же.
+# Работа с экраном (заставка, анимации и дисплей часов) — не здесь: у моделей разные экраны, её открывают флаги
+# clock/boot только после проверки.
+TRIAL_FEATURES = ("assistant", "scenes", "alarm", "anims", "sounds", "say")
+
 PROFILES = {
-    'lite2': dict(name='Станция Лайт 2', platform='plum', clock=True, boot=True, alarms=True, light=True),
+    'lite2': dict(name='Станция Лайт 2', platform='plum', clock=True, boot=True, alarms=True, light=True, tested=TRIAL_FEATURES),
     'station2': dict(name='Станция 2', platform='yandexmidi', clock=False, boot=False, alarms=False, light=True),
     'mini3pro': dict(name='Станция Мини 3 Про', platform='pickle', clock=True, boot=False, alarms=False, light=True),
     # Common ADB features and a distinct 3D model; LED layout has not been verified on hardware.
@@ -125,6 +131,7 @@ def mini3pro_ring_script(rgb=None, leds='/sys/class/leds', state='/tmp/webpanel_
 
 def install(s, model='lite2', auto=False):
     profile = dict(PROFILES[model], id=model, auto=auto)
+    profile['tested'] = list(profile.get('tested', ()))   # подтверждено людьми — без предупреждения
     profile['light_note'] = ('Подсветка этой модели ещё не проверена.' if not profile['light'] else
                              'Анимация Алисы может заменить выбранный цвет.')
     s.GLAGOL_PLATFORM = profile['platform']
@@ -252,7 +259,7 @@ def install(s, model='lite2', auto=False):
             setattr(P, method, unsupported)
     # Помощник проверен только на Лайт 2: здесь — на пробу, без хука автозапуска Лайт 2 (до перезагрузки колонки)
     original_assistant_status = P.assistant_status
-    P.assistant_status = lambda self: {**original_assistant_status(self), 'experimental': True,
+    P.assistant_status = lambda self: {**original_assistant_status(self), 'experimental': 'assistant' not in profile['tested'],
                                          'model_name': profile['name']}
     original_radio_status = P.radio_status
     P.radio_status = lambda self: {**original_radio_status(self), 'supported': False}
