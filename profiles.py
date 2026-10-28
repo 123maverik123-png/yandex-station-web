@@ -14,18 +14,18 @@ PROFILES = {
     # Common ADB features and a distinct 3D model; LED layout has not been verified on hardware.
     'mini3': dict(name='Станция Мини 3', platform='bergamot', clock=False, boot=False, alarms=False, light=False, experimental=True),
     # Glagol всё равно берёт тип из common.deviceType; светодиоды называются mini2:*.
-    'mini2': dict(name='Станция Мини 2 с часами', platform='yandexmini_2', led_prefix='mini2', clock=True, boot=False,
-                  alarms=False, light=True),
+    'mini2': dict(name='Станция Мини 2 с часами', platform='yandexmini_2', led_prefix='mini2', clock=True,
+                  clock_max=170, bt_volume=False, boot=False, alarms=False, light=True),
 }
 
 # Мини 2: цифры 1–4 из сегментов A–G без точек H, двоеточие PLUS1/PLUS2, MINUS посередине, DEGREE.
 # Остальная панель работает с 36 сегментами Лайт 2, поэтому имена Лайт 2 → сегменты Мини 2.
 # PLUS3/PLUS4 в sysfs есть, но прошивка их не использует — не трогаем.
 MINI2_CLOCK = {**{f'{s}{p}': f'{s}{p + 1}' for p in range(4) for s in 'ABCDEFG'},
-               'DEGREE': 'DEGREE', 'DH': 'PLUS1', 'DL': 'PLUS2', 'DM': 'MINUS'}
+               'DEGREE': 'DEGREE', 'DH': 'PLUS2', 'DL': 'PLUS1', 'DM': 'MINUS'}
 MINI2_CLOCK_DIR = '/tmp/webpanel_clock/'
 # Кадр .binscled Мини 2: флаг, 32 яркости (цифры по A–G, затем PLUS1, PLUS2, MINUS, DEGREE), мс.
-MINI2_FRAME_LEDS = [f'{s}{p}' for p in range(4) for s in 'ABCDEFG'] + ['DH', 'DL', 'DM', 'DEGREE']
+MINI2_FRAME_LEDS = [f'{s}{p}' for p in range(4) for s in 'ABCDEFG'] + ['DL', 'DH', 'DM', 'DEGREE']
 MINI2_FRAME = 1 + len(MINI2_FRAME_LEDS) + 2
 
 
@@ -54,7 +54,7 @@ def mini2_decode_clock_pattern(s, name, data):
 def mini2_encode_clock_pattern(s, frames):
     out = bytearray()
     for f in frames:
-        v = [max(0, min(255, int(x))) for x in f['v']]
+        v = [max(0, min(170, int(x))) for x in f['v']]
         if len(v) != len(s.CLOCK_LEDS):
             raise s.AdbError(f'в кадре должно быть {len(s.CLOCK_LEDS)} значений')
         by_name = dict(zip(s.CLOCK_LEDS, v))
@@ -165,6 +165,36 @@ def install(s, model='lite2', auto=False):
         s.encode_clock_pattern = lambda frames: mini2_encode_clock_pattern(s, frames)
 
     P = s.Panel
+    if model == 'mini2':
+        original_clock, original_display_set, original_play_clock = P.clock, P.display_set, P.play_clock
+        original_set_volume = P.set_volume
+
+        def clock(self, data):
+            data = dict(data)
+            if 'v' in data:
+                data['v'] = [max(0, min(170, int(value))) for value in data['v']]
+            if 'brightness' in data:
+                data['brightness'] = max(0, min(170, int(data['brightness'])))
+            return original_clock(self, data)
+
+        def display_set(self, data):
+            data = dict(data)
+            if 'v' in data:
+                data['v'] = [max(0, min(170, int(value))) for value in data['v']]
+            data['brightness'] = max(1, min(170, int(data.get('brightness', 160))))
+            return original_display_set(self, data)
+
+        def play_clock(self, frames, seconds):
+            frames = [{**frame, 'v': [max(0, min(170, int(value))) for value in frame['v']]}
+                      for frame in frames]
+            return original_play_clock(self, frames, seconds)
+
+        def set_volume(self, data):
+            if 'bt' in data:
+                raise s.AdbError('У Mini 2 нет отдельного Bluetooth-регулятора; используйте общую громкость')
+            return original_set_volume(self, data)
+
+        P.clock, P.display_set, P.play_clock, P.set_volume = clock, display_set, play_clock, set_volume
     original_shell = s.Adb.shell
 
     def shell(self, command, timeout=15, check=True):
@@ -176,6 +206,7 @@ def install(s, model='lite2', auto=False):
         wrapped = (f"printf '{marker}\\n'; sh -c {shlex.quote(command)}; rc=$?; "
                    f"printf '\\n{marker}RC=%s\\n' \"$rc\"")
         out, err, _ = original_shell(self, wrapped, timeout, False)
+        out = out.replace('\r\n', '\n').replace('\r', '\n')
         if marker + '\n' not in out:
             raise s.AdbError('Нет ответа shell колонки')
         body = out.split(marker + '\n', 1)[1]

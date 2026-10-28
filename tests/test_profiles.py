@@ -76,13 +76,40 @@ class ProfileTests(unittest.TestCase):
         profiles.install(s, 'mini2')
         self.assertEqual((s.LED_PREFIX, s.GLAGOL_PLATFORM, s.YAM_DIR), ('mini2', 'yandexmini_2', '/data/quazar/yam'))
         self.assertIn('L=/tmp/webpanel_clock/', s.display_script('date'))
-        self.assertEqual(profiles.MINI2_CLOCK['DM'], 'MINUS')
+        self.assertEqual((profiles.MINI2_CLOCK['DH'], profiles.MINI2_CLOCK['DL'], profiles.MINI2_CLOCK['DM']),
+                         ('PLUS2', 'PLUS1', 'MINUS'))
         # кадр Мини 2: 28 сегментов цифр, PLUS1, PLUS2, MINUS, DEGREE
         frame = bytes([1, *range(1, 33), 0, 20])
         decoded = s.decode_clock_pattern('x.binscled', frame)
         v = decoded[0]['v']
-        self.assertEqual((len(v), v[0], v[6], v[7], v[8], v[32], v[33], v[34], v[35]), (36, 1, 7, 0, 8, 32, 29, 30, 31))
+        self.assertEqual((len(v), v[0], v[6], v[7], v[8], v[32], v[33], v[34], v[35]),
+                         (36, 1, 7, 0, 8, 32, 30, 29, 31))
         self.assertEqual(s.encode_clock_pattern(decoded), frame)
+
+    def test_mini2_clamps_clock_brightness_at_hardware_maximum(self):
+        s = fresh_server()
+        profiles.install(s, 'mini2')
+        p = s.Panel(Mock())
+        commands = []
+        p.adb.shell.side_effect = lambda command, *args, **kwargs: (commands.append(command), ('', '', 0))[1]
+        p.clock({'v': [255] * len(s.CLOCK_LEDS)})
+        self.assertIn('echo 170 > /tmp/webpanel_clock/DH/brightness', commands[-1])
+        p.adb.push.side_effect = lambda path, destination: commands.append(Path(path).read_text(encoding='utf8'))
+        p.display_set({'mode': 'date', 'brightness': 255})
+        self.assertTrue(any('B=170' in command for command in commands))
+
+    def test_mini2_profile_reports_clock_maximum(self):
+        self.assertEqual(profiles.PROFILES['mini2']['clock_max'], 170)
+
+    def test_mini2_uses_common_volume_instead_of_unsupported_bt_mixer(self):
+        s = fresh_server()
+        profiles.install(s, 'mini2')
+        p = s.Panel(Mock())
+        p.glagol = Mock(ws=None)
+        with self.assertRaisesRegex(s.AdbError, 'общую громкость'):
+            p.set_volume({'bt': 128})
+        p.adb.assert_not_called()
+        self.assertFalse(profiles.PROFILES['mini2']['bt_volume'])
 
     def test_mini2_creates_clock_links_only_for_clock_commands(self):
         s = fresh_server()
@@ -97,6 +124,16 @@ class ProfileTests(unittest.TestCase):
         s.Adb.shell(Mock(), 'echo ok')
         self.assertIn('ln -s /sys/class/leds/mini2:white:clock', sent[0])
         self.assertNotIn('ln -s', sent[1])
+
+    def test_mini2_accepts_windows_adb_double_carriage_returns(self):
+        s = fresh_server()
+        def device(adb, command, timeout=15, check=True):
+            marker = command.split("'")[1].split('\\n')[0]
+            return f'{marker}\r\r\nok\r\r\n{marker}RC=0\r\r\n', '', 0
+        s.Adb.shell = device
+        profiles.install(s, 'mini2')
+        out, _, code = s.Adb.shell(Mock(), 'echo ok')
+        self.assertEqual((out.strip(), code), ('ok', 0))
 
     def test_other_profiles_block_boot_screen_and_restore_but_try_alarms(self):
         for model in ('station2', 'mini3pro', 'mini3', 'mini2'):

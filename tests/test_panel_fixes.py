@@ -7,6 +7,14 @@ import server
 import multi
 
 
+class AdbListing(unittest.TestCase):
+    def test_windows_crlf_is_not_part_of_remote_name(self):
+        s = fresh_server()
+        result = Mock(returncode=0, stdout=b'000041ed 00000010 00000020 folder\r\n', stderr=b'')
+        with patch.object(s.subprocess, 'run', return_value=result):
+            self.assertEqual(s.Adb('adb', 'device').ls('/tmp')[0][3], 'folder')
+
+
 class Station2Colors(unittest.TestCase):
     def test_primaries_and_mixed_colors_use_rgbx_and_preview_reads_same_channels(self):
         s = fresh_server(); profiles.install(s, 'station2')
