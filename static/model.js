@@ -11,20 +11,22 @@ async function loadProfile(){
 }
 const profile=await loadProfile();
 // Запуск и будильник проверены только на Лайт 2 — на остальных не прячем, а предупреждаем крупно в шапке.
-const untested=(tab,what,text)=>{
+const untested=(tab,what,text)=>{   // what — фраза целиком: «будильник не тестировался и может…», «сценарии … и могут…»
   const head=document.querySelector('#tab-'+tab+' .page-head');if(!head)return;
   const box=document.createElement('div');box.className='untested';box.setAttribute('role','alert');
   box.innerHTML='<svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 1 21h22L12 2zm1 15h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg><div><strong></strong><p></p></div>';
-  box.querySelector('strong').textContent='На '+profile.name.replace(/^Станция/,'Станции')+' '+what+' не тестировал'+(what==='будильник'?'ся':'ась')+' и может работать не так, как надо';
+  box.querySelector('strong').textContent='На '+profile.name.replace(/^Станция/,'Станции')+' '+what;
   box.querySelector('p').innerHTML=text+' Заработало или нет — напишите, пожалуйста, в <a href="https://github.com/dimap/yandex-station-web/issues" target="_blank" rel="noopener">Issues</a> с моделью и версией прошивки.';
   head.append(box);
 };
 if(!profile.boot){
   document.getElementById('boot-card')?.setAttribute('data-profile-hidden','');
-  untested('boot','замена анимаций','Проверена только на Станции Лайт 2. Редактор часов скрыт — он рассчитан на дисплей Лайт 2. Свои анимации кольца подменяются при загрузке через хук в <code>rootkeeper.sh</code>; если после перезагрузки остались стандартные, значит, на этой модели хук не срабатывает.');
+  untested('boot','замена анимаций не тестировалась и может работать не так, как надо','Проверена только на Станции Лайт 2. Редактор часов скрыт — он рассчитан на дисплей Лайт 2. Свои анимации кольца подменяются при загрузке через хук в <code>rootkeeper.sh</code>; если после перезагрузки остались стандартные, значит, на этой модели хук не срабатывает.');
 }
-if(!profile.alarms)
-  untested('alarm','будильник','Проверен только на Станции Лайт 2: это скрипт на колонке, он будит звуками и голосом Алисы и запускается при загрузке через хук в <code>rootkeeper.sh</code>. Прежде чем полагаться на него утром, проверьте кнопкой «Проверить» и после перезагрузки колонки.');
+if(!profile.alarms){
+  untested('scenes','сценарии не тестировались и могут работать не так, как надо','Проверены только на Станции Лайт 2: их выполняет тот же скрипт на колонке, что и будильник, и запускается он при загрузке через хук в <code>rootkeeper.sh</code>. Цвет кольца в шаге «Кольцо» рассчитан на кольцо Лайт 2 — на других моделях он может не гореть. Проверьте сценарий кнопкой «Запустить».');
+  untested('alarm','будильник не тестировался и может работать не так, как надо','Проверен только на Станции Лайт 2: это скрипт на колонке, он будит звуками и голосом Алисы и запускается при загрузке через хук в <code>rootkeeper.sh</code>. Прежде чем полагаться на него утром, проверьте кнопкой «Проверить» и после перезагрузки колонки.');
+}
 const view=document.getElementById('model-view');
 const loading=document.createElement('p');loading.className='studio-caption';loading.textContent='Ожидаю данные колонки…';view.append(loading);
 let status;
