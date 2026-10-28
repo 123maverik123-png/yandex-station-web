@@ -91,9 +91,27 @@ YAM_FIX_EXEC = (f"for t in {YAM_PLUGINS}/*/plugin.toml; do [ -f \"$t\" ] || cont
                 "p=$(sed -n 's/^path *= *\"\\(.*\\)\"/\\1/p' \"$t\" | head -n 1); "
                 "case \"$p\" in ''|/*|*..*) continue ;; esac; [ -f \"$d/$p\" ] && chmod 755 \"$d/$p\"; done; true")
 # В консоли панели бинарники пакетов доступны по имени (fastfetch, …).
-YAM_PATH = (f"for d in {YAM_PLUGINS}/*/*/; do [ -d \"$d\" ] && PATH=\"$PATH:${{d%/}}\"; done; export PATH; ")
+YAM_PATH = (f"for d in {YAM_PLUGINS}/*/*/; do [ -d \"$d\" ] && PATH=\"$PATH:${{d%/}}\"; done; export PATH"
+            f"; [ -d /data/yam/bin ] && PATH=\"$PATH:/data/yam/bin\"; export PATH; ")
 YAM_PORT = 8099
 YAM_REGISTRY = "https://raw.githubusercontent.com/nyakokitsu/yapkg/registry/index.json"
+# yam 2 (релизы yam-v0.2+): уже не демон, а пакетный менеджер — команда yam на самой колонке. Ставим как их
+# install.sh: бинарник, профиль платформы и обёртка yam-run (она задаёт платформу и корень) в /data/yam.
+YAM2_ROOT = "/data/yam"
+YAM2 = f"{YAM2_ROOT}/bin/yam"
+YAM2_RUN = f"{YAM2_ROOT}/bin/yam-run"
+# Официальный каталог и его ключ — из docs/QUICKSTART.md yam. Ключ проверяет подписи индексов на колонке.
+YAM2_REGISTRY = ("official", "https://repo.yse.wtf/v2", "ed25519:5Rz8F47uftWVU5kLgWYhprkEZ4rpP2kecUge/a7KQas=")
+# Службы пакетов yam только описывает, а запускать их — дело хоста; хост тут панель. На каждую службу — свой
+# скрипт запуска yam2/<пакет~служба>.sh, файл yam2/boot/<то же> — «запускать при загрузке» (его читает хук).
+YAM2_SVC_DIR = f"{WEB_DIR}/yam2"
+YAM2_SVC_PID = "/tmp/webpanel_yam2_"     # + id службы + .pid
+YAM2_NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+# Гасит службу по pid из pidfile ($p) вместе с её программой. start-stop-daemon -b пишет pid скрипта, а группа
+# процессов — у его родителя после setsid, поэтому номер группы берём из /proc/$p/stat (пятое поле).
+YAM2_KILL = ("g=$(awk '{print $5}' /proc/$p/stat 2>/dev/null); "
+             "if [ \"${g:-0}\" -gt 1 ] && [ \"$g\" != \"$(awk '{print $5}' /proc/$$/stat)\" ]; "
+             "then kill -TERM -- -$g 2>/dev/null; else kill $p; fi")
 # Версия панели — в файле VERSION; сборка релиза проверяет, что метка vX.Y.Z с ним совпадает.
 try:
     VERSION = (Path(__file__).resolve().parent / "VERSION").read_text().strip()
@@ -279,6 +297,9 @@ BOOT_HOOK_SCRIPT = (
     f"start-stop-daemon -S -b -m -p /tmp/webpanel_yamd.sd -x /bin/sh -- -c {shlex.quote(YAMD_CMD)}\n"
     f"[ -f {ALARM_CONF} ] && [ -f {ALARMD} ] && start-stop-daemon -S -b -m -p {ALARM_SD} -x /bin/sh -- {ALARMD}\n"
     f"[ -f {ASSIST_CONF} ] && [ -x {ASSISTD} ] && start-stop-daemon -S -b -m -p {ASSIST_SD} -x /bin/sh -- -c {shlex.quote(ASSIST_RUN)}\n"
+    # службы пакетов yam 2, отмеченные «при загрузке»
+    f"for f in {YAM2_SVC_DIR}/boot/*; do [ -f \"$f\" ] && [ -f \"{YAM2_SVC_DIR}/${{f##*/}}.sh\" ] && "
+    f"start-stop-daemon -S -b -m -p \"{YAM2_SVC_PID}${{f##*/}}.pid\" -x /bin/sh -- \"{YAM2_SVC_DIR}/${{f##*/}}.sh\"; done\n"
     "exit 0\n"
 )
 ROOTKEEPER = "/data/quasar/rootkeeper.sh"
@@ -1676,7 +1697,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         """Печатает по строке на каждую функцию, которой нужен хук."""
         return ("; ".join(f"[ -f {path} ] && echo {shlex.quote('@' + name)}" for name, path in self.HOOK_USERS)
                 + f"; find {OVR_DIR}/sounds -type f 2>/dev/null | grep -q . && echo '@свои звуки'"
-                + f"; find {OVR_DIR}/ledpatterns -type f 2>/dev/null | grep -q . && echo '@свои анимации'")
+                + f"; find {OVR_DIR}/ledpatterns -type f 2>/dev/null | grep -q . && echo '@свои анимации'"
+                + f"; find {YAM2_SVC_DIR}/boot -type f 2>/dev/null | grep -q . && echo '@автозапуск служб yam'")
 
     def hook_status(self):
         """Подключён ли хук, свежий ли он и нужен ли — для общей плашки «не переживёт перезагрузку»."""
@@ -2415,9 +2437,10 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"find {OVR_DIR}/sounds -type f 2>/dev/null | wc -l",
             f"[ -d {OVR_DIR}/sounds ] && du -sk {OVR_DIR}/sounds | cut -f1 || echo 0",
             f"find {OVR_DIR}/ledpatterns -type f 2>/dev/null | wc -l",
-            f"find {MY_ANIM_DIR} -type f 2>/dev/null | wc -l"])
+            f"find {MY_ANIM_DIR} -type f 2>/dev/null | wc -l",
+            f"find {YAM2_SVC_DIR}/boot -type f 2>/dev/null | wc -l", q(YAM2)])
         v = self.adb.shell(cmd, check=False)[0].split()
-        v = (v + ["0"] * 23)[:23]
+        v = (v + ["0"] * 25)[:25]
         b = [x == "1" for x in v]
         n = lambda x: int(x) if x.isdigit() else 0
         items = [
@@ -2429,6 +2452,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
              "detail": f"заменено встроенных: {n(v[21])}, своих: {n(v[22])}"},
             {"key": "always", "name": "Заставка при каждой загрузке", "on": b[4]},
             {"key": "yamd", "name": "Автозапуск yamd", "on": b[5]},
+            {"key": "yam2", "name": "Автозапуск служб yam 2", "on": n(v[23]) > 0, "detail": f"служб: {n(v[23])}"},
             {"key": "privacy", "name": "Блокировка аналитики", "on": b[15] or b[16], "detail": "свой /etc/hosts"},
             {"key": "assistant", "name": "Голосовой помощник", "on": b[17], "size_kb": n(v[18])},
             {"key": "alarm", "name": "Будильник и сценарии", "on": b[6],
@@ -2438,7 +2462,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             {"key": "hook", "name": "Строка автозапуска в rootkeeper.sh", "on": b[11]},
         ]
         return {"items": items, "dir": WEB_DIR, "size_kb": n(v[12]), "any": any(i["on"] for i in items),
-                "yam_installed": b[14]}
+                "yam_installed": b[14] or b[24]}
 
     def footprint_reset(self):
         """Возвращает колонку к исходному: снимает подмены, гасит наши демоны, убирает строку из rootkeeper.sh
@@ -2446,6 +2470,9 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         self.adb.shell(
             f"grep -q ringing {ALARM_STATE} 2>/dev/null && echo stop > {ALARM_CMD} && sleep 3; "
             f"start-stop-daemon -K -p {ALARM_SD} 2>/dev/null; start-stop-daemon -K -p {ASSIST_SD} 2>/dev/null; "
+            # службы yam 2 запускала панель — гасим их группы процессов (сами пакеты остаются в yam)
+            f"for f in {YAM2_SVC_PID}*.pid; do [ -f \"$f\" ] && p=$(cat \"$f\") && kill -0 \"$p\" 2>/dev/null && {{ {YAM2_KILL}; }}; "
+            f"rm -f \"$f\"; done 2>/dev/null; "
             f"killall aplay 2>/dev/null; "
             f"grep -q ' {BOOT_TARGET} ' /proc/mounts && {{ umount {BOOT_TARGET} || umount -l {BOOT_TARGET}; }}; "
             f"grep -q ' {SOUND_TARGET} ' /proc/mounts && {{ umount {SOUND_TARGET} || umount -l {SOUND_TARGET}; }}; "
@@ -3155,6 +3182,380 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             s["allow_plugin_binaries"] = bool(data["allow_plugin_binaries"])
             self._yam("PUT", "/api/settings", json.dumps(s).encode(), {"Content-Type": "application/json"})
         return {"allow_plugin_binaries": s.get("allow_plugin_binaries", False)}
+
+    # ---------- yam 2: пакетный менеджер на колонке ----------
+    # Платформа yam по device-tree — те же правила, что в install.sh yam (getprop есть не на всех колонках).
+    # Порядок важен: у Лайт и Мини в compatible есть amlogic,axg, у Лайт 2 — тоже, поэтому axg — последним.
+    YAM2_PLATFORMS = ((r"station-mini2", "yandexmini_2"), (r"cucumber", "cucumber"), (r"yandex,station-midi", "yandexmidi"),
+                      (r"orion", "orion"), (r"pickle", "pickle"), (r"station-mini3|bergamot", "bergamot"),
+                      (r"saturn", "saturn"), (r"tulip", "yandexstation"), (r"yandexstation_2|station-max", "yandexstation_2"),
+                      (r"mediatek,mt8167|jbl.*link.*music", "jbl_link_music"), (r"mango", "mango"), (r"plum", "plum"),
+                      (r"yandex.*station.*micro|yandexmicro", "yandexmicro"), (r"amlogic,axg", "yandexmini"))
+    YAM2_ARMV7 = ("mango", "jbl_link_music")
+    _yam2_rels = (0, [])
+    _yam2_sums = {}
+    _yam2_lock = threading.Lock()
+
+    @classmethod
+    def yam2_detect(cls, identity):
+        identity = identity.lower()
+        return next((p for rx, p in cls.YAM2_PLATFORMS if re.search(rx, identity)), None)
+
+    def yam2_platform(self):
+        # Платформа, с которой yam уже установлен, — главнее: её выбрал установщик (или человек через YAM_PLATFORM).
+        out, _, _ = self.adb.shell(f"sed -n \"s/^export YAM_PLATFORM='\\(.*\\)'$/\\1/p\" {YAM2_RUN} 2>/dev/null; echo @; "
+                                   "getprop ro.product.model 2>/dev/null; getprop ro.product.device 2>/dev/null; "
+                                   "cat /proc/device-tree/compatible 2>/dev/null | tr '\\000' '\\n'; true", check=False)
+        installed, _, identity = strip_ansi(out).partition("@")
+        installed = installed.strip()
+        return installed if YAM2_NAME.fullmatch(installed or "") else self.yam2_detect(identity)
+
+    def _yam2(self, args, timeout=120):
+        """yam-run с аргументами; вывод без ANSI. args — список, каждый аргумент экранируется."""
+        out, err, rc = self.adb.shell(f"{YAM2_RUN} {' '.join(shlex.quote(a) for a in args)} 2>&1", check=False,
+                                      timeout=timeout)
+        return strip_ansi(out + err).strip(), rc
+
+    def _yam2_check(self, args, timeout=120):
+        out, rc = self._yam2(args, timeout)
+        if rc != 0:
+            raise AdbError("yam: " + (out[-600:] or f"код {rc}"))
+        return out
+
+    @staticmethod
+    def _yam2_pkg(name, version=False):
+        m = re.fullmatch(r"([a-z0-9][a-z0-9._-]{0,63})/([a-z0-9][a-z0-9._-]{0,63})(@[0-9A-Za-z.+~-]{1,40})?", name or "")
+        if not m or (m.group(3) and not version):
+            raise AdbError("плохое имя пакета: нужно пространство/имя")
+        return name
+
+    def _yam2_releases(self, refresh=False):
+        at, rels = self._yam2_rels
+        if refresh or not rels or time.time() - at > 3600:
+            req = urllib.request.Request("https://api.github.com/repos/nyakokitsu/yam/releases?per_page=30",
+                                         headers={"User-Agent": "webpanel", "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                rels = [x for x in json.load(r) if not x.get("draft") and not x.get("prerelease")
+                        and re.fullmatch(r"yam-v\d+\.\d+\.\d+", x.get("tag_name") or "")]
+            rels.sort(key=lambda x: x.get("published_at") or "", reverse=True)
+            self._yam2_rels = (time.time(), rels)
+        return rels
+
+    def _yam2_sums_of(self, rel):
+        tag = rel["tag_name"]
+        if tag not in self._yam2_sums:
+            url = next((a["browser_download_url"] for a in rel.get("assets", []) if a["name"] == "SHA256SUMS"), None)
+            sums = {}
+            if url:
+                with urllib.request.urlopen(url, timeout=30) as r:
+                    for ln in r.read().decode().splitlines():
+                        p = ln.split()
+                        if len(p) == 2 and re.fullmatch(r"[0-9a-f]{64}", p[0]):
+                            sums[p[1].lstrip("*")] = p[0]
+            self._yam2_sums[tag] = sums
+        return self._yam2_sums[tag]
+
+    def yam2_status(self, refresh=False):
+        plat = self.yam2_platform()
+        out, _, _ = self.adb.shell(f"[ -x {YAM2} ] && [ -x {YAM2_RUN} ] && sha256sum {YAM2}; true", check=False, timeout=30)
+        sha = (strip_ansi(out).split() or [None])[0]
+        legacy, _, _ = self.adb.shell(f"[ -x {YAMD} ] && echo installed; pidof yamd >/dev/null && echo running; true",
+                                      check=False)
+        host = self.adb.serial.split(":")[0] if self.adb.serial and ":" in self.adb.serial else None
+        res = {"installed": bool(sha), "platform": plat, "root": YAM2_ROOT, "host": host,
+               "legacy": {"installed": "installed" in legacy, "running": "running" in legacy}}
+        try:
+            rels = self._yam2_releases(refresh)
+            latest = rels[0] if rels else None
+            res["latest"] = latest and latest["tag_name"]
+            res["latest_url"] = latest and latest.get("html_url")
+            if sha:
+                asset = self._yam2_asset(plat)
+                res["version"] = next((r["tag_name"] for r in rels[:10]
+                                       if self._yam2_sums_of(r).get(asset) == sha), None)
+                res["update"] = bool(res["version"]) and res["version"] != res["latest"]
+        except (OSError, ValueError) as e:
+            res["error"] = f"GitHub недоступен: {e}"
+        if sha:
+            out, rc = self._yam2(["registry", "list"], timeout=30)
+            res["registries"] = [dict(zip(("name", "url"), ln.split("\t", 1))) for ln in out.splitlines()
+                                 if "\t" in ln] if rc == 0 else []
+            if rc != 0:
+                res["error"] = "yam: " + out[-300:]
+        return res
+
+    def _yam2_asset(self, plat):
+        return "yam-armv7-unknown-linux-musleabihf" if plat in self.YAM2_ARMV7 else "yam-aarch64-unknown-linux-musl"
+
+    def yam2_install(self):
+        """Как install.sh yam: последний релиз yam-v…, сверка с SHA256SUMS, бинарник + профиль + обёртка в /data/yam.
+        Корень системы не трогаем (на Лайт install.sh ещё делает /usr/bin/yam и S99yam), старый yamd — тоже."""
+        plat = self.yam2_platform()
+        if not plat:
+            raise AdbError("не удалось определить платформу колонки для yam")
+        if not self._yam2_lock.acquire(blocking=False):
+            raise AdbError("yam уже ставится")
+        try:
+            rels = self._yam2_releases(refresh=True)
+            asset = self._yam2_asset(plat)
+            rel = next((r for r in rels if any(a["name"] == asset for a in r.get("assets", []))), None)
+            if not rel:
+                raise AdbError(f"на GitHub нет релиза yam с {asset}")
+            tag = rel["tag_name"]
+            expected = self._yam2_sums_of(rel).get(asset)
+            if not expected:
+                raise AdbError(f"в релизе {tag} нет контрольной суммы {asset}")
+            a = next(x for x in rel["assets"] if x["name"] == asset)
+            with urllib.request.urlopen(a["browser_download_url"], timeout=300) as r:
+                blob = r.read()
+            if hashlib.sha256(blob).hexdigest() != expected or (a.get("digest") and a["digest"] != "sha256:" + expected):
+                raise AdbError("контрольная сумма yam не совпала с SHA256SUMS")
+            with urllib.request.urlopen(f"https://raw.githubusercontent.com/nyakokitsu/yam/{tag}/platforms/{plat}.yaml",
+                                        timeout=30) as r:
+                profile = r.read()
+            if len(profile) > 4096 or not re.search(rb"(?m)^id: " + re.escape(plat.encode()) + rb"\s*$", profile):
+                raise AdbError(f"профиль платформы {plat} в релизе {tag} не похож на профиль yam")
+            free, _, _ = self.adb.shell(f"mkdir -p {YAM2_ROOT}/bin {YAM2_ROOT}/platforms && "
+                                        f"df -k {YAM2_ROOT} | tail -1 | awk '{{print $4}}'", check=False)
+            if free.strip().isdigit() and int(free) < len(blob) // 1024 + 4096:
+                raise AdbError(f"мало места в /data: свободно {free.strip()} КБ")
+            wrapper = (f"#!/bin/sh\nexport YAM_PLATFORM='{plat}'\nexport YAM_PROFILES='{YAM2_ROOT}/platforms'\n"
+                       f"export YAM_ROOT='{YAM2_ROOT}'\nexec '{YAM2}' \"$@\"\n")   # как у install.sh: его --uninstall узнаёт её
+            with tempfile.TemporaryDirectory() as td:
+                (Path(td) / "yam").write_bytes(blob)
+                (Path(td) / "p.yaml").write_bytes(profile)
+                write_unix(Path(td) / "yam-run", wrapper)
+                self.adb.push(Path(td) / "yam", f"{YAM2}.new", timeout=300)
+                self.adb.push(Path(td) / "p.yaml", f"{YAM2_ROOT}/platforms/{plat}.yaml")
+                self.adb.push(Path(td) / "yam-run", f"{YAM2_RUN}.new")
+            out, _, _ = self.adb.shell(f"sha256sum {YAM2}.new", check=False)
+            if expected not in out:
+                self.adb.shell(f"rm -f {YAM2}.new {YAM2_RUN}.new", check=False)
+                raise AdbError("файл на колонке не совпал со скачанным")
+            self.adb.shell(f"chmod 755 {YAM2}.new {YAM2_RUN}.new && mv {YAM2}.new {YAM2} && mv {YAM2_RUN}.new {YAM2_RUN}")
+            self._yam2_check(["list"], timeout=30)       # создаёт базу и заодно проверяет, что бинарник запускается
+            return {**self.yam2_status(), "installed_tag": tag}
+        finally:
+            self._yam2_lock.release()
+
+    def yam2_update(self):
+        # Обновление сам yam проверяет подписью Ed25519 своего релиза
+        return {"text": self._yam2_check(["update"], timeout=300), **self.yam2_status(refresh=True)}
+
+    def yam2_uninstall(self):
+        """Удаляет /data/yam целиком — как install.sh --uninstall, но без /usr/bin/yam и S99yam: их ставит не панель."""
+        for svc in self._yam2_services_raw():
+            self._yam2_svc_stop(svc["id"])
+        out, _, rc = self.adb.shell(
+            f"grep -Fqx \"export YAM_PROFILES='{YAM2_ROOT}/platforms'\" {YAM2_RUN} || exit 3; rm -rf {YAM2_ROOT}; "
+            f"rm -rf {YAM2_SVC_DIR}", check=False, timeout=60)
+        if rc == 3:
+            raise AdbError(f"в {YAM2_ROOT} нет обёртки yam-run — не похоже на yam, удалять не стали")
+        self._drop_hook_if_unused()
+        return self.yam2_status()
+
+    def yam2_registry_add(self):
+        name, url, key = YAM2_REGISTRY
+        return {"text": self._yam2_check(["registry", "add", name, url, "--key", key], timeout=30)}
+
+    def yam2_packages(self):
+        out = self._yam2_check(["list"], timeout=30)
+        pkgs = [dict(zip(("name", "version", "target"), ln.split("\t"))) for ln in out.splitlines() if ln.count("\t") == 2]
+        services = self._yam2_services_raw()
+        for p in pkgs:
+            p["services"] = [s for s in services if s["package"] == p["name"]]
+        return {"packages": pkgs}
+
+    def yam2_catalog(self, refresh=False):
+        """Каталог настроенного реестра — для показа (описания, платформы). Подписи тут не проверяем: ставит пакет
+        сам yam на колонке и проверяет подпись индекса и SHA-256 архива."""
+        st = self.yam2_status()
+        reg = next((r for r in st.get("registries", []) if r["name"] == YAM2_REGISTRY[0]), None)
+        if not reg:
+            return {"configured": False, "packages": [], "platform": st["platform"]}
+        url = reg["url"].rstrip("/")
+        if not url.startswith("https://"):
+            raise AdbError("адрес реестра не https")
+        ts, data, src = getattr(self, "_yam2_cat", (0, None, None))
+        if refresh or data is None or src != url or time.time() - ts > 600:
+            with urllib.request.urlopen(urllib.request.Request(url + "/index.json", headers={"User-Agent": "webpanel"}),
+                                        timeout=20) as r:
+                data = json.load(r)
+            self._yam2_cat = (time.time(), data, url)
+        plat = st["platform"]
+        pkgs = [{k: p.get(k) for k in ("name", "summary", "latest", "homepage", "targets")}
+                for p in data.get("packages", []) if isinstance(p, dict) and isinstance(p.get("name"), str)
+                and p["name"] not in (data.get("revoked") or {})]
+        for p in pkgs:
+            t = p.get("targets") or []
+            p["fits"] = not t or "any" in t or plat in t
+        return {"configured": True, "packages": pkgs, "platform": plat, "url": url}
+
+    def yam2_install_pkg(self, name, yes=False):
+        name = self._yam2_pkg(name, version=True)
+        bare = name.split("@")[0]
+        running = [s["id"] for s in self._yam2_services_raw() if s["package"] == bare and s["running"]]
+        out, rc = self._yam2(["install"] + (["--yes"] if yes else []) + [name], timeout=900)
+        if rc != 0:
+            # Пакет что-то заменяет или просит Entware — yam ждёт --yes; показываем человеку и спрашиваем.
+            if not yes and ("rerun with --yes" in out or "requires --yes" in out):
+                return {"need_yes": True, "text": out[-1200:]}
+            raise AdbError("yam: " + (out[-800:] or f"код {rc}"))
+        for sid in running:          # обновлённый пакет: службы перезапускаем уже с новой версией
+            self._yam2_svc_stop(sid)
+            self._yam2_svc_start(sid)
+        return {"text": out}
+
+    def yam2_pkg(self, action, name, yes=False):
+        if action == "install":
+            return self.yam2_install_pkg(name, yes)
+        if action == "remove":
+            return self.yam2_remove(name)
+        raise AdbError("неизвестное действие")
+
+    def yam2_remove(self, name):
+        name = self._yam2_pkg(name)
+        for s in self._yam2_services_raw():
+            if s["package"] == name:
+                self._yam2_svc_stop(s["id"])
+                self.adb.shell(f"rm -f {YAM2_SVC_DIR}/{s['id']}.sh {YAM2_SVC_DIR}/boot/{s['id']}", check=False)
+        out = self._yam2_check(["remove", name], timeout=120)
+        # каталоги etc/var/run пакета создавала панель — пустые убираем, с данными оставляем (вдруг поставят снова)
+        ns, pkg = name.split("/")
+        _, paths = self._yam2_paths()
+        self.adb.shell("; ".join(f"rmdir {shlex.quote(paths[k] + '/' + ns + '/' + pkg)} {shlex.quote(paths[k] + '/' + ns)}"
+                                 for k in ("etc", "var", "run")) + " 2>/dev/null; true", check=False)
+        self._drop_hook_if_unused()
+        return {"text": out}
+
+    def yam2_doctor(self, repair=False):
+        out, rc = self._yam2(["repair" if repair else "doctor"], timeout=120)
+        return {"ok": rc == 0, "text": out}
+
+    # Службы. yam service list печатает «пакет/служба<TAB>enabled|disabled<TAB>exec через пробел» — аргументы с
+    # пробелами так не восстановить, но у пакетов их и нет; переменные ${YAM_*} подставляем сами, как задумано в yam.
+    def _yam2_services_raw(self):
+        out, rc = self._yam2(["service", "list"], timeout=30)
+        if rc != 0:
+            return []
+        ids = []
+        for ln in out.splitlines():
+            parts = ln.split("\t")
+            if len(parts) != 3 or parts[0].count("/") != 2:
+                continue
+            ns, pkg, name = parts[0].split("/")
+            if not all(YAM2_NAME.fullmatch(x) for x in (ns, pkg, name)):
+                continue
+            ids.append({"id": f"{ns}~{pkg}~{name}", "package": f"{ns}/{pkg}", "name": name,
+                        "declared": parts[1] == "enabled", "exec": parts[2].split()})
+        if ids:
+            flags, _, _ = self.adb.shell("; ".join(
+                f"p=$(cat {YAM2_SVC_PID}{s['id']}.pid 2>/dev/null) && kill -0 \"$p\" 2>/dev/null && echo run:{s['id']}; "
+                f"[ -f {YAM2_SVC_DIR}/boot/{s['id']} ] && echo boot:{s['id']}" for s in ids) + "; true", check=False)
+            flags = set(strip_ansi(flags).split())
+            for s in ids:
+                s["running"] = f"run:{s['id']}" in flags
+                s["boot"] = f"boot:{s['id']}" in flags
+        return ids
+
+    def _yam2_paths(self):
+        """paths.etc/var/run из профиля платформы на колонке."""
+        plat = self.yam2_platform()
+        out, _, _ = self.adb.shell(f"cat {YAM2_ROOT}/platforms/{plat}.yaml 2>/dev/null; true", check=False)
+        paths = {"etc": f"{YAM2_ROOT}/etc", "var": f"{YAM2_ROOT}/var", "run": "/tmp/yam"}
+        for k in paths:
+            m = re.search(rf"(?m)^\s+{k}:\s*(/[A-Za-z0-9/._-]+)\s*$", out)
+            if m and ".." not in m.group(1):
+                paths[k] = m.group(1)
+        return plat, paths
+
+    def _yam2_launcher(self, svc):
+        """sh-скрипт службы: окружение yam, перезапуск при падении (не чаще 5 раз подряд), лог в каталоге run."""
+        ns, pkg, name = svc["id"].split("~")
+        plat, paths = self._yam2_paths()
+        pkg_dir = f"{YAM2_ROOT}/pkgs/{ns}/{pkg}/current"
+        env = {"YAM_ROOT": YAM2_ROOT, "YAM_PKG": pkg_dir, "YAM_PLATFORM": plat,
+               "YAM_ETC": f"{paths['etc']}/{ns}/{pkg}", "YAM_VAR": f"{paths['var']}/{ns}/{pkg}",
+               "YAM_RUN": f"{paths['run']}/{ns}/{pkg}"}
+        argv = [re.sub(r"\$\{(YAM_[A-Z]+)\}", lambda m: env.get(m.group(1), m.group(0)), a) for a in svc["exec"]]
+        exe = argv[0]
+        if exe.startswith("/") or ".." in exe.split("/"):
+            raise AdbError(f"служба {svc['package']}/{name}: странный путь запуска {exe}")
+        log = f"{env['YAM_RUN']}/{name}.log"
+        q = shlex.quote
+        return ("#!/bin/sh\n# служба пакета yam 2, создана веб-панелью\n"
+                + "".join(f"export {k}={q(v)}\n" for k, v in env.items())
+                + f"mkdir -p \"$YAM_ETC\" \"$YAM_VAR\" \"$YAM_RUN\"\ncd \"$YAM_PKG\" || exit 1\n"
+                + f": > {q(log)}\nfails=0\n"
+                + "while :; do\n  t=$(date +%s)\n"
+                + f"  {' '.join(q(a) for a in [pkg_dir + '/' + exe] + argv[1:])} >> {q(log)} 2>&1\n"
+                + "  rc=$?\n  [ \"$rc\" = 0 ] && exit 0\n"
+                + "  [ $(( $(date +%s) - t )) -gt 60 ] && fails=0\n  fails=$((fails + 1))\n"
+                + f"  echo \"[webpanel] выход с кодом $rc, перезапуск $fails/5\" >> {q(log)}\n"
+                + "  [ \"$fails\" -ge 5 ] && exit 1\n  sleep 3\ndone\n")
+
+    def _yam2_svc(self, sid):
+        svc = next((s for s in self._yam2_services_raw() if s["id"] == sid), None)
+        if not svc:
+            raise AdbError("нет такой службы")
+        return svc
+
+    def _yam2_svc_start(self, sid):
+        svc = self._yam2_svc(sid)
+        with tempfile.TemporaryDirectory() as td:
+            write_unix(Path(td) / "s", self._yam2_launcher(svc))
+            self.adb.shell(f"mkdir -p {YAM2_SVC_DIR}/boot")
+            self.adb.push(Path(td) / "s", f"{YAM2_SVC_DIR}/{sid}.sh")
+        pid = f"{YAM2_SVC_PID}{sid}.pid"
+        self.adb.shell(f"p=$(cat {pid} 2>/dev/null) && kill -0 \"$p\" 2>/dev/null || "
+                       f"start-stop-daemon -S -b -m -p {pid} -x /bin/sh -- {YAM2_SVC_DIR}/{sid}.sh")
+
+    def _yam2_svc_stop(self, sid):
+        # start-stop-daemon -b делает setsid: у скрипта своя группа процессов, гасим её целиком вместе с программой
+        pid = f"{YAM2_SVC_PID}{sid}.pid"
+        self.adb.shell(f"p=$(cat {pid} 2>/dev/null) && kill -0 \"$p\" 2>/dev/null && {{ {YAM2_KILL}; "
+                       f"for i in 1 2 3 4 5 6 7 8 9 10; do [ -n \"$g\" ] && kill -0 -- -$g 2>/dev/null || break; sleep 0.5; done; "
+                       f"[ \"${{g:-0}}\" -gt 1 ] && kill -KILL -- -$g 2>/dev/null; }}; rm -f {pid}; true", check=False)
+
+    def yam2_service(self, sid, action, stop_legacy=False):
+        if not re.fullmatch(r"[a-z0-9._-]+~[a-z0-9._-]+~[a-z0-9._-]+", sid or ""):
+            raise AdbError("плохой id службы")
+        if action == "start":
+            # Luna — преемница yamd и слушает тот же порт 8099: вместе им не ужиться
+            if sid.startswith("yam~luna~") and self.adb.shell("pidof yamd >/dev/null && echo y; true")[0].strip():
+                if not stop_legacy:
+                    return {"need_stop_legacy": True}
+                self.adb.shell("kill $(pidof yamd) 2>/dev/null; true", check=False)
+                self.adb.shell(f"rm -f {YAM_AUTOSTART}", check=False)
+            self._yam2_svc_start(sid)
+        elif action == "stop":
+            self._yam2_svc_stop(sid)
+        elif action in ("boot", "noboot"):
+            if action == "boot":
+                self._yam2_svc(sid)
+                self._ensure_hook()
+                if not self.adb.shell(f"[ -f {YAM2_SVC_DIR}/{sid}.sh ] && echo y; true")[0].strip():
+                    with tempfile.TemporaryDirectory() as td:
+                        write_unix(Path(td) / "s", self._yam2_launcher(self._yam2_svc(sid)))
+                        self.adb.shell(f"mkdir -p {YAM2_SVC_DIR}/boot")
+                        self.adb.push(Path(td) / "s", f"{YAM2_SVC_DIR}/{sid}.sh")
+                self.adb.shell(f"mkdir -p {YAM2_SVC_DIR}/boot && touch {YAM2_SVC_DIR}/boot/{sid}")
+            else:
+                self.adb.shell(f"rm -f {YAM2_SVC_DIR}/boot/{sid}")
+                self._drop_hook_if_unused()
+        else:
+            raise AdbError("неизвестное действие")
+        time.sleep(1 if action == "start" else 0)
+        return self._yam2_svc(sid)
+
+    def yam2_service_log(self, sid):
+        if not re.fullmatch(r"[a-z0-9._-]+~[a-z0-9._-]+~[a-z0-9._-]+", sid or ""):
+            raise AdbError("плохой id службы")
+        ns, pkg, name = sid.split("~")
+        _, paths = self._yam2_paths()
+        out, _, _ = self.adb.shell(f"tail -c 16000 {shlex.quote(paths['run'] + f'/{ns}/{pkg}/{name}.log')} 2>/dev/null; true",
+                                   check=False)
+        return {"text": strip_ansi(out)}
 
     # ---------- музыка: аккаунт Яндекса и Glagol ----------
     _bt_pos = None   # (позиция, с; когда измерена; название трека)
@@ -4009,6 +4410,10 @@ class Handler(BaseHTTPRequestHandler):
             "/api/yam/logs": lambda: p.yam_logs(q.get("id", "")),
             "/api/yam/settings": p.yam_settings,
             "/api/yam/version": lambda: p.yam_version(q.get("refresh") == "1"),
+            "/api/yam2/status": lambda: p.yam2_status(q.get("refresh") == "1"),
+            "/api/yam2/packages": p.yam2_packages,
+            "/api/yam2/catalog": lambda: p.yam2_catalog(q.get("refresh") == "1"),
+            "/api/yam2/log": lambda: p.yam2_service_log(q.get("id", "")),
             "/api/alarms": p.alarms,
             "/api/scenes": p.scenes,
             "/api/footprint": p.footprint,
@@ -4135,6 +4540,13 @@ class Handler(BaseHTTPRequestHandler):
             "/api/yam/install": lambda: p.yam_install(d["id"], d["version"]),
             "/api/yam/action": lambda: p.yam_action(d["action"], d["id"]),
             "/api/yam/settings": lambda: p.yam_settings(d),
+            "/api/yam2/install": p.yam2_install,
+            "/api/yam2/update": p.yam2_update,
+            "/api/yam2/uninstall": p.yam2_uninstall,
+            "/api/yam2/registry": p.yam2_registry_add,
+            "/api/yam2/doctor": lambda: p.yam2_doctor(bool(d.get("repair"))),
+            "/api/yam2/pkg": lambda: p.yam2_pkg(d.get("action"), d["name"], bool(d.get("yes"))),
+            "/api/yam2/service": lambda: p.yam2_service(d["id"], d["action"], bool(d.get("stop_legacy"))),
             "/api/bt": lambda: p.bt_action(d),
             "/api/system": lambda: p.system(d["action"]),
             "/api/fs/write": lambda: p.fs_write(d["path"], d["text"]),

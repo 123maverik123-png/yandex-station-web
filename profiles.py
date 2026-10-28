@@ -11,7 +11,7 @@ from pathlib import Path
 # работает на модели, — впишите её в tested этой модели: предупреждение пропадёт. Новые функции — сюда же.
 # Работа с экраном (заставка, анимации и дисплей часов) — не здесь: у моделей разные экраны, её открывают флаги
 # clock/boot только после проверки.
-TRIAL_FEATURES = ("assistant", "scenes", "alarm", "anims", "sounds", "say")
+TRIAL_FEATURES = ("assistant", "scenes", "alarm", "anims", "sounds", "say", "yam2")
 
 PROFILES = {
     'lite2': dict(name='Станция Лайт 2', platform='plum', clock=True, boot=True, alarms=True, light=True, tested=TRIAL_FEATURES),

@@ -539,7 +539,7 @@
   .upd-pill a:hover span { text-decoration: underline; }
   .upd-pill button { border: 0; background: none; color: var(--accent-ink); opacity: .6; font-size: 16px; line-height: 1; padding: 2px 10px 4px 6px; cursor: pointer; border-radius: 999px; }
   .upd-pill button:hover { opacity: 1; }
-  @media (max-width: 640px) { .set-item { flex-direction: column; align-items: stretch; } .set-ctl { justify-content: flex-start; } }
+  @media (max-width: 640px) { .set-item { flex-direction: column; align-items: stretch; } .set-label { flex-basis: auto; } .set-ctl { justify-content: flex-start; } }
   /* переключатель вместо голого чекбокса */
   input.switch { appearance: none; width: 42px; height: 24px; border-radius: 999px; background: var(--line); position: relative; cursor: pointer; transition: background .15s; margin: 0; flex: none; }
   input.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
@@ -577,6 +577,14 @@
   .inst:last-child { border-bottom: 0; }
   .inst .who { flex: 1; min-width: 160px; }
   .inst .who b { display: block; }
+  .inst .svc { flex-basis: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px;
+               border-radius: 10px; background: var(--field); font-size: 13.5px; }
+  .inst .svc .mono { flex: 1; min-width: 120px; overflow-wrap: anywhere; }
+  .inst .svc label { display: inline-flex; align-items: center; gap: 6px; }
+  .app.other { opacity: .6; }
+  details.legacy { margin-top: 14px; }
+  details.legacy > summary { cursor: pointer; padding: 12px 4px; list-style: revert; font-size: 15px; }
+  details.legacy > .card, details.legacy > div { margin-top: 10px; }
 
   /* музыка */
   .login-grid { display: flex; gap: 18px; align-items: center; }
@@ -1523,8 +1531,70 @@
   <!-- ================= ПРИЛОЖЕНИЯ (yam) ================= -->
   <main id="tab-apps" data-page hidden>
     <header class="page-head">
-      <div><h1>Приложения</h1><div class="sub">Пакеты из реестра yapkg через менеджер yam на колонке</div></div>
+      <div><h1>Приложения</h1><div class="sub">Пакеты для колонки через менеджер yam</div></div>
     </header>
+
+    <section class="card" id="y2-card">
+      <div class="card-head">
+        <h2>yam 2</h2>
+        <div class="actions"><span class="badge" id="y2-badge">—</span></div>
+      </div>
+      <p class="hint" id="y2-intro">yam 2 — менеджер пакетов прямо на колонке (github.com/nyakokitsu/yam). Панель скачает последний релиз,
+        сверит контрольную сумму и положит его в <code>/data/yam</code> — как их установщик, но не трогая системный раздел.
+        Старый yamd ниже от этого не изменится.</p>
+      <div class="set-item">
+        <div class="set-label"><b>Версия</b><small id="y2-ver">проверяем…</small></div>
+        <div class="set-ctl"><a class="btn sm" id="y2-notes" target="_blank" rel="noopener" hidden>Что нового ↗</a>
+          <button class="btn sm primary" id="y2-install" hidden>Установить yam 2</button>
+          <button class="btn sm primary" id="y2-update" hidden>Обновить</button></div>
+      </div>
+      <div id="y2-ready" hidden>
+        <div class="set-item">
+          <div class="set-label"><b>Каталог пакетов</b><small id="y2-reg">—</small></div>
+          <div class="set-ctl"><button class="btn sm primary" id="y2-reg-add" hidden>Подключить официальный каталог</button></div>
+        </div>
+        <div class="set-item">
+          <div class="set-label"><b>Состояние пакетов</b><small id="y2-doc">ссылки, файлы и база yam</small></div>
+          <div class="set-ctl"><button class="btn sm" id="y2-doctor">Проверить</button>
+            <button class="btn sm primary" id="y2-repair" hidden>Починить</button>
+            <button class="btn sm danger" id="y2-uninstall">Удалить yam 2</button></div>
+        </div>
+        <pre class="out" id="y2-out" hidden style="max-height:220px"></pre>
+        <p class="hint untested-note" id="y2-legacy-note" hidden>Работает старый yamd. Он слушает порт 8099 — тот же, что Luna из
+          каталога yam 2, поэтому вместе они не запустятся: при запуске Luna панель предложит остановить yamd.</p>
+      </div>
+    </section>
+
+    <div id="y2-on" hidden>
+      <div class="cols" style="margin-bottom:14px">
+        <section class="card">
+          <div class="card-head"><h2>Установлено в yam 2</h2><span class="meta" id="y2-count"></span></div>
+          <div id="y2-installed"><div class="empty">Загрузка…</div></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Лог службы</h2><span class="meta mono" id="y2-log-id"></span></div>
+          <pre class="out" id="y2-log" style="min-height:120px;max-height:300px">Нажмите «Лог» у службы.</pre>
+          <p class="hint">Пакет может объявить службы — программы, которые должны работать постоянно (например, Luna).
+            Сам yam их не запускает, это делает панель: «Запустить» — до перезагрузки, «При загрузке» — каждый раз через хук
+            в <code>rootkeeper.sh</code>. Упавшую службу панель перезапускает, но не больше 5 раз подряд.</p>
+        </section>
+      </div>
+      <section class="card" id="y2-cat-card">
+        <div class="card-head">
+          <h2>Каталог yam 2</h2>
+          <div class="row" style="gap:8px">
+            <label class="toggle" style="margin:0"><span class="meta">Все модели</span><input type="checkbox" id="y2-all"></label>
+            <label class="search" style="min-width:220px"><svg width="16" height="16" aria-hidden="true"><use href="#i-search"/></svg>
+              <input type="search" id="y2-filter" placeholder="Найти пакет" aria-label="Найти пакет в каталоге yam 2"></label>
+            <button class="btn sm icon" id="y2-refresh" aria-label="Обновить каталог yam 2"><svg width="16" height="16" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+          </div>
+        </div>
+        <div class="apps-grid" id="y2-catalog"><div class="empty">Загрузка…</div></div>
+      </section>
+    </div>
+
+    <details class="legacy" id="yam-legacy">
+      <summary><b>Старый yam (yamd, v0.1)</b> <span class="meta" id="yam-legacy-state"></span></summary>
 
     <section class="card" id="yam-missing" hidden>
       <h2>yam не установлен</h2>
@@ -1586,6 +1656,7 @@
         <div class="apps-grid" id="yam-catalog"><div class="empty">Загрузка…</div></div>
       </section>
     </div>
+    </details>
   </main>
 
   <main id="tab-assistant" data-page hidden>
@@ -3104,7 +3175,7 @@ function showTab() {
   if (tab === 'console') setTimeout(() => { termConnect(); try { termFit?.fit(); } catch {} term?.focus(); }, 0);
   if (tab === 'boot' && !bootLoaded) { bootLoaded = true; loadBoot(); }
   loadHook();
-  if (tab === 'apps') loadYam();
+  if (tab === 'apps') { loadYam2(); loadYam(); }
   if (tab === 'alarm') loadAlarms();
   if (tab === 'scenes') loadScenes();
   rdPoll(tab === 'radio');
@@ -3539,6 +3610,164 @@ $('#mu-oauth-go').onclick = e => act(e.currentTarget, async () => {
   requestAnimationFrame(frame);
 })();
 
+// ---------- yam 2: пакетный менеджер на колонке ----------
+const y2 = { status: null, packages: [], catalog: null };
+async function loadYam2(refresh) {
+  let st;
+  try { st = await api('/api/yam2/status' + (refresh ? '?refresh=1' : '')); }
+  catch (e) { $('#y2-ver').textContent = e.message; return; }
+  y2.status = st;
+  const plat = ' · платформа ' + st.platform;
+  $('#y2-badge').textContent = st.installed ? 'установлен' : 'не установлен';
+  $('#y2-badge').className = 'badge' + (st.installed ? ' ok' : '');
+  $('#y2-intro').hidden = st.installed;
+  $('#y2-install').hidden = st.installed || !st.platform;
+  $('#y2-update').hidden = !st.update;
+  $('#y2-notes').hidden = !st.latest_url;
+  if (st.latest_url) $('#y2-notes').href = st.latest_url;
+  $('#y2-ver').textContent = !st.platform ? 'не удалось определить платформу колонки для yam'
+    : !st.installed ? `последний релиз — ${st.latest || '—'}` + plat
+    : st.error && !st.version ? st.error
+    : !st.version ? `сборка не из последних релизов yam, последний — ${st.latest || '—'}` + plat
+    : st.update ? `установлен ${st.version}, доступен ${st.latest}` + plat : `${st.version} — последний` + plat;
+  $('#y2-ver').classList.toggle('warn', !!st.update);
+  $('#y2-ready').hidden = !st.installed;
+  $('#y2-on').hidden = !st.installed;
+  const reg = (st.registries || []).find(r => r.name === 'official');
+  $('#y2-reg').textContent = reg ? reg.url : 'не подключён — без него yam не найдёт пакетов';
+  $('#y2-reg-add').hidden = !!reg;
+  $('#y2-legacy-note').hidden = !st.legacy?.running;
+  // старый yam — свёрнут, если стоит новый; раскрыт, если есть только старый
+  const leg = $('#yam-legacy');
+  if (!leg.dataset.touched) leg.open = !st.installed && !!st.legacy?.installed;
+  $('#yam-legacy-state').textContent = st.legacy?.installed ? (st.legacy.running ? '— работает' : '— установлен, остановлен') : '— не установлен';
+  if (!st.installed) return;
+  await Promise.all([loadYam2Packages(), loadYam2Catalog()]);
+}
+async function loadYam2Packages() {
+  try { y2.packages = (await api('/api/yam2/packages')).packages; }
+  catch (e) { y2.packages = []; $('#y2-installed').innerHTML = `<p class="hint">${esc(e.message)}</p>`; return; }
+  renderYam2();
+}
+async function loadYam2Catalog(refresh) {
+  try { y2.catalog = await api('/api/yam2/catalog' + (refresh ? '?refresh=1' : '')); }
+  catch (e) { y2.catalog = { error: e.message, packages: [] }; }
+  renderYam2();
+}
+function renderYam2() {
+  const inst = Object.fromEntries(y2.packages.map(p => [p.name, p]));
+  const cat = Object.fromEntries((y2.catalog?.packages || []).map(p => [p.name, p]));
+  const newer = p => cat[p.name] && vcmp(cat[p.name].latest, p.version) > 0 ? cat[p.name].latest : null;
+  const updates = y2.packages.filter(newer).length;
+  $('#y2-count').textContent = y2.packages.length ? `${y2.packages.length} шт.` + (updates ? ` · обновлений: ${updates}` : '') : '';
+  $('#y2-installed').innerHTML = y2.packages.length ? y2.packages.map(p => `<div class="inst" data-name="${esc(p.name)}">
+      <div class="who"><b>${esc(p.name)} <span class="mono meta">${esc(p.version)}</span>${newer(p) ? ` <span class="badge" style="background:var(--accent-soft);color:var(--accent-ink)">доступна ${esc(newer(p))}</span>` : ''}</b>
+        <span class="meta">${esc(cat[p.name]?.summary || p.target)}</span></div>
+      <div class="row" style="gap:6px">
+        ${newer(p) ? `<button class="btn sm primary" data-a="install">Обновить</button>` : ''}
+        <button class="btn sm icon danger" data-a="remove" aria-label="Удалить ${esc(p.name)}">${icon('i-trash', 14)}</button>
+      </div>
+      ${p.services.map(s => `<div class="svc" data-id="${esc(s.id)}">
+        <span class="mono">${esc(s.name)} <span class="meta">${esc(s.exec.join(' '))}</span></span>
+        <span class="badge${s.running ? ' ok' : ''}">${s.running ? 'работает' : 'остановлена'}</span>
+        <label class="meta"><input type="checkbox" data-a="boot" ${s.boot ? 'checked' : ''}>При загрузке</label>
+        ${s.running ? '<button class="btn sm" data-a="stop">Стоп</button>' : '<button class="btn sm primary" data-a="start">Запустить</button>'}
+        <button class="btn sm" data-a="log">Лог</button>
+        ${s.running && s.id.startsWith('yam~luna~') && y2.status?.host ? `<a class="btn sm" href="http://${esc(y2.status.host)}:8099/" target="_blank" rel="noopener">Веб-интерфейс ↗</a>` : ''}</div>`).join('')}
+    </div>`).join('') : '<p class="hint">Пока ничего не установлено.</p>';
+  $$('#y2-installed .inst > .row button').forEach(b => b.onclick = () => yam2Pkg(b, b.dataset.a, b.closest('.inst').dataset.name));
+  $$('#y2-installed .svc [data-a]').forEach(b => {
+    const id = b.closest('.svc').dataset.id;
+    if (b.dataset.a === 'boot') b.onchange = () => yam2Svc(b, id, b.checked ? 'boot' : 'noboot');
+    else b.onclick = () => b.dataset.a === 'log' ? yam2Log(b, id) : yam2Svc(b, id, b.dataset.a);
+  });
+
+  const c = y2.catalog;
+  if (!c) return;
+  if (c.error || !c.configured) {
+    $('#y2-catalog').innerHTML = `<div class="empty">${esc(c.error || 'Подключите каталог пакетов выше')}</div>`;
+    return;
+  }
+  const f = $('#y2-filter').value.toLowerCase(), all = $('#y2-all').checked;
+  const list = c.packages.filter(p => (all || p.fits) && (!f || (p.name + ' ' + (p.summary || '')).toLowerCase().includes(f)));
+  $('#y2-catalog').innerHTML = list.length ? list.map(p => {
+    const have = inst[p.name];
+    const action = !p.fits ? '' : !have ? 'Установить' : vcmp(p.latest, have.version) > 0 ? `Обновить с ${esc(have.version)}` : '';
+    return `<div class="app${have ? ' installed' : ''}${p.fits ? '' : ' other'}">
+      <div class="app-top"><b>${esc(p.name)}</b><span class="mono">${esc(p.latest)}</span></div>
+      <p>${esc(p.summary)}</p>
+      ${p.fits ? '' : `<span class="meta">не для ${esc(c.platform)}: ${esc((p.targets || []).join(', '))}</span>`}
+      <div class="row">${action ? `<button class="btn sm${have ? '' : ' primary'}" data-name="${esc(p.name)}">${action}</button>`
+        : have ? '<span class="badge ok">установлено</span>' : ''}
+        ${/^https:\/\//.test(p.homepage || '') ? `<a class="btn sm" href="${esc(p.homepage)}" target="_blank" rel="noopener">Сайт ↗</a>` : ''}</div>
+    </div>`;
+  }).join('') : `<div class="empty">${c.packages.length ? 'Ничего не найдено' : 'Каталог пуст'}</div>`;
+  $$('#y2-catalog button[data-name]').forEach(b => b.onclick = () => yam2Pkg(b, 'install', b.dataset.name));
+}
+function y2out(text, bad) {
+  const o = $('#y2-out');
+  o.hidden = !text; o.textContent = text || ''; o.classList.toggle('warn', !!bad);
+}
+async function yam2Pkg(btn, action, name, yes) {
+  if (action === 'remove' && !confirm(`Удалить пакет ${name}? Его службы будут остановлены.`)) return;
+  const label = btn.textContent;
+  if (action === 'install') btn.textContent = 'Ставлю…';
+  const r = await act(btn, () => api('/api/yam2/pkg', { action, name, yes: !!yes }));
+  btn.textContent = label;
+  if (!r) return;
+  if (r.need_yes) {
+    y2out(r.text, true);
+    if (confirm(`yam просит подтверждения для ${name}:\n\n${r.text}\n\nУстановить всё равно?`)) return yam2Pkg(btn, action, name, true);
+    return;
+  }
+  toast(action === 'install' ? 'Установлен: ' + name : 'Удалён: ' + name);
+  await loadYam2Packages();
+}
+async function yam2Svc(el, id, action, stopLegacy) {
+  const r = await act(el, () => api('/api/yam2/service', { id, action, stop_legacy: !!stopLegacy }));
+  if (r?.need_stop_legacy) {
+    if (confirm('Работает старый yamd: он занимает порт 8099, нужный Luna. Остановить yamd и выключить его автозапуск, чтобы запустить Luna?'))
+      return yam2Svc(el, id, action, true);
+  } else if (r && action === 'start' && !r.running) {
+    toast('Служба не запустилась — смотрите лог', true);
+    yam2Log(null, id);
+  } else if (r) toast({ start: 'Служба запущена', stop: 'Служба остановлена', boot: 'Будет запускаться при загрузке', noboot: 'Автозапуск выключен' }[action]);
+  await loadYam2Packages();
+  if (stopLegacy) loadYam();
+  if (action === 'boot' || action === 'noboot') loadHook();
+}
+async function yam2Log(btn, id) {
+  $('#y2-log-id').textContent = id.replaceAll('~', '/');
+  const r = await act(btn, () => api('/api/yam2/log?id=' + encodeURIComponent(id)));
+  if (r) { $('#y2-log').textContent = r.text || '(пусто)'; $('#y2-log').scrollTop = 1e9; }
+}
+$('#y2-install').onclick = e => {
+  const b = e.currentTarget;
+  return act(b, async () => {
+    b.textContent = 'Скачиваю и проверяю…';
+    try { const r = await api('/api/yam2/install', {}); toast('yam ' + (r.installed_tag || '') + ' установлен'); }
+    finally { b.textContent = 'Установить yam 2'; }
+    await loadYam2();
+  });
+};
+$('#y2-update').onclick = e => act(e.currentTarget, async () => { const r = await api('/api/yam2/update', {}); y2out(r.text); await loadYam2(); }, 'yam обновлён');
+$('#y2-reg-add').onclick = e => act(e.currentTarget, async () => { await api('/api/yam2/registry', {}); await loadYam2(); }, 'Каталог подключён');
+$('#y2-doctor').onclick = e => act(e.currentTarget, async () => {
+  const r = await api('/api/yam2/doctor', {});
+  y2out(r.text, !r.ok); $('#y2-repair').hidden = r.ok;
+});
+$('#y2-repair').onclick = e => act(e.currentTarget, async () => {
+  const r = await api('/api/yam2/doctor', { repair: true });
+  y2out(r.text, !r.ok); $('#y2-repair').hidden = r.ok;
+});
+$('#y2-uninstall').onclick = e => {
+  if (!confirm('Удалить yam 2 вместе со всеми его пакетами и их данными (/data/yam)? Старый yamd это не затронет.')) return;
+  act(e.currentTarget, async () => { await api('/api/yam2/uninstall', {}); y2out(''); await loadYam2(); loadHook(); }, 'yam 2 удалён');
+};
+$('#y2-filter').oninput = renderYam2;
+$('#y2-all').onchange = renderYam2;
+$('#y2-refresh').onclick = e => act(e.currentTarget, async () => { await loadYam2(true); await loadYam2Catalog(true); });
+$('#yam-legacy > summary').addEventListener('click', () => { $('#yam-legacy').dataset.touched = 1; });
 // ---------- приложения (yam) ----------
 const yam = { registry: [], plugins: [] };
 async function loadYam() {
