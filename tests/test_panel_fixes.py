@@ -14,6 +14,12 @@ class AdbListing(unittest.TestCase):
         with patch.object(s.subprocess, 'run', return_value=result):
             self.assertEqual(s.Adb('adb', 'device').ls('/tmp')[0][3], 'folder')
 
+    def test_form_feed_in_name_is_kept(self):
+        s = fresh_server()
+        result = Mock(returncode=0, stdout=b'000081a4 00000001 00000020 a\x0cb\r\n', stderr=b'')
+        with patch.object(s.subprocess, 'run', return_value=result):
+            self.assertEqual([e[3] for e in s.Adb('adb', 'device').ls('/tmp')], ['a\x0cb'])
+
 
 class Station2Colors(unittest.TestCase):
     def test_primaries_and_mixed_colors_use_rgbx_and_preview_reads_same_channels(self):

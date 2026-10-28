@@ -406,7 +406,9 @@ class Adb:
             raise AdbError("Связь с колонкой потеряна")
         if check and p.returncode != 0 and not out and err:
             raise AdbError(err.strip())
-        return out.replace("\r\n", "\n"), err.replace("\r\n", "\n"), p.returncode
+        # псевдотерминал колонки даёт \r\n, а adb.exe на Windows бывает дописывает ещё \r — \r\r\n
+        crlf = lambda s: re.sub(r"\r+\n", "\n", s)
+        return crlf(out), crlf(err), p.returncode
 
     def pull(self, remote, local, timeout=300):
         # exec-out этот adbd не поддерживает ("error: closed"), а shell идёт через pty
@@ -429,10 +431,10 @@ class Adb:
         if p.returncode != 0:
             raise AdbError((p.stderr.decode("utf-8", "replace") or out).strip())
         res = []
-        # adb.exe uses CRLF on Windows; splitlines() keeps the carriage return
-        # out of the remote filename (otherwise folder clicks address "name\r").
-        for line in out.splitlines():
-            parts = line.split(" ", 3)
+        # adb.exe на Windows заканчивает строки \r\n: без rstrip папка открывалась бы как «имя\r».
+        # splitlines() не подходит — режет и по \x0c, \x1c и прочим, а они бывают в именах файлов.
+        for line in out.split("\n"):
+            parts = line.rstrip("\r").split(" ", 3)
             if len(parts) == 4:
                 res.append((int(parts[0], 16), int(parts[1], 16), int(parts[2], 16), parts[3]))
         return res

@@ -54,7 +54,7 @@ def mini2_decode_clock_pattern(s, name, data):
 def mini2_encode_clock_pattern(s, frames):
     out = bytearray()
     for f in frames:
-        v = [max(0, min(170, int(x))) for x in f['v']]
+        v = [max(0, min(PROFILES['mini2']['clock_max'], int(x))) for x in f['v']]
         if len(v) != len(s.CLOCK_LEDS):
             raise s.AdbError(f'в кадре должно быть {len(s.CLOCK_LEDS)} значений')
         by_name = dict(zip(s.CLOCK_LEDS, v))
@@ -166,26 +166,27 @@ def install(s, model='lite2', auto=False):
 
     P = s.Panel
     if model == 'mini2':
+        top = profile['clock_max']   # предел яркости дисплея часов (max_brightness)
         original_clock, original_display_set, original_play_clock = P.clock, P.display_set, P.play_clock
         original_set_volume = P.set_volume
 
         def clock(self, data):
             data = dict(data)
             if 'v' in data:
-                data['v'] = [max(0, min(170, int(value))) for value in data['v']]
+                data['v'] = [max(0, min(top, int(value))) for value in data['v']]
             if 'brightness' in data:
-                data['brightness'] = max(0, min(170, int(data['brightness'])))
+                data['brightness'] = max(0, min(top, int(data['brightness'])))
             return original_clock(self, data)
 
         def display_set(self, data):
             data = dict(data)
             if 'v' in data:
-                data['v'] = [max(0, min(170, int(value))) for value in data['v']]
-            data['brightness'] = max(1, min(170, int(data.get('brightness', 160))))
+                data['v'] = [max(0, min(top, int(value))) for value in data['v']]
+            data['brightness'] = max(1, min(top, int(data.get('brightness', 160))))
             return original_display_set(self, data)
 
         def play_clock(self, frames, seconds):
-            frames = [{**frame, 'v': [max(0, min(170, int(value))) for value in frame['v']]}
+            frames = [{**frame, 'v': [max(0, min(top, int(value))) for value in frame['v']]}
                       for frame in frames]
             return original_play_clock(self, frames, seconds)
 
@@ -206,7 +207,6 @@ def install(s, model='lite2', auto=False):
         wrapped = (f"printf '{marker}\\n'; sh -c {shlex.quote(command)}; rc=$?; "
                    f"printf '\\n{marker}RC=%s\\n' \"$rc\"")
         out, err, _ = original_shell(self, wrapped, timeout, False)
-        out = out.replace('\r\n', '\n').replace('\r', '\n')
         if marker + '\n' not in out:
             raise s.AdbError('Нет ответа shell колонки')
         body = out.split(marker + '\n', 1)[1]

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import multi
 import profiles
@@ -125,15 +125,21 @@ class ProfileTests(unittest.TestCase):
         self.assertIn('ln -s /sys/class/leds/mini2:white:clock', sent[0])
         self.assertNotIn('ln -s', sent[1])
 
-    def test_mini2_accepts_windows_adb_double_carriage_returns(self):
-        s = fresh_server()
-        def device(adb, command, timeout=15, check=True):
-            marker = command.split("'")[1].split('\\n')[0]
-            return f'{marker}\r\r\nok\r\r\n{marker}RC=0\r\r\n', '', 0
-        s.Adb.shell = device
-        profiles.install(s, 'mini2')
-        out, _, code = s.Adb.shell(Mock(), 'echo ok')
-        self.assertEqual((out.strip(), code), ('ok', 0))
+    def test_windows_adb_double_carriage_returns_on_every_model(self):
+        # adb.exe на Windows бывает отдаёт \r\r\n — исправлено в Adb.shell, значит и для Лайт 2
+        for model in ('lite2', 'mini2'):
+            s = fresh_server()
+            profiles.install(s, model)
+            def run(cmd, **kwargs):
+                text = 'ok\r\r\n'
+                if "printf '" in cmd[-1]:   # обёртка других моделей — с маркерами
+                    marker = cmd[-1].split("'")[1].split('\\n')[0]
+                    text = f'{marker}\r\r\nok\r\r\n{marker}RC=0\r\r\n'
+                return Mock(returncode=0, stdout=text.encode(), stderr=b'')
+            with patch.object(s.subprocess, 'run', run):
+                out, _, code = s.Adb.shell(s.Adb('adb', 'device'), 'echo ok')
+            self.assertEqual((out.strip(), code), ('ok', 0), model)
+            self.assertNotIn('\r', out)
 
     def test_other_profiles_block_boot_screen_and_restore_but_try_alarms(self):
         for model in ('station2', 'mini3pro', 'mini3', 'mini2'):
