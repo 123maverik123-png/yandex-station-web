@@ -907,7 +907,7 @@
         <div class="actions"><button class="btn sm" id="ov-reset">Виджеты по умолчанию</button><button class="btn sm primary" id="ov-done">Готово</button></div>
       </div>
       <div class="ov-opts">
-        <div class="set-item"><div class="set-label"><b>Плитки сверху</b><small>Что показывать в четырёх плитках: значение, полоска и график за 15 минут</small></div>
+        <div class="set-item"><div class="set-label"><b>Плитка «Состояние»</b><small>Что показывать в её четырёх ячейках: значение, полоска и график за 15 минут</small></div>
           <div class="set-ctl"><div class="tile-picks" id="set-tiles"></div></div></div>
         <label class="set-item"><div class="set-label"><b>Визуализатор за 3D-моделью</b><small>Спектр из символов за моделью, пока колонка играет музыку (нужен вход в Яндекс)</small></div>
           <div class="set-ctl"><input type="checkbox" class="switch" id="set-viz"></div></label>
@@ -3974,7 +3974,7 @@ $('#set-layout-reset').onclick = () => $('#ov-reset').click();
 $('#ov-done').onclick = () => setEditing(false);
 $('#ov-reset').onclick = () => {
   applyLayout(DEFAULT_LAYOUT); $$('#wz-hidden > [data-widget]').forEach(w => $('#' + homeZone(w.dataset.widget)).append(w)); saveLayout();
-  store.set('ov.tiles', JSON.stringify(TILE_DEFAULT)); buildTiles(); fillTileSettings();   // и плитки сверху
+  store.set('ov.tiles', JSON.stringify(TILE_DEFAULT)); buildTiles(); fillTileSettings();   // и плитку «Состояние»
   toast('Раскладка по умолчанию');
 };
 // Перетаскивание: виджет переезжает прямо во время движения, место выбирается по середине соседей.
