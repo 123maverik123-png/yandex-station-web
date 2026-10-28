@@ -5,14 +5,14 @@
  *  в том браузере, где открыта панель, звук идёт из динамика этого устройства.
  *  На колонку команды не отправляются — это отдельный, независимый плеер.
  *
- *  Почему именно так:
+ *  Почему именно так (и чего ждать) — в отчёте youtube-panel-recon.md:
  *    • встраивать можно только ролики, разрешившие embed (иначе ошибка 101/150);
  *    • без жеста пользователя браузер не даёт звук (обрабатываем onAutoplayBlocked);
  *    • панель отдаёт страницы с Referrer-Policy: no-referrer, а без Referer YouTube
  *      отвечает ошибкой 153 — поэтому на iframe выставлен referrerpolicy
  *      strict-origin-when-cross-origin (атрибут элемента приоритетнее заголовка документа);
- *    • если youtube.com/iframe_api не открывается, карточка показывает «нет доступа»
- *      и ссылку «Открыть на YouTube», а не висит молча.
+ *    • если youtube.com/iframe_api не открывается (DPI/блокировка), карточка
+ *      показывает «нет доступа» и ссылку «Открыть на YouTube», а не висит молча.
  *
  *  Модуль самостоятельный: работает с уже отрисованной карточкой, помнит последнее
  *  видео, громкость и историю (localStorage), не трогает остальную панель.
@@ -54,6 +54,8 @@
   const seek = el('yt-seek'), posEl = el('yt-pos'), durEl = el('yt-dur');
   const playBtn = el('yt-play'), muteBtn = el('yt-mute'), volInput = el('yt-vol'), fsBtn = el('yt-fs');
   const form = el('yt-form'), urlInput = el('yt-url'), recentEl = el('yt-recent');
+  const toColBtn = el('yt-to-col');
+  const prevBox = el('yt-prev'), prevImg = el('yt-prev-img');
 
   // без разметки модуль работать не может — молча выходим
   if (!frameSlot || !veilEl || !form) return;
@@ -185,6 +187,7 @@
   }
 
   function createPlayer(id, start) {
+    hidePreview();   // дальше видео-бокс занимает локальный плеер
     const frame = document.createElement('iframe');
     frame.id = 'yt-iframe';
     frame.title = 'Плеер YouTube';
@@ -426,6 +429,168 @@
     urlInput.value = 'https://youtu.be/' + id;
     play(id);
   };
+
+  // ---------- что сейчас играет на колонке ----------
+  // Источника два, в порядке приоритета:
+  //   1) мост quasard-youtube (локальный сервис, который тянет звук с YouTube и отдаёт
+  //      его колонке) — именно он знает трек, позицию и паузу; аккаунт Яндекса не нужен.
+  //   2) Glagol через /api/music — для случая, когда панель вошла в Яндекс и колонка
+  //      играет что-то своё. Без токена этот источник просто пустой.
+  const colBox = el('yt-col'), colKick = el('yt-col-k'), colTitle = el('yt-col-title');
+  const colSub = el('yt-col-sub'), colSearch = el('yt-col-search');
+  const apiUrl = p => (window.PanelContext && PanelContext.url) ? PanelContext.url(p) : p;
+  let colSig = null;
+
+  function showColumn(info) {
+    const text = (info && info.title) || '';
+    if (!text) {
+      if (colSig !== '') { colSig = ''; colBox.hidden = true; }
+      return;
+    }
+    const sub = [info.subtitle, info.album].filter(Boolean).join(' · ');
+    const time = info.dur > 0 ? fmt(info.pos) + ' / ' + fmt(info.dur) : '';
+    const sig = JSON.stringify([text, sub, time, info.playing, info.waiting]);
+    if (sig === colSig) return;
+    colSig = sig;
+    colBox.hidden = false;
+    colKick.textContent = 'На колонке' +
+      (info.waiting ? ' · ждёт колонку' : info.playing ? '' : ' · пауза');
+    colTitle.textContent = text;
+    colSub.textContent = [sub, time].filter(Boolean).join(' · ');
+    colSearch.href = 'https://www.youtube.com/results?search_query=' +
+      encodeURIComponent(info.search || [text, info.subtitle].filter(Boolean).join(' '));
+  }
+
+  // Что играет по данным моста YouTube→колонка (через прокси панели /api/yt-bridge).
+  async function bridgeNow() {
+    try {
+      const r = await fetch(apiUrl('/api/yt-bridge'), { credentials: 'same-origin', cache: 'no-store' });
+      if (!r.ok) return null;
+      const j = await r.json();
+      if (!j || !j.ok) return null;
+      const st = j.stream;
+      if (!st || !st.title) return null;
+      if (st.state !== 'streaming' && st.state !== 'paused' && st.state !== 'waiting_station') return null;
+      return {
+        title: String(st.title),
+        subtitle: st.artist ? String(st.artist) : '',
+        search: st.query ? String(st.query) : '',
+        videoId: st.video_id ? String(st.video_id) : '',
+        playing: st.state === 'streaming',
+        waiting: st.state === 'waiting_station',
+        pos: (st.played_ms || st.offset_ms || 0) / 1000,
+        dur: Number(st.duration) || 0,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Запасной источник — состояние Glagol (нужен вход в Яндекс).
+  async function glagolNow() {
+    try {
+      const r = await fetch(apiUrl('/api/music'), { credentials: 'same-origin', cache: 'no-store' });
+      if (!r.ok) return null;
+      const j = await r.json();
+      const st = j && j.glagol && j.glagol.state;
+      const p = st && st.playerState;
+      if (!p || !p.title) return null;
+      return {
+        title: String(p.title),
+        subtitle: p.subtitle ? String(p.subtitle) : '',
+        album: (p.extra && p.extra.album) ? String(p.extra.album) : '',
+        playing: !!st.playing,
+        pos: Number(p.progress) || 0,
+        dur: Number(p.duration) || 0,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function pollColumn() {
+    if (!colBox) return;
+    if (document.hidden) return;   // вкладку свернули — не дёргаем сервер
+    const fromBridge = await bridgeNow();
+    const info = fromBridge || await glagolNow();
+    showColumn(info);
+    // превью ролика в видео-боксе: пока в панели ничего своего не запускали
+    if (info && info.videoId) showPreview(info.videoId);
+    else hidePreview();
+  }
+
+  // ---------- превью того, что играет колонка ----------
+  let previewId = '';
+
+  function hidePreview() {
+    if (!prevBox) return;
+    previewId = '';
+    prevBox.hidden = true;
+    if (!document.getElementById('yt-iframe')) {
+      titleEl.textContent = 'Ничего не играет';
+      subEl.textContent = 'Плеер работает в этом браузере';
+    }
+  }
+
+  function showPreview(id) {
+    if (!prevBox || !id) { hidePreview(); return; }
+    if (document.getElementById('yt-iframe')) { hidePreview(); return; }  // локальный плеер уже занял бокс
+    if (id === previewId && !prevBox.hidden) return;
+    previewId = id;
+    if (prevImg.getAttribute('src') !== 'https://i.ytimg.com/vi/' + encodeURIComponent(id) + '/hqdefault.jpg') {
+      prevImg.src = 'https://i.ytimg.com/vi/' + encodeURIComponent(id) + '/hqdefault.jpg';
+    }
+    prevBox.hidden = false;
+    veil(false);
+    titleEl.textContent = 'В браузере не играет';
+    subEl.textContent = 'нажмите ▶ на превью, чтобы смотреть здесь';
+  }
+
+  if (prevBox) {
+    prevBox.addEventListener('click', () => { if (previewId) play(previewId); });
+    if (prevImg) prevImg.addEventListener('error', () => { if (previewId) hidePreview(); });
+  }
+
+  // ---------- отправить ссылку/запрос на колонку ----------
+  async function sendToColumn() {
+    const raw = urlInput.value.trim();
+    const id = parseId(raw);
+    const query = raw ? (id && !/^https?:/i.test(raw) ? 'https://youtu.be/' + id : raw) : '';
+    if (!query) { needUrl(); return; }
+
+    if (toColBtn) toColBtn.disabled = true;
+    setBadge('на колонку…');
+    try {
+      const r = await fetch(apiUrl('/api/yt-bridge/cmd'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'play', query }),
+      });
+      const j = await r.json().catch(() => ({ ok: false, error: 'ответ не JSON' }));
+      if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      say('Играю на колонке');
+      setBadge('');
+      setTimeout(pollColumn, 600);
+      setTimeout(pollColumn, 2500);
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      say('Колонка не приняла: ' + msg);
+      setBadge('ошибка', 'bad');
+      veil(true, 'Колонка не приняла запрос', msg, true);
+    } finally {
+      if (toColBtn) toColBtn.disabled = false;
+    }
+  }
+
+  if (toColBtn) toColBtn.onclick = sendToColumn;
+
+  if (colBox) {
+    pollColumn();
+    setInterval(pollColumn, 3000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) pollColumn(); });
+  }
 
   // ---------- начальное состояние ----------
   setPlayIcon(false);
