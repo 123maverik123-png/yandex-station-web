@@ -3499,6 +3499,34 @@ class Handler(BaseHTTPRequestHandler):
         b = self._body()
         return json.loads(b) if b else {}
 
+    def _conn_find(self):
+        """Колонки в локальных сетях этого компьютера — то же, что --find, но из панели."""
+        import profiles
+        if os.environ.get("PANEL_GATEWAY_SECRET"):
+            raise AdbError("в режиме нескольких колонок адреса задаются в speakers.json")
+        nets = local_networks()
+        if not nets:
+            raise AdbError("не нашлось домашней сети: компьютер не в локальной сети, или панель в Docker без сети хоста")
+        current = self.panel.adb.serial
+        found = find_devices(self.panel.adb.adb, nets)
+        JOURNAL.add(f"поиск колонок в {', '.join(map(str, nets))}: найдено {len(found)}")
+        return {"nets": [str(n) for n in nets], "current": current,
+                "found": [{"serial": s, "ip": s.rpartition(":")[0], "model": m, "name": profiles.PROFILES[m]["name"],
+                           "current": s == current} for s, m, _ in found]}
+
+    def _conn_use(self, serial):
+        """Подключиться к другой колонке: запоминаем адрес и перезапускаем панель с ним."""
+        if os.environ.get("PANEL_GATEWAY_SECRET"):
+            raise AdbError("в режиме нескольких колонок адреса задаются в speakers.json")
+        serial = normalize_device(serial)
+        if not serial or not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}:\d{1,5}", serial) \
+                or not ipaddress.ip_address(serial.rpartition(":")[0]).is_private:
+            raise AdbError("нужен IP колонки в домашней сети, например 192.168.1.50")
+        save_settings({**load_settings(), "device": serial})
+        JOURNAL.add(f"выбрана колонка {serial} — перезапуск панели")
+        threading.Timer(0.5, restart_self, kwargs={"device": serial}).start()
+        return {"ok": True, "serial": serial}
+
     def _report(self):
         """Отчёт для Issue: окружение, колонка, хук, своё на колонке и хвост журнала — без личного (redact)."""
         import profiles
@@ -3725,6 +3753,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._panel_auth_post(u.path, d)
         if u.path == "/api/conn/retry":
             return self._send(200, self.panel.conn.retry_now())
+        if u.path == "/api/conn/find":
+            return self._handle(self._conn_find)
+        if u.path == "/api/conn/use":
+            try:
+                d = self._json()
+            except ValueError:
+                d = {}
+            self._jdata = d if isinstance(d, dict) else {}
+            return self._handle(lambda: self._conn_use(self._jdata.get("serial")))
         if self._offline(u.path):
             return
         p = self.panel
@@ -4077,9 +4114,21 @@ def watch_model(adb, conn, active):
         restart_self()
 
 
-def restart_self():
-    """Перезапуск сервера тем же интерпретатором и с теми же аргументами (без --open: браузер уже открыт)."""
+def restart_self(device=None):
+    """Перезапуск сервера тем же интерпретатором и с теми же аргументами (без --open: браузер уже открыт).
+    device — с другой колонкой: старые --device/--find заменяем (иначе аргумент перебил бы запомненный адрес)."""
     args = [a for a in sys.argv if a != "--open"]
+    if device:
+        out, i = [], 0
+        while i < len(args):
+            a = args[i]
+            if a == "--device" or (a == "--find" and i + 1 < len(args) and not args[i + 1].startswith("-")):
+                i += 2   # у --find подсеть необязательна
+                continue
+            if a != "--find" and not a.startswith(("--device=", "--find=")):
+                out.append(a)
+            i += 1
+        args = out + ["--device", device]
     try:
         Handler.panel.metrics._save()
     except Exception:  # noqa: BLE001

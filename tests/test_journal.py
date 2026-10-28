@@ -62,3 +62,30 @@ class RequestJournal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpeakerFinder(unittest.TestCase):
+    """Поиск колонки из панели: адрес запоминается, панель перезапускается с ним."""
+
+    def test_restart_replaces_device_args(self):
+        from unittest.mock import patch
+        cases = {("server.py", "--open", "--device", "1.2.3.4", "--port", "1"): ["server.py", "--port", "1"],
+                 ("server.py", "--find", "--port", "1"): ["server.py", "--port", "1"],
+                 ("server.py", "--find", "10.0.0.0/24", "--device=x"): ["server.py"]}
+        for argv, rest in cases.items():
+            with patch.object(server.sys, "argv", list(argv)), patch.object(server.os, "execv") as ex, \
+                    patch.object(server.Handler, "panel", None, create=True):
+                server.restart_self(device="192.168.1.50:5555")
+            self.assertEqual(ex.call_args.args[1][1:], rest + ["--device", "192.168.1.50:5555"])
+
+    def test_use_accepts_only_home_ip(self):
+        from unittest.mock import patch
+        h = SimpleNamespace()
+        for bad in ("8.8.8.8", "evil.com", "abc", "", None, "192.168.1.5; reboot"):
+            with self.assertRaises(server.AdbError):
+                server.Handler._conn_use(h, bad)
+        with patch.object(server, "save_settings") as save, patch.object(server, "load_settings", return_value={}), \
+                patch.object(server.threading, "Timer") as timer:
+            self.assertEqual(server.Handler._conn_use(h, "192.168.1.50")["serial"], "192.168.1.50:5555")
+        save.assert_called_once_with({"device": "192.168.1.50:5555"})
+        self.assertEqual(timer.call_args.kwargs["kwargs"], {"device": "192.168.1.50:5555"})

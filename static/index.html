@@ -590,6 +590,13 @@
   .anim-pick { gap: 8px; flex-wrap: nowrap; min-width: 0; }
   .anim-pick select { min-height: 36px; padding: 0 10px; max-width: 260px; min-width: 0; }
   [data-boot-only][hidden] { display: none !important; }
+  .finder { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; text-align: left; }
+  .finder[hidden] { display: none; }
+  .find-list { display: flex; flex-direction: column; gap: 6px; }
+  .find-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--field); }
+  .find-row .nm { flex: 1; min-width: 0; }
+  .find-row .nm b { display: block; font-size: 14px; }
+  .find-row .nm span { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
   .report-text { width: 100%; min-height: 160px; margin-top: 10px; font-size: 12px; line-height: 1.45; resize: vertical; }
   .report-text[hidden] { display: none; }
   button.link { border: 0; background: none; padding: 0; font: inherit; color: var(--accent-ink); text-decoration: underline; cursor: pointer; }
@@ -748,7 +755,9 @@
       <h1 id="cs-title">Подключение…</h1>
       <p id="cs-text"></p>
       <div class="addr" id="cs-addr"></div>
-      <button class="btn" id="cs-retry" hidden>Повторить сейчас</button>
+      <div class="row" style="gap:8px;justify-content:center"><button class="btn" id="cs-retry" hidden>Повторить сейчас</button>
+        <button class="btn" id="cs-find" data-finder="cs-find-slot" hidden>Найти колонку в сети</button></div>
+      <div id="cs-find-slot"></div>
       <form class="login" id="cs-login" hidden>
         <input type="text" name="username" value="panel" autocomplete="username" hidden>
         <input type="password" class="field" id="cs-pass" autocomplete="current-password" placeholder="Пароль" aria-label="Пароль" required>
@@ -762,6 +771,16 @@
   </main>
 
   <!-- ================= ОБЗОР ================= -->
+
+  <!-- поиск колонки в сети: блок переносится туда, где его открыли (экран подключения или «Настройки») -->
+  <div class="finder" id="finder" hidden>
+    <div class="row" style="gap:8px"><button class="btn sm primary" id="find-go"><svg width="14" height="14" aria-hidden="true"><use href="#i-search"/></svg>Найти колонки в сети</button>
+      <span class="meta" id="find-state">ищет колонки с включённым adb по сети в домашней сети этого компьютера</span></div>
+    <div class="find-list" id="find-list"></div>
+    <form class="row" id="find-manual" style="gap:8px">
+      <input class="field mono" id="find-ip" placeholder="или IP колонки: 192.168.1.50" aria-label="IP колонки" style="flex:1;min-width:160px" inputmode="decimal">
+      <button class="btn sm">Подключить</button></form>
+  </div>
   <!-- общая плашка: своё есть, а хук загрузки не подключён — переносится в шапку открытой вкладки -->
   <div class="untested" id="hook-warn" role="alert" hidden>
     <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 1 21h22L12 2zm1 15h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg>
@@ -1061,6 +1080,9 @@
       <section class="card set-card" id="upd-card">
         <div class="set-head"><span class="set-ic"><svg width="18" height="18" aria-hidden="true"><use href="#i-up"/></svg></span><div><h2>О панели</h2><p id="upd-sub">Версия и обновления</p></div></div>
         <div class="set-item"><div class="set-label"><b>Колонка: <span id="upd-model">—</span></b><small id="upd-model-how">—</small></div></div>
+        <div class="set-item"><div class="set-label"><b>Адрес колонки: <span class="mono" id="set-addr">—</span></b><small>Запоминается — при следующем запуске панель подключится к ней же</small></div>
+          <div class="set-ctl"><button class="btn sm" data-finder="set-find-slot">Другая колонка…</button></div></div>
+        <div id="set-find-slot"></div>
         <div class="set-item"><div class="set-label"><b>Версия <span id="upd-version">—</span></b><small id="upd-state">проверяем…</small></div>
           <div class="set-ctl"><button class="btn sm" id="upd-check">Проверить</button><a class="btn sm" id="upd-repo" href="https://github.com/dimap/yandex-station-web" target="_blank" rel="noopener">GitHub ↗</a></div></div>
         <div class="set-item" id="upd-row" hidden><div class="set-label"><b>Доступна версия <span id="upd-latest">—</span></b><small id="upd-how">—</small></div>
@@ -4656,6 +4678,8 @@ function renderConn() {
   const locked = i.state === 'locked', form = $('#cs-login');
   if (form.hidden === locked) { form.hidden = !locked; if (locked) setTimeout(() => $('#cs-pass').focus(), 0); }
   $('#cs-retry').hidden = !['adb_error', 'waiting'].includes(i.state);
+  $('#cs-find').hidden = ['locked', 'server', 'online'].includes(i.state);
+  if (i.serial) $('#set-addr').innerHTML = secret('ip', i.serial);
   $('#cs-log-box').hidden = !(i.log && i.log.length);
   $('#cs-report-row').hidden = !(i.log && i.log.length) || i.state === 'locked';
   if (i.log) {
@@ -4699,6 +4723,37 @@ $('#cs-login').onsubmit = async e => {
 $('#cs-retry').onclick = e => act(e.currentTarget, async () => { await PanelContext.fetch('/api/conn/retry', { method: 'POST' }); await connCheck(); });
 
 let statusTimer;
+// ---------- поиск колонки в сети ----------
+// Тот же поиск, что ./start.sh --find: порт adb 5555 в подсетях компьютера, затем проверка платы.
+// Выбранный адрес панель запоминает и перезапускается с ним.
+$$('[data-finder]').forEach(b => b.onclick = () => {
+  const f = $('#finder'), slot = $('#' + b.dataset.finder);
+  const open = f.hidden || f.parentElement !== slot;
+  slot.append(f); f.hidden = !open;
+  if (open && !$('#find-list').children.length) $('#find-go').click();
+});
+$('#find-go').onclick = e => act(e.currentTarget, async () => {
+  $('#find-state').textContent = 'Ищу… это займёт несколько секунд';
+  $('#find-list').innerHTML = '';
+  let r;
+  try { r = await (await PanelContext.fetch('/api/conn/find', { method: 'POST' })).json(); }
+  catch { r = { error: 'сервер панели не ответил' }; }
+  if (r.error) { $('#find-state').textContent = r.error; return; }
+  $('#find-state').textContent = r.found.length ? `Сеть ${r.nets.join(', ')}:` : `В сети ${r.nets.join(', ')} колонок не нашлось: проверьте, что колонка включена, в той же сети и adb по сети на ней включён.`;
+  $('#find-list').innerHTML = r.found.map(x => `<div class="find-row"><div class="nm"><b>${esc(x.name)}</b><span>${secret('ip', x.ip)}</span></div>
+    ${x.current ? '<span class="badge ok">подключена</span>' : `<button class="btn sm primary" data-use="${esc(x.serial)}">Подключить</button>`}</div>`).join('');
+  $$('#find-list [data-use]').forEach(b => b.onclick = () => useSpeaker(b.dataset.use, b));
+});
+async function useSpeaker(serial, btn) {
+  await act(btn, async () => {
+    const r = await (await PanelContext.fetch('/api/conn/use', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial }) })).json();
+    if (r.error) throw new Error(r.error);
+    $('#finder').hidden = true;
+    setTimeout(connCheck, 1500);   // сервер перезапускается — экран подключения покажет, как идёт
+  }, 'Панель перезапускается с колонкой ' + serial.replace(/:5555$/, ''));
+}
+$('#find-manual').onsubmit = e => { e.preventDefault(); const ip = $('#find-ip').value.trim(); if (ip) useSpeaker(ip, e.submitter); };
+
 // ---------- хук загрузки ----------
 // Своё на колонке (звуки, анимации, будильник, ассистент…) после перезагрузки держится на строке в rootkeeper.sh.
 // Панель подключает её сама при сохранении; плашка — на случай, когда строки нет или она от старой версии.
