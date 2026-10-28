@@ -2673,8 +2673,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
 
     # ---------- сценарии ----------
     # Сценарий — граф нод (scenes.conf, разбирает device/alarmd.sh). У if и repeat два выхода: next и else.
-    SCENE_KINDS = ("query", "say", "ask", "vol", "sound", "ring", "wait", "wait_until", "wait_quiet", "stop", "scene",
-                   "anim", "if", "repeat", "note")
+    SCENE_KINDS = ("query", "say", "ask", "assistant", "vol", "sound", "ring", "wait", "wait_until", "wait_quiet", "stop",
+                   "scene", "anim", "if", "repeat", "note")
     SCENE_CHECKS = ("time", "days", "playing", "online", "vol_above", "chance", "assistant_mode")
 
     def scenes(self):
@@ -2688,8 +2688,9 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         for line in conf.splitlines():
             f = line.rstrip("\r").split("|")
             if f[0] == "S" and len(f) == 8:
-                s = {"id": f[1], "on": f[2] == "1", "trigger": f[3], "time": f[4], "days": f[5], "start": f[6],
-                     "name": f[7], "nodes": []}
+                voice = f[3] == "voice"
+                s = {"id": f[1], "on": f[2] == "1", "trigger": f[3], "time": "" if voice else f[4], "days": f[5], "start": f[6],
+                     "name": f[7], "phrases": [x for x in f[4].split(",") if x] if voice else [], "nodes": []}
                 items.append(s); by_id[s["id"]] = s
             elif f[0] == "N" and len(f) == 10 and f[1] in by_id:
                 _, sid, nid, kind, a, b, nx, el, x, y = f
@@ -2710,6 +2711,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                     n["target"] = a
                 elif kind == "anim":
                     n.update(anim=a, secs=num(b))
+                elif kind == "assistant":
+                    n["mode"] = a == "on"
                 elif kind == "if":
                     n.update(check=a, arg=b)
                 elif kind == "repeat":
@@ -2732,10 +2735,15 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         for s in items:
             sid = re.sub(r"[^a-z0-9]", "", str(s.get("id") or ""))[:12] or os.urandom(4).hex()
             name = text(s.get("name"), 40) or "Сценарий"
-            trig = "boot" if s.get("trigger") == "boot" else "time"
+            trig = s.get("trigger") if s.get("trigger") in ("boot", "voice") else "time"
             tm = str(s.get("time") or "")
             if trig == "time" and not hm.fullmatch(tm):
                 raise AdbError(f"«{name}»: неверное время {tm}")
+            if trig == "voice":   # фразы — на место времени; запятая разделяет их и в конфиге
+                phrases = [p for p in (text(x, 60).replace(",", " ").strip() for x in (s.get("phrases") or [])[:8]) if p]
+                if not phrases:
+                    raise AdbError(f"«{name}»: укажите фразу для ассистента")
+                tm = ",".join(phrases)
             days = "".join(sorted(set(re.sub(r"[^1-7]", "", str(s.get("days", ""))))))
             nodes = s.get("nodes")
             if not isinstance(nodes, list) or len(nodes) > 60:
@@ -2747,7 +2755,7 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             start = link(s.get("start"))
             if not start and any(n.get("kind") != "note" for n in nodes):
                 raise AdbError(f"«{name}»: соедините «Запуск» с первой нодой")
-            lines.append("|".join(["S", sid, "1" if s.get("on", True) else "0", trig, tm if trig == "time" else "", days, start, name]))
+            lines.append("|".join(["S", sid, "1" if s.get("on", True) else "0", trig, tm if trig != "boot" else "", days, start, name]))
             for nid, n in zip(nids, nodes):
                 kind = n.get("kind")
                 if kind not in self.SCENE_KINDS:
@@ -2759,6 +2767,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                         raise AdbError(f"«{name}»: в ноде не задан текст")
                 elif kind == "note":
                     a = text(n.get("text"), 200)
+                elif kind == "assistant":
+                    a = "on" if n.get("mode") else "off"
                 elif kind == "vol":
                     a, b = num(n.get("level"), 0, 10), num(n.get("ramp"), 0, 1800)
                 elif kind == "sound":

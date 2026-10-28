@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMatchTrigger(t *testing.T) {
@@ -186,5 +187,24 @@ func TestRadioProxyValidation(t *testing.T) {
 		if validProxy(raw) != ok {
 			t.Errorf("%q", raw)
 		}
+	}
+}
+
+func TestFindScene(t *testing.T) {
+	conf := "S|a1|1|voice|спать, пора спать||1|Спать\nS|a2|0|voice|ночь||1|Ночь\nS|a3|1|time|23:00||1|Время\n" +
+		"S|a4|1|voice|в будни|12345|1|Будни\n"
+	mon := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC) // понедельник
+	sat := mon.AddDate(0, 0, 5)
+	for q, want := range map[string]string{"Спать": "a1", "пора спать!": "a1", "ночь": "", "23:00": "", "спать дальше": ""} {
+		sc, ok := findScene(conf, q, mon)
+		if (want != "") != ok || sc.id != want {
+			t.Errorf("%q → %+v %v, want %q", q, sc, ok, want)
+		}
+	}
+	if _, ok := findScene(conf, "в будни", sat); ok {
+		t.Error("сценарий «по будням» не должен срабатывать в субботу")
+	}
+	if sc, ok := findScene(conf, "в будни", mon); !ok || sc.name != "Будни" {
+		t.Errorf("%+v %v", sc, ok)
 	}
 }

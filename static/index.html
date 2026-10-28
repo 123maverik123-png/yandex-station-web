@@ -1311,10 +1311,12 @@
       <form class="al-form" id="sc-form">
         <label class="f">Название<input type="text" class="field" id="sc-name" maxlength="40" placeholder="например, «Ночь»" required></label>
         <label class="f">Когда
-          <select class="field" id="sc-trigger"><option value="time">По времени</option><option value="boot">После включения колонки</option></select></label>
+          <select class="field" id="sc-trigger"><option value="time">По времени</option><option value="boot">После включения колонки</option><option value="voice">По команде ассистенту</option></select></label>
+        <label class="f full" data-sc-voice hidden>Фразы, через запятую<input type="text" class="field" id="sc-phrases" maxlength="300" placeholder="спать, пора спать"></label>
+        <p class="hint full" data-sc-voice hidden id="sc-voice-hint"></p>
         <label class="f" data-sc-time>Время<input type="time" class="field" id="sc-time"></label>
-        <div class="f full" data-sc-time><label class="f" style="flex-direction:row;justify-content:space-between;align-items:center">Повторять
-          <span class="chips" id="sc-presets"><button type="button" class="chip" data-d="">Один раз</button><button type="button" class="chip" data-d="12345">Будни</button><button type="button" class="chip" data-d="67">Выходные</button><button type="button" class="chip" data-d="1234567">Каждый день</button></span></label>
+        <div class="f full" data-sc-time><label class="f" style="flex-direction:row;justify-content:space-between;align-items:center"><span id="sc-days-cap">Повторять</span>
+          <span class="chips" id="sc-presets"><button type="button" class="chip" data-d="" id="sc-once">Один раз</button><button type="button" class="chip" data-d="12345">Будни</button><button type="button" class="chip" data-d="67">Выходные</button><button type="button" class="chip" data-d="1234567">Каждый день</button></span></label>
           <div class="chips day-chips" id="sc-days" style="margin-top:8px"></div></div>
         <p class="hint full" id="sc-boot-hint" hidden>Запустится примерно через минуту после того, как Алиса загрузится, — при каждом включении колонки.</p>
         <div class="full">
@@ -4624,6 +4626,7 @@ const SC_NODES = {
   query: { name: 'Запрос Алисе', icon: 'i-mic', group: 'Алиса', def: () => ({ text: '' }) },
   say: { name: 'Алиса скажет', icon: 'i-mic', group: 'Алиса', def: () => ({ text: '' }) },
   ask: { name: 'Спросить ассистента', icon: 'i-mic', group: 'Алиса', def: () => ({ text: '' }), assistant: true },
+  assistant: { name: 'Режим ассистента', icon: 'i-mic', group: 'Алиса', def: () => ({ mode: true }), assistant: true },
   vol: { name: 'Громкость', icon: 'i-vol', group: 'Звук и свет', def: () => ({ level: 3, ramp: 0 }) },
   sound: { name: 'Звук', icon: 'i-music', group: 'Звук и свет', def: () => ({ sound: 'sys:common/timer.wav' }) },
   ring: { name: 'Кольцо', icon: 'i-palette', group: 'Звук и свет', def: () => ({ color: ringHex || '#6c47ff', secs: 10 }) },
@@ -4651,6 +4654,7 @@ function nodeText(n) {
     case 'query': return `«${n.text}»`;
     case 'say': return `скажет «${n.text}»`;
     case 'ask': return `ассистенту «${n.text}»`;
+    case 'assistant': return n.mode ? 'режим ассистента: вкл' : 'режим ассистента: выкл';
     case 'vol': return `громкость ${n.level * 10}%` + (n.ramp ? ` ${SC_RAMPS.find(r => r[0] === n.ramp)?.[1] || durText(n.ramp)}` : '');
     case 'sound': return `звук «${sndTitle(n.sound)}»`;
     case 'ring': return `кольцо ${durText(n.secs)}`;
@@ -4693,9 +4697,9 @@ function renderScenes() {
   $('#sc-list').innerHTML = d.scenes.length ? d.scenes.map(s => {
     const run = d.running.includes(s.id), { chain, linear } = scChain(s);
     return `<div class="al-row${s.on ? '' : ' off'}" data-id="${esc(s.id)}">
-      <div class="al-time">${s.trigger === 'boot' ? icon('i-power', 30) : esc(s.time)}</div>
+      <div class="al-time">${s.trigger === 'boot' ? icon('i-power', 30) : s.trigger === 'voice' ? icon('i-mic', 30) : esc(s.time)}</div>
       <div class="al-info"><b>${esc(s.name)}</b>
-        <div class="meta">${s.trigger === 'boot' ? 'после включения колонки' : esc(daysText(s.days))}${run ? ' · <span style="color:var(--ok-ink);font-weight:700">выполняется</span>' : ''}</div>
+        <div class="meta">${s.trigger === 'boot' ? 'после включения колонки' : s.trigger === 'voice' ? esc(`по команде ассистенту: «${s.phrases.join('», «')}»`) : esc(daysText(s.days))}${run ? ' · <span style="color:var(--ok-ink);font-weight:700">выполняется</span>' : ''}</div>
         <div class="sc-flow">${chain.slice(0, 6).map(n => `<span>${esc(nodeText(n))}</span>`).join('')}${chain.length > 6 || !linear ? `<span>${linear ? '…' : 'есть ветвления'}</span>` : ''}</div></div>
       <div class="actions">
         <input type="checkbox" data-a="toggle" ${s.on ? 'checked' : ''} aria-label="Включён" title="Включён">
@@ -4725,14 +4729,24 @@ $('#sc-days').onclick = e => { const c = e.target.closest('.chip'); if (c) { c.s
 $('#sc-presets').onclick = e => { const c = e.target.closest('.chip'); if (c) { $$('#sc-days .chip').forEach(x => x.setAttribute('aria-pressed', c.dataset.d.includes(x.dataset.d))); scFieldStart(); } };
 const scDays = () => $$('#sc-days .chip').filter(c => c.getAttribute('aria-pressed') === 'true').map(c => c.dataset.d).join('');
 function scTriggerUI() {
-  const boot = $('#sc-trigger').value === 'boot';
-  $$('[data-sc-time]').forEach(x => x.hidden = boot);
-  $('#sc-boot-hint').hidden = !boot;
+  const v = $('#sc-trigger').value;
+  $$('[data-sc-time]').forEach(x => x.hidden = v === 'boot');
+  $('#sc-time').closest('label').hidden = v !== 'time';
+  $$('[data-sc-voice]').forEach(x => x.hidden = v !== 'voice');
+  $('#sc-boot-hint').hidden = v !== 'boot';
+  $('#sc-days-cap').textContent = v === 'voice' ? 'В какие дни (ни одного — в любой)' : 'Повторять';
+  $('#sc-once').hidden = v === 'voice';
+  $('#sc-voice-hint').textContent = scHasAssistant
+    ? 'Скажите «Алиса, спроси GPT, <фраза>» — или просто фразу, если включён режим ассистента. Алиса такие команды сама не поймёт, их ловит ассистент. Дни ниже — когда команда работает.'
+    : 'Нужен ассистент (вкладка «Ассистент»): команды ловит он — Алиса сама их не поймёт.';
   scFieldStart();
 }
+const scPhrases = () => $('#sc-phrases').value.split(',').map(x => x.trim()).filter(Boolean);
 $('#sc-trigger').onchange = scTriggerUI;
 $('#sc-time').onchange = () => scFieldStart();
-const scTrigText = () => $('#sc-trigger').value === 'boot' ? 'после включения колонки' : `${$('#sc-time').value || '—'} · ${daysText(scDays())}`;
+$('#sc-phrases').oninput = () => scFieldStart();
+const scTrigText = () => ({ boot: 'после включения колонки', voice: `по команде «${scPhrases()[0] || '…'}»` })[$('#sc-trigger').value]
+  || `${$('#sc-time').value || '—'} · ${daysText(scDays())}`;
 function soundOptions() {
   const groups = {};
   (sounds || []).forEach(n => { const [g, ...r] = n.split('/'); (groups[r.length ? g : ''] ||= []).push(n); });
@@ -4745,6 +4759,8 @@ function nodeFields(n) {
     case 'say': return `<input type="text" class="field" data-f="text" maxlength="200" value="${esc(n.text)}" placeholder="Пора спать" aria-label="Что сказать">`;
     case 'ask': return `<input type="text" class="field" data-f="text" maxlength="200" value="${esc(n.text)}" placeholder="расскажи сказку на ночь" aria-label="Вопрос ассистенту">`
       + (scHasAssistant ? '' : '<span class="meta">ассистент не установлен — шаг пропустится</span>');
+    case 'assistant': return `<select class="field" data-f="mode" aria-label="Режим ассистента"><option value="on" ${n.mode ? 'selected' : ''}>включить</option><option value="off" ${n.mode ? '' : 'selected'}>выключить</option></select>
+      <span class="meta">все вопросы к Алисе — своей модели</span>`;
     case 'vol': return `<input type="range" min="0" max="10" data-f="level" value="${n.level}" aria-label="Громкость"><span class="mono meta" style="min-width:38px">${n.level * 10}%</span>
       <select class="field" data-f="ramp" aria-label="Как менять">${SC_RAMPS.map(([v, t]) => `<option value="${v}" ${v === n.ramp ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
     case 'sound': return `<select class="field" data-f="sound" style="flex:1;min-width:140px" aria-label="Звук">${soundOptions()}</select>`;
@@ -4769,6 +4785,7 @@ function scInput(e) {
   const n = scNode(scEdit, row.dataset.n);
   if (f === 'mins') n.secs = clamp(Math.round((+e.target.value || 1) * 60), 1, 86400);
   else if (['level', 'ramp', 'secs', 'count'].includes(f)) n[f] = +e.target.value;
+  else if (f === 'mode') n.mode = e.target.value === 'on';
   else n[f] = e.target.value;
   if (f === 'level') e.target.nextElementSibling.textContent = n.level * 10 + '%';
   if (f === 'check') { n.arg = ''; scRender(); }
@@ -4986,8 +5003,10 @@ function openScene(s) {
   $('#sc-name').value = scEdit.name;
   $('#sc-trigger').value = scEdit.trigger;
   $('#sc-time').value = scEdit.time || '23:00';
+  $('#sc-phrases').value = (scEdit.phrases || []).join(', ');
   $$('#sc-days .chip').forEach(c => c.setAttribute('aria-pressed', scEdit.days.includes(c.dataset.d)));
   $('#sc-del').hidden = !s;
+  $('#sc-trigger [value="voice"]').disabled = !scHasAssistant && scEdit.trigger !== 'voice';
   $('#sc-editor').hidden = false;
   scTriggerUI();
   scView(store.get('sc.view') || 'list');
@@ -4999,7 +5018,8 @@ $('#sc-form').onsubmit = e => {
   e.preventDefault();
   scLayout();
   const { _start, ...rest } = scEdit;
-  const s = { ...rest, name: $('#sc-name').value.trim(), trigger: $('#sc-trigger').value, time: $('#sc-time').value, days: scDays() };
+  const s = { ...rest, name: $('#sc-name').value.trim(), trigger: $('#sc-trigger').value, time: $('#sc-time').value, days: scDays(), phrases: scPhrases() };
+  if (s.trigger === 'voice' && !s.phrases.length) return toast('Укажите фразу, по которой ассистент запустит сценарий', true);
   if (!s.nodes.some(n => n.kind !== 'note')) return toast('Добавьте хотя бы один шаг', true);
   const list = s.id ? scData.scenes.map(x => x.id === s.id ? s : x) : [...scData.scenes, s];
   act($('#sc-save'), async () => {

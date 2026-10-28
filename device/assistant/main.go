@@ -451,6 +451,17 @@ func (d *Daemon) onEvent(ev logEvent) {
 		d.speak(context.Background(), c, "Хорошо, начинаем новый разговор.")
 		return
 	}
+	if conf, err := os.ReadFile(scenesConf); err == nil {
+		if sc, ok := findScene(string(conf), question, time.Now()); ok {
+			if err := runScene(sc.id); err != nil {
+				log.Printf("сценарий %s: %v", sc.id, err)
+				return
+			}
+			log.Printf("сценарий по команде: %s", sc.id)
+			d.speak(context.Background(), c, "Запускаю «"+sc.name+"».")
+			return
+		}
+	}
 	d.ask(question, "voice")
 }
 

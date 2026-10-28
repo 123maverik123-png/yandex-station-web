@@ -53,6 +53,18 @@ class ScenesSave(unittest.TestCase):
             with self.assertRaises(server.AdbError, msg=bad):
                 p.scenes_save({"scenes": [{"id": "ab1", "name": "А", "time": "23:00", "start": "1", "nodes": [{"id": "1", "kind": "anim", "anim": bad}]}]})
 
+    def test_voice_trigger_and_assistant_node(self):
+        p = self.save([{"id": "1", "kind": "assistant", "mode": True, "next": "2"}, {"id": "2", "kind": "assistant", "mode": False}],
+                      trigger="voice", time="", phrases=["Пора спать", "спать, сейчас", "a|b", " ", ""])
+        self.assertEqual(p.written[1][:3], ["S|ab1|1|voice|Пора спать,спать  сейчас,a b|12345|1|Ночь",
+                                            "N|ab1|1|assistant|on||2||0|0", "N|ab1|2|assistant|off||||0|0"])
+        with self.assertRaises(server.AdbError):
+            self.save([{"id": "1", "kind": "stop"}], trigger="voice", phrases=[" , "])
+        q = server.Panel(Mock())
+        q.adb.shell.return_value = ("S|ab1|1|voice|пора спать,спать|12345|1|Ночь\nN|ab1|1|assistant|on||||0|0\n<<<\n<<<\n<<<\n", "", 0)
+        s = q.scenes()["scenes"][0]
+        self.assertEqual((s["trigger"], s["time"], s["phrases"], s["nodes"][0]["mode"]), ("voice", "", ["пора спать", "спать"], True))
+
     def test_boot_trigger_has_no_time(self):
         p = self.save([{"id": "1", "kind": "stop"}], trigger="boot", time="")
         self.assertEqual(p.written[1][0], "S|ab1|1|boot||12345|1|Ночь")

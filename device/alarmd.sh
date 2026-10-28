@@ -8,10 +8,12 @@
 # дни — цифры 1–7 (пн–вс), пусто — один раз; режим: sound | wave | show | music | text.
 #
 # scenes.conf — сценарии (пишет панель). Сценарий — граф нод: строка S на сценарий, строки N — ноды:
-#   S|id|вкл|повод|ЧЧ:ММ|дни|первая нода|название      повод: time — по времени, boot — после включения
+#   S|id|вкл|повод|ЧЧ:ММ|дни|первая нода|название      повод: time — по времени, boot — после включения,
+#                                                       voice — по команде ассистенту (вместо времени — фразы
+#                                                       через запятую; ищет и запускает их сам ассистент)
 #   N|id|нода|вид|арг1|арг2|дальше|иначе|x|y            x, y — место ноды в редакторе, демону не нужны
 # Виды: query/say/ask текст, vol 0–10 нарастание_с, sound файл, ring RRGGBB секунд, wait секунд,
-# wait_until ЧЧ:ММ, wait_quiet до_секунд, stop, scene id, anim ring:имя|clock:имя секунд,
+# wait_until ЧЧ:ММ, wait_quiet до_секунд, stop, scene id, anim ring:имя|clock:имя секунд, assistant on|off,
 # if проверка аргумент, repeat раз, note (не выполняется). Анимацию часов панель кладёт готовым скриптом anim_<имя>.sh.
 # У if и repeat два выхода: «дальше» — да / ещё круг, «иначе» — нет / круги кончились.
 # Тексты — только данные: ноду выполняет case ниже, через eval/sh -c они не проходят.
@@ -169,6 +171,7 @@ SLOG=$D/scenes.log
 slog() {
     echo "$(date '+%d.%m %H:%M:%S') $*" >> $SLOG
     [ "$(wc -c < $SLOG)" -gt 30000 ] && tail -n 150 $SLOG > $SLOG.t && mv $SLOG.t $SLOG
+    return 0   # иначе «… && slog A || slog B» напишет обе строки: проверка размера выше обычно ложна
 }
 mins() { h=${1%:*} m=${1#*:}; echo $(( ${h#0} * 60 + ${m#0} )); }
 
@@ -202,6 +205,10 @@ node() {
         query) alice "$a" ;;
         say) alice "Повтори за мной: $a" ;;
         ask) ask "$a" ;;
+        assistant)   # режим ассистента: все вопросы к Алисе уходят своей модели
+            [ -f /tmp/webpanel_assistant.json ] || { slog "ассистент не запущен — режим не переключён"; return 0; }
+            m=false; [ "$a" = on ] && m=true
+            printf '{"mode":%s}\n' $m > /tmp/webpanel_assistant.cmd.new && mv /tmp/webpanel_assistant.cmd.new /tmp/webpanel_assistant.cmd ;;
         vol)
             # плавно — через микшер, а в конце говорим Алисе ту же громкость, чтобы она знала о ней
             if [ "${b:-0}" -gt 0 ]; then
@@ -340,7 +347,12 @@ while :; do
     i=$((60 - s))
     while [ $i -gt 0 ]; do
         if [ -f $FIRE ]; then id=$(cat $FIRE); rm -f $FIRE; log "$id: проверка из панели"; run_id "$id"; break; fi
-        if [ -f $SFIRE ]; then id=$(cat $SFIRE); rm -f $SFIRE; slog "запуск из панели"; run_scene "$id"; fi
+        # «id» — кнопка в панели, «id voice» — команда ассистенту
+        if [ -f $SFIRE ]; then
+            read -r id src < $SFIRE; rm -f $SFIRE
+            if [ "$src" = voice ]; then slog "запуск по команде ассистенту"; else slog "запуск из панели"; fi
+            run_scene "$id"
+        fi
         sleep 1; i=$((i - 1))
     done
 done
