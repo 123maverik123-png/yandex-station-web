@@ -590,6 +590,10 @@
   .anim-pick { gap: 8px; flex-wrap: nowrap; min-width: 0; }
   .anim-pick select { min-height: 36px; padding: 0 10px; max-width: 260px; min-width: 0; }
   [data-boot-only][hidden] { display: none !important; }
+  .anim-pending { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; padding: 10px 12px;
+    border-radius: 10px; background: var(--accent-soft); color: var(--text-2); font-size: 13.5px; }
+  .anim-pending[hidden] { display: none; }
+  .anim-pending span { flex: 1 1 260px; }
   .ra-preview { display: flex; justify-content: center; gap: 18px; padding: 22px; border-radius: 14px; background: var(--display); }
   .ra-preview span { width: 46px; height: 46px; border-radius: 50%; background: #000; box-shadow: 0 0 18px 2px var(--glow, transparent); transition: background .05s; }
   .ra-frames { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow: auto; }
@@ -1229,6 +1233,10 @@
     <section class="card" id="boot-card">
       <div class="card-head"><h2>Анимации часов</h2>
         <div class="row anim-pick"><select class="field" id="anim-clock" aria-label="Анимация часов"></select><div class="status-line" id="boot-status">—</div><span class="badge" data-hook-badge>—</span></div></div>
+      <div class="anim-pending" data-anim-pending hidden>
+        <span>Алиса подхватит изменённые анимации только после перезапуска — колонку перезагружать не нужно.</span>
+        <button class="btn sm primary" data-anim-restart>Перезапустить Алису</button>
+      </div>
       <div class="frames" id="boot-frames" aria-label="Кадры"></div>
       <div class="boot-grid">
         <div class="col">
@@ -1285,6 +1293,10 @@
     <section class="card" id="ring-anim-card">
       <div class="card-head"><h2>Анимации кольца</h2>
         <div class="row anim-pick"><select class="field" id="anim-ring" aria-label="Анимация кольца"></select><div class="status-line" id="ra-status">—</div><span class="badge" data-hook-badge>—</span></div></div>
+      <div class="anim-pending" data-anim-pending hidden>
+        <span>Алиса подхватит изменённые анимации только после перезапуска — колонку перезагружать не нужно.</span>
+        <button class="btn sm primary" data-anim-restart>Перезапустить Алису</button>
+      </div>
       <div class="boot-grid">
         <div class="col">
           <div class="ra-preview" id="ra-preview" aria-hidden="true"></div>
@@ -2391,15 +2403,22 @@ $('#boot-install').onclick = e => confirm(`Установить эту ${clockAn
   else {
     animCustom = await api('/api/anim/install', { kind: 'clock', name: boot.name, frames: bootFull() });
     boot.status = await api('/api/clock/boot');
+    animPending(true);
   }
   if (isBootAnim()) animCustom = await api('/api/anim/custom');
   fillAnimSelect('clock'); renderBootStatus();
-}, isBootAnim() ? 'Заставка установлена — покажется при следующей загрузке' : 'Анимация установлена');
+}, isBootAnim() ? 'Заставка установлена — покажется при следующей загрузке' : 'Анимация установлена — перезапустите Алису, чтобы она её подхватила');
 $('#boot-reset').onclick = e => confirm(`Вернуть стандартную ${clockAnimTitle()}?`) && act(e.currentTarget, async () => {
   if (isBootAnim()) await api('/api/clock/boot/reset', {});
-  else await api('/api/anim/reset', { kind: 'clock', name: boot.name });
+  else { await api('/api/anim/reset', { kind: 'clock', name: boot.name }); animPending(true); }
   await loadBoot();
 }, 'Стандартная анимация восстановлена');
+
+// Quasar читает анимации при запуске: после установки или возврата предлагаем перезапустить Алису.
+// Заставке не нужно — она и так показывается при следующей загрузке.
+const animPending = on => $$('[data-anim-pending]').forEach(e => e.hidden = !on);
+$$('[data-anim-restart]').forEach(b => b.onclick = e => confirm('Перезапустить Алису? Она будет недоступна ~30 с.') &&
+  act(e.currentTarget, async () => { await api('/api/system', { action: 'quasar_restart' }); animPending(false); }, 'Алиса перезапускается — после этого покажет новые анимации'));
 
 // ---------- анимации кольца ----------
 // Файл .led — текст; простые (только кадры и loop) правим и визуально, остальные — текстом.
@@ -2496,12 +2515,12 @@ const ringAnimTitle = () => `«${animLabel('ring', ra.name).replace(' · сво�
 $('#ra-install').onclick = e => confirm(`Установить анимацию кольца ${ringAnimTitle()} на колонку?`) && act(e.currentTarget, async () => {
   animCustom = await api('/api/anim/install', { kind: 'ring', name: ra.name, text: $('#ra-text').value });
   boot.status = await api('/api/clock/boot');   // хук мог подключиться только что
-  fillAnimSelect('ring'); renderRa(); renderBootStatus();
-}, 'Анимация кольца установлена');
+  fillAnimSelect('ring'); renderRa(); renderBootStatus(); animPending(true);
+}, 'Анимация кольца установлена — перезапустите Алису, чтобы она её подхватила');
 $('#ra-reset').onclick = e => confirm(`Вернуть стандартную анимацию кольца ${ringAnimTitle()}?`) && act(e.currentTarget, async () => {
   animCustom = await api('/api/anim/reset', { kind: 'ring', name: ra.name });
   boot.status = await api('/api/clock/boot');
-  fillAnimSelect('ring'); renderBootStatus(); await loadRingAnim();
+  fillAnimSelect('ring'); renderBootStatus(); animPending(true); await loadRingAnim();
 }, 'Стандартная анимация восстановлена');
 
 // ---------- bluetooth ----------
