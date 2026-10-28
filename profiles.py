@@ -16,7 +16,7 @@ TRIAL_FEATURES = ("assistant", "scenes", "alarm", "anims", "sounds", "say", "yam
 PROFILES = {
     # Лайт первого поколения (PR #6): дисплея нет, кольцо из трёх RGB-диодов micro:*:ring1–3 через /dev/fb0, как у Лайт 2.
     'lite': dict(name='Станция Лайт', platform='yandexmicro', led_prefix='micro', clock=False, boot=False, alarms=False,
-                 light=True),
+                 light=True, tested=('alarm', 'sounds')),   # автор PR #6 проверил хук, будильник и подмены звуков
     'lite2': dict(name='Станция Лайт 2', platform='plum', clock=True, boot=True, alarms=True, light=True, tested=TRIAL_FEATURES),
     'station2': dict(name='Станция 2', platform='yandexmidi', clock=False, boot=False, alarms=False, light=True),
     'mini3pro': dict(name='Станция Мини 3 Про', platform='pickle', clock=True, boot=False, alarms=False, light=True),
