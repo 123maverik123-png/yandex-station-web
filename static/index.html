@@ -206,6 +206,9 @@
   .play:hover { background: var(--accent); color: var(--on-accent); }
   .sound .nm { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sound .ext { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .sound .acts { display: flex; gap: 2px; flex: none; }
+  .sound .acts .btn { color: var(--muted); }
+  .sound .acts .btn:hover { color: var(--text); }
   .drop { border: 1.5px dashed var(--btn-line); border-radius: 14px; padding: 14px; text-align: center; color: var(--muted); font-size: 13.5px; background: transparent; width: 100%; }
   .drop:hover, .drop.over { border-color: var(--accent); color: var(--accent-ink); }
 
@@ -933,7 +936,10 @@
           <div class="sound-list" id="sounds"><div class="empty">Загрузка…</div></div>
           <button class="drop" id="drop">Перетащите аудиофайл сюда или нажмите, чтобы выбрать — он проиграется на колонке</button>
           <input type="file" id="file" accept="audio/*" hidden>
+          <input type="file" id="snd-replace-file" accept="audio/*" hidden>
           <p class="hint" id="ffmpeg-hint"></p>
+          <p class="hint">Любой звук Алисы можно заменить своим — кнопка со стрелкой в строке звука. Стандартный при этом
+            не меняется: свой накрывает его, а кнопка «вернуть» снимает подмену.</p>
         </section>
 
         <section class="card" data-widget="bt" data-title="Bluetooth">
@@ -1812,7 +1818,7 @@ $$('[data-level]').forEach(b => b.onclick = () => act(b, async () => {
 }));
 
 // ---------- звуки ----------
-let sounds = [], sndFolder = null;
+let sounds = [], sndFolder = null, sndCustom = new Set(), sndTarget = null;
 const FOLDER_NAMES = { '': 'Корень', common: 'Общие', 'ru-RU': 'Русский', 'ar-EG': 'Арабский (Египет)', 'ar-SA': 'Арабский (Саудовская Аравия)', 'kk-KZ': 'Казахский' };
 const folderOf = n => n.includes('/') ? n.slice(0, n.lastIndexOf('/')) : '';
 function renderFolders() {
@@ -1833,12 +1839,38 @@ function renderSounds() {
     const base = n.slice(n.lastIndexOf('/') + 1);
     const m = base.match(/^(.*)\.([^.]+)$/) || [base, base, ''];
     const dir = folderOf(n);
+    const own = sndCustom.has(n);
     return `<div class="sound"><button class="play" data-s="${esc(n)}" aria-label="Проиграть ${esc(m[1])}">${icon('i-play', 14)}</button>
-      <div class="nm" title="${esc(n)}">${esc(m[1])}</div><span class="ext">${f && dir ? esc(dir) + ' · ' : ''}${esc(m[2])}</span></div>`;
+      <div class="nm" title="${esc(n)}">${esc(m[1])}</div>${own ? '<span class="badge ok">свой</span>' : ''}
+      <span class="ext">${f && dir ? esc(dir) + ' · ' : ''}${esc(m[2])}</span>
+      <span class="acts">${own ? `<button class="btn sm icon ghost" data-snd-orig="${esc(n)}" title="Послушать стандартный" aria-label="Послушать стандартный ${esc(m[1])}">${icon('i-music', 14)}</button>
+        <button class="btn sm icon ghost" data-snd-reset="${esc(n)}" title="Вернуть стандартный" aria-label="Вернуть стандартный ${esc(m[1])}">${icon('i-refresh', 14)}</button>` : ''}
+        <button class="btn sm icon ghost" data-snd-replace="${esc(n)}" title="Заменить своим" aria-label="Заменить ${esc(m[1])} своим">${icon('i-ul', 14)}</button></span></div>`;
   }).join('') : '<div class="empty">Ничего не найдено</div>';
   $$('#sounds .play').forEach(b => b.onclick = () => act(b, () => api('/api/play', { name: b.dataset.s }), '▶ ' + b.dataset.s));
+  $$('#sounds [data-snd-orig]').forEach(b => b.onclick = () => act(b, () => api('/api/sounds/play-original', { name: b.dataset.sndOrig }), '▶ стандартный'));
+  $$('#sounds [data-snd-reset]').forEach(b => b.onclick = () => act(b, async () => setSndCustom(await api('/api/sounds/reset', { name: b.dataset.sndReset })), 'Вернул стандартный звук'));
+  $$('#sounds [data-snd-replace]').forEach(b => b.onclick = () => { sndTarget = b.dataset.sndReplace; $('#snd-replace-file').click(); });
 }
-async function loadSounds() { sounds = await api('/api/sounds'); renderFolders(); renderSounds(); }
+function setSndCustom(r) {
+  sndCustom = new Set(r.custom || []);
+  renderSounds();
+  if (!$('#tab-boot').hidden) loadBoot();   // звук запуска показывает и вкладка «Запуск»
+}
+$('#snd-replace-file').onchange = async e => {
+  const f = e.target.files[0], name = sndTarget;
+  e.target.value = '';
+  if (!f || !name) return;
+  toast('Перекодирую и заменяю ' + name + '…');
+  const btn = $(`#sounds [data-snd-replace="${CSS.escape(name)}"]`);
+  await act(btn, async () => setSndCustom(await api('/api/sounds/replace', f,
+    { raw: true, headers: { 'Content-Type': 'application/octet-stream', 'X-Sound': encodeURIComponent(name) } })), 'Звук заменён: ' + name);
+};
+async function loadSounds() {
+  sounds = await api('/api/sounds');
+  sndCustom = new Set((await api('/api/sounds/custom').catch(() => ({}))).custom || []);
+  renderFolders(); renderSounds();
+}
 $('#snd-filter').oninput = renderSounds;
 $('#stop-sound').onclick = e => act(e.currentTarget, () => api('/api/stop', {}), 'Остановлено');
 

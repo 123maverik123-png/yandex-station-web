@@ -72,6 +72,9 @@ BOOT_ALWAYS = f"{WEB_DIR}/boot_every_time"  # наш флаг: хук удаля
 SOUND_TARGET = f"{QUASAR}/sounds/common/boot.wav"
 SOUND_CUSTOM = f"{WEB_DIR}/boot_sound.wav"
 SOUND_ORIG = f"{WEB_DIR}/boot_sound.orig.wav"
+# Свои системные файлы Quasar: override/<путь от QUASAR> накрывает QUASAR/<путь> через bind mount. Оригинал в
+# /system только для чтения и остаётся под подменой — копии не нужны, «вернуть» = снять подмену и удалить свой.
+OVR_DIR = f"{WEB_DIR}/override"
 # YAM (github.com/nyakokitsu/yam): менеджер пакетов для Станций. На колонке — демон yamd с HTTP API на :8099.
 YAM_DIR = "/data/quazar/yam"
 YAMD = f"{YAM_DIR}/bin/yamd"
@@ -190,6 +193,8 @@ BOOT_HOOK_SCRIPT = (
     f"bind {BOOT_CUSTOM} {BOOT_TARGET}\n"
     f"bind {SOUND_CUSTOM} {SOUND_TARGET}\n"
     f"bind {HOSTS_CUSTOM} {HOSTS_TARGET}\n"
+    f"[ -d {OVR_DIR} ] && (cd {OVR_DIR} && find . -type f) | while read -r f; do "
+    f"bind \"{OVR_DIR}/${{f#./}}\" \"{QUASAR}/${{f#./}}\"; done\n"
     # Очередь аналитики при загрузке не чистим: для этого телеметрию приходится убивать kill -9, а в первую
     # минуту после старта это совпало с зависанием звука у Алисы. Адреса закрыты — очередь и так не уйдёт.
     # yamd сам после загрузки не стартует; start-stop-daemon -b — чтобы не держать rootkeeper.sh
@@ -1128,6 +1133,83 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             raise AdbError("нет такого звука")
         return self._play_path(f"{SOUNDS_DIR}/{name}")
 
+    # ---------- свои системные звуки ----------
+    SOUND_UPLOAD_LIMIT = 50 * 1024 * 1024
+
+    def _sound_paths(self, name):
+        if name not in self.sounds():
+            raise AdbError("нет такого звука")
+        return f"{SOUNDS_DIR}/{name}", f"{OVR_DIR}/sounds/{name}"
+
+    def sounds_custom(self):
+        """Какие системные звуки заменены. Звук запуска — свой файл со времён вкладки «Запуск»."""
+        out, _, _ = self.adb.shell(
+            f"cd {OVR_DIR}/sounds 2>/dev/null && find . -type f; [ -f {SOUND_CUSTOM} ] && echo @boot; "
+            f"grep ' {SOUNDS_DIR}/' /proc/mounts | cut -d' ' -f2; true", check=False)
+        lines = strip_ansi(out).split()
+        mounted = {l[len(SOUNDS_DIR) + 1:] for l in lines if l.startswith(SOUNDS_DIR + "/")}
+        custom = {l[2:] for l in lines if l.startswith("./")}
+        if "@boot" in lines:
+            custom.add(posixpath.relpath(SOUND_TARGET, SOUNDS_DIR))
+        return {"custom": sorted(custom), "pending": sorted(custom - mounted), "ffmpeg": bool(self.ffmpeg)}
+
+    def _audio_like(self, original, body):
+        """Перекодирует body в тот же кодек, частоту и число каналов, что у стандартного звука: расширению не
+        верим (в .wav бывают Opus и MP3), поэтому смотрим, что о нём скажет ffmpeg."""
+        if not self.ffmpeg:
+            raise AdbError("для замены звука нужен ffmpeg на компьютере")
+        p = subprocess.run([self.ffmpeg, "-hide_banner", "-i", "pipe:0", "-f", "null", "-"],
+                           input=original, capture_output=True, timeout=60)
+        info = p.stderr.decode("utf-8", "replace")
+        m = re.search(r"Audio: (\w+).*?, (\d+) Hz, (mono|stereo)", info)
+        if not m:
+            raise AdbError("не удалось понять формат стандартного звука")
+        codec, rate, ch = m.group(1), m.group(2), "1" if m.group(3) == "mono" else "2"
+        enc = {"opus": ["-c:a", "libopus", "-b:a", "96k", "-ar", "48000", "-f", "ogg"],
+               "vorbis": ["-c:a", "libvorbis", "-q:a", "5", "-ar", rate, "-f", "ogg"],
+               "mp3": ["-c:a", "libmp3lame", "-b:a", "192k", "-ar", rate, "-id3v2_version", "0", "-write_xing", "0",
+                       "-f", "mp3"]}.get(codec)
+        if enc is None and codec.startswith("pcm_"):
+            enc = ["-c:a", "pcm_s16le", "-ar", rate, "-f", "wav"]
+        if enc is None:
+            raise AdbError(f"формат стандартного звука ({codec}) панель пока не умеет")
+        # системный звук не должен играть бесконечно: не длиннее 5 минут
+        p = subprocess.run([self.ffmpeg, "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vn", "-t", "300",
+                            "-ac", ch, "-map_metadata", "-1", *enc, "pipe:1"], input=body, capture_output=True, timeout=300)
+        if p.returncode != 0 or not p.stdout:
+            raise AdbError("ffmpeg: " + p.stderr.decode("utf-8", "replace").strip()[-400:])
+        return p.stdout
+
+    def sound_replace(self, name, body):
+        if len(body) > self.SOUND_UPLOAD_LIMIT:
+            raise AdbError("файл слишком большой")
+        target, custom = self._sound_paths(name)
+        if target == SOUND_TARGET:
+            self.boot_sound_install(name, body)
+        else:
+            self._install_override(self._audio_like(self._original_bytes(target), body), custom, target)
+        return self.sounds_custom()
+
+    def sound_reset(self, name):
+        target, custom = self._sound_paths(name)
+        if target == SOUND_TARGET:
+            self.boot_sound_reset()
+        else:
+            self._remove_override(custom, target)
+        return self.sounds_custom()
+
+    def sound_play_original(self, name):
+        target, _ = self._sound_paths(name)
+        data = self._original_bytes(target)
+        if data[:4] == b"RIFF":
+            with tempfile.TemporaryDirectory() as td:
+                (Path(td) / "f.wav").write_bytes(data)
+                self.adb.push(Path(td) / "f.wav", REMOTE_PLAY)
+            self._play_remote_wav(REMOTE_PLAY)
+        else:
+            self._transcode_and_play(data)
+        return {"ok": True}
+
     def play_upload(self, filename, body):
         if filename.lower().endswith(".wav") and not self.ffmpeg:
             with tempfile.NamedTemporaryFile(suffix=".wav") as f:
@@ -1389,24 +1471,48 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
         # Хук нужен, пока есть хоть что-то своё; иначе возвращаем rootkeeper.sh к исходному виду.
         self.adb.shell(
             f"if [ ! -f {BOOT_CUSTOM} ] && [ ! -f {SOUND_CUSTOM} ] && [ ! -f {BOOT_ALWAYS} ] && [ ! -f {YAM_AUTOSTART} ] "
-            f"&& [ ! -f {ALARM_CONF} ] && [ ! -f {HOSTS_CUSTOM} ] && [ ! -f {ASSIST_CONF} ]; then "
+            f"&& [ ! -f {ALARM_CONF} ] && [ ! -f {HOSTS_CUSTOM} ] && [ ! -f {ASSIST_CONF} ] "
+            f"&& [ -z \"$(find {OVR_DIR} -type f 2>/dev/null | head -1)\" ]; then "
             f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; {ROOTKEEPER_DROP_CREATED}; rm -f {BOOT_HOOK}; fi; true")
 
-    def _install_override(self, data, custom, target, orig):
-        """Кладёт свой файл и сразу монтирует его поверх стандартного; при первой установке сохраняет оригинал."""
+    def _install_override(self, data, custom, target, orig=None):
+        """Кладёт свой файл и сразу монтирует его поверх стандартного. orig — копия оригинала (для заставки и звука
+        запуска, по старинке); остальным она не нужна: оригинал под подменой цел, его читает _original_bytes."""
         with tempfile.TemporaryDirectory() as td:
             (Path(td) / "f").write_bytes(data)
-            self.adb.shell(f"mkdir -p {WEB_DIR}; grep -q ' {target} ' /proc/mounts || "
-                           f"[ -f {orig} ] || cp {target} {orig}")
+            q = shlex.quote
+            self.adb.shell(f"mkdir -p {q(posixpath.dirname(custom))}" + (
+                f"; grep -q ' {target} ' /proc/mounts || [ -f {orig} ] || cp {target} {orig}" if orig else ""))
             self.adb.push(Path(td) / "f", custom)
         self._ensure_hook()
-        _, err, rc = self.adb.shell(f"grep -q ' {target} ' /proc/mounts || mount --bind {custom} {target}", check=False)
+        q = shlex.quote
+        _, err, rc = self.adb.shell(f"grep -q ' {target} ' /proc/mounts || mount --bind {q(custom)} {q(target)}", check=False)
         if rc != 0:
             raise AdbError(err.strip() or "не удалось подменить файл")
 
     def _remove_override(self, custom, target):
-        self.adb.shell(f"grep -q ' {target} ' /proc/mounts && umount {target}; rm -f {custom}; true")
+        q = shlex.quote
+        self.adb.shell(f"grep -q ' {target} ' /proc/mounts && {{ umount {q(target)} || umount -l {q(target)}; }}; "
+                       f"rm -f {q(custom)}; [ -d {OVR_DIR} ] && find {OVR_DIR} -depth -type d -exec rmdir {{}} \\; 2>/dev/null; true")
         self._drop_hook_if_unused()
+
+    def _original_bytes(self, target):
+        """Стандартный файл, даже когда поверх смонтирован свой: bind его папки без вложенных монтирований
+        (mount --bind не рекурсивный) показывает то, что лежит под подменой."""
+        q = shlex.quote
+        out, _, _ = self.adb.shell(f"grep -q ' {target} ' /proc/mounts && echo mounted; true", check=False)
+        if "mounted" not in out:
+            return self.adb.read_bytes(target)
+        tmp = "/tmp/webpanel_orig.bin"
+        _, err, rc = self.adb.shell(
+            f"d=/tmp/webpanel_orig.d; mkdir -p $d && mount --bind {q(posixpath.dirname(target))} $d && "
+            f"cp $d/{q(posixpath.basename(target))} {tmp}; rc=$?; umount $d 2>/dev/null; rmdir $d; exit $rc", check=False)
+        if rc:
+            raise AdbError(err.strip() or "не удалось прочитать стандартный файл")
+        try:
+            return self.adb.read_bytes(tmp)
+        finally:
+            self.adb.shell(f"rm -f {tmp}", check=False)
 
     def boot_install(self, frames):
         if not self.boot_status()["supported"]:
@@ -2059,14 +2165,18 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"[ -d {ALARM_DIR} ] && du -sk {ALARM_DIR} | cut -f1 || echo 0",
             q(YAMD),
             f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && echo 1 || echo 0", q(HOSTS_CUSTOM),
-            q(ASSISTD), f"[ -d {ASSIST_DIR} ] && du -sk {ASSIST_DIR} | cut -f1 || echo 0"])
+            q(ASSISTD), f"[ -d {ASSIST_DIR} ] && du -sk {ASSIST_DIR} | cut -f1 || echo 0",
+            f"find {OVR_DIR}/sounds -type f 2>/dev/null | wc -l",
+            f"[ -d {OVR_DIR} ] && du -sk {OVR_DIR} | cut -f1 || echo 0"])
         v = self.adb.shell(cmd, check=False)[0].split()
-        v = (v + ["0"] * 19)[:19]
+        v = (v + ["0"] * 21)[:21]
         b = [x == "1" for x in v]
         n = lambda x: int(x) if x.isdigit() else 0
         items = [
             {"key": "boot", "name": "Своя заставка часов", "on": b[0] or b[1]},
             {"key": "sound", "name": "Свой звук запуска", "on": b[2] or b[3]},
+            {"key": "sounds", "name": "Свои системные звуки", "on": n(v[19]) > 0, "detail": f"заменено: {n(v[19])}",
+             "size_kb": n(v[20])},
             {"key": "always", "name": "Заставка при каждой загрузке", "on": b[4]},
             {"key": "yamd", "name": "Автозапуск yamd", "on": b[5]},
             {"key": "privacy", "name": "Блокировка аналитики", "on": b[15] or b[16], "detail": "свой /etc/hosts"},
@@ -2089,6 +2199,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             f"grep -q ' {BOOT_TARGET} ' /proc/mounts && {{ umount {BOOT_TARGET} || umount -l {BOOT_TARGET}; }}; "
             f"grep -q ' {SOUND_TARGET} ' /proc/mounts && {{ umount {SOUND_TARGET} || umount -l {SOUND_TARGET}; }}; "
             f"grep -q ' {HOSTS_TARGET} ' /proc/mounts && {{ umount {HOSTS_TARGET} || umount -l {HOSTS_TARGET}; }}; "
+            f"[ -d {OVR_DIR} ] && (cd {OVR_DIR} && find . -type f) | while read -r f; do t=\"{QUASAR}/${{f#./}}\"; "
+            f"grep -q \" $t \" /proc/mounts && {{ umount \"$t\" || umount -l \"$t\"; }}; done; "
             f"[ -f {ROOTKEEPER} ] && sed -i '/{HOOK_MARK}/d' {ROOTKEEPER}; {ROOTKEEPER_DROP_CREATED}; true", check=False)
         # Копию rootkeeper.sh удаляем, только если без нашей строки файл совпал с ней: значит, других правок не было.
         out, _, _ = self.adb.shell(
@@ -2107,7 +2219,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
     # были бы чужими; при восстановлении они снимаются заново с этой колонки. Хук и скрипт будильника — тоже
     # не берём: ставим текущую версию из панели.
     BACKUP_FILES = re.compile(r"(boot\.binscled\.zst|boot_sound\.wav|boot_every_time|yamd_autostart|hosts|"
-                              r"alarm/alarms\.conf|alarm/default\.wav|alarm/[su]_[0-9a-f]{10}\.wav)")
+                              r"alarm/alarms\.conf|alarm/default\.wav|alarm/[su]_[0-9a-f]{10}\.wav|"
+                              r"override/sounds/(?:[\w-][\w.-]*/)*[\w-][\w.-]*)")
     BACKUP_LIMIT = 200 * 1024 * 1024
 
     def backup(self, ui):
@@ -2167,6 +2280,15 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
                 report.append("звук запуска")
             else:
                 report.append("звук запуска пропущен: на этой прошивке его не подменить")
+        sounds = {n[len("override/sounds/"):]: data for n, data in files.items() if n.startswith("override/sounds/")}
+        if sounds:
+            have, skipped = set(self.sounds()), 0
+            for name, data in sounds.items():
+                if name in have:   # на другой прошивке такого звука может не быть
+                    self._install_override(data, f"{OVR_DIR}/sounds/{name}", f"{SOUNDS_DIR}/{name}")
+                else:
+                    skipped += 1
+            report.append(f"свои системные звуки ({len(sounds) - skipped})" + (f", пропущено {skipped}: на этой прошивке их нет" if skipped else ""))
         if "boot_every_time" in files:
             self.boot_always(True)
             report.append("заставка при каждой загрузке")
@@ -3268,6 +3390,7 @@ class Handler(BaseHTTPRequestHandler):
         routes = {
             "/api/status": p.status,
             "/api/sounds": p.sounds,
+            "/api/sounds/custom": p.sounds_custom,
             "/api/patterns": p.patterns,
             "/api/logs": p.logs_list,
             "/api/log": lambda: p.log(q.get("name", ""), q.get("lines", 300)),
@@ -3344,6 +3467,10 @@ class Handler(BaseHTTPRequestHandler):
             name = unquote(self.headers.get("X-Filename", "upload.bin"))
             body = self._body()
             return self._handle(lambda: p.play_upload(name, body))
+        if u.path == "/api/sounds/replace":
+            name = unquote(self.headers.get("X-Sound", ""))
+            body = self._body()
+            return self._handle(lambda: p.sound_replace(name, body))
         if u.path == "/api/boot/sound":
             name = unquote(self.headers.get("X-Filename", "sound"))
             body = self._body()
@@ -3371,6 +3498,8 @@ class Handler(BaseHTTPRequestHandler):
         routes = {
             "/api/volume": lambda: p.set_volume(d),
             "/api/play": lambda: p.play_system(d["name"]),
+            "/api/sounds/reset": lambda: p.sound_reset(d["name"]),
+            "/api/sounds/play-original": lambda: p.sound_play_original(d["name"]),
             "/api/stop": p.stop_sound,
             "/api/pattern": lambda: p.play_pattern(d["kind"], d["name"], d.get("seconds", 5)),
             "/api/pattern/stop": lambda: p.stop_pattern(d.get("kind")),
