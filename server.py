@@ -2731,13 +2731,28 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
             return dev
         return snd if re.fullmatch(r"u_[0-9a-f]{10}\.wav", snd) else "default.wav"
 
+    def _alarm_default_path(self):
+        """Штатный звук для запасного default.wav. common/timer.wav есть не во всех прошивках (на Мини 2 его нет) —
+        тогда другой похожий из звуков колонки."""
+        names = self.sounds()
+        if ALARM_DEFAULT_SOUND in names:
+            return ALARM_DEFAULT_SOUND
+        audio = [n for n in names if n.endswith((".wav", ".mp3", ".opus", ".ogg"))]
+        for key in ("timer", "alarm", "ring", "notification", "common/"):
+            hit = next((n for n in sorted(audio) if key in n), None)
+            if hit:
+                return hit
+        if not audio:
+            raise AdbError("на колонке нет системных звуков для будильника — загрузите свой")
+        return sorted(audio)[0]
+
     def _alarm_sounds_ready(self, sys_needed):
         # не ls: у busybox он раскрашивает имена даже в не-терминал
         have = set(self.adb.shell(f"mkdir -p {ALARM_DIR}; for f in {ALARM_DIR}/*; do echo \"${{f##*/}}\"; done",
                                   check=False)[0].split())
         # запасной звук — штатный звук таймера: на него переключаемся, если чего-то не хватает
         if "default.wav" not in have:
-            self._alarm_wav(self.adb.read_bytes(f"{SOUNDS_DIR}/{ALARM_DEFAULT_SOUND}"), "default.wav")
+            self._alarm_wav(self.adb.read_bytes(f"{SOUNDS_DIR}/{self._alarm_default_path()}"), "default.wav")
         for dev, path in sys_needed.items():
             if dev not in have:
                 if path not in self.sounds():

@@ -165,3 +165,15 @@ class MyAnims(unittest.TestCase):
             p.my_anim_delete("ring", "timer.led")   # встроенную так не удалить
         with self.assertRaises(server.AdbError):
             p.anim_reset("ring", "my/Закат.led")    # и подменой своя не считается
+
+
+class DefaultAlarmSound(unittest.TestCase):
+    """common/timer.wav есть не во всех прошивках (Мини 2, issue #17) — берём похожий штатный."""
+
+    def test_default_alarm_sound_without_timer(self):
+        self.assertEqual(panel()._alarm_default_path(), "common/timer.wav")
+        p = panel(("common/boot.wav", "alice/alarm_morning.mp3", "common/ping.wav"))
+        self.assertEqual(p._alarm_default_path(), "alice/alarm_morning.mp3")
+        self.assertEqual(panel(("x/b.wav", "x/a.wav"))._alarm_default_path(), "x/a.wav")
+        with self.assertRaises(server.AdbError):
+            panel(())._alarm_default_path()
