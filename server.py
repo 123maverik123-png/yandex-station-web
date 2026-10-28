@@ -14,6 +14,7 @@ import hashlib
 import io
 import json
 import os
+import platform
 import re
 import shlex
 import posixpath
@@ -120,8 +121,76 @@ def set_data_dir(path):
     METRICS_FILE = DATA_DIR / ".metrics.json"
     TLS_DIR = DATA_DIR / ".tls"
     SETTINGS_FILE = DATA_DIR / ".panel_settings.json"
+    JOURNAL.open(DATA_DIR / ".panel_journal.jsonl")
 
 
+def redact(text):
+    """Убирает из текста то, чему не место в отчёте: токены и ключи, адреса, MAC, e-mail, имя пользователя в путях."""
+    text = re.sub(r"\b(?:y0_|AQAAAA)[\w-]{10,}", "••••", text)
+    text = re.sub(r"\b(sk|rk|pk|gsk|xai)-[\w-]{8,}", r"\1-••••", text)
+    text = re.sub(r"(?i)(bearer\s+|token[\"']?\s*[:=]\s*[\"']?|api[_-]?key[\"']?\s*[:=]\s*[\"']?)[\w.~+/-]{12,}", r"\1••••", text)
+    # IPv4 — но не версия прошивки вида 0.369.1.50.4794…: соседних цифр и точек быть не должно
+    text = re.sub(r"(?<![\d.])(?!127\.0\.0\.1(?![\d.]))(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)", "x.x.x.x", text)
+    text = re.sub(r"(?i)\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b", "••:••:••:••:••:••", text)
+    text = re.sub(r"[\w.+-]+@[\w-]+\.[\w.-]+", "•••@•••", text)
+    return re.sub(r"(?i)([/\\](?:home|users)[/\\])[^/\\\s]+", r"\1<user>", text)
+
+
+class Journal:
+    """Журнал панели: что нажимали, чем ответила колонка, что со связью. Тела запросов не пишем — в них бывают
+    ключи и пароли; сообщения проходят redact. Последние LIMIT записей лежат в .panel_journal.jsonl рядом
+    с данными панели — их показывает вкладка «Логи» и берёт «Отчёт для Issue»."""
+    LIMIT = 1000
+
+    def __init__(self):
+        self.path, self.lock = None, threading.Lock()
+        self.items = collections.deque(maxlen=self.LIMIT)
+        self.written = 0
+
+    def open(self, path):
+        with self.lock:
+            self.path, self.items = Path(path), collections.deque(maxlen=self.LIMIT)
+            try:
+                for line in self.path.read_text(encoding="utf-8").splitlines()[-self.LIMIT:]:
+                    with contextlib.suppress(ValueError):
+                        self.items.append(json.loads(line))
+            except OSError:
+                pass
+
+    def add(self, msg, level="info"):
+        msg = redact(str(msg))[:600]
+        with self.lock:
+            last = self.items[-1] if self.items else None
+            if last and last["msg"] == msg and last["level"] == level:
+                last["n"] = last.get("n", 1) + 1   # повторы (например, опрос при обрыве связи) — одной строкой
+                last["t"] = time.time()
+                return
+            item = {"t": time.time(), "level": level, "msg": msg}
+            self.items.append(item)
+            if not self.path:
+                return
+            self.written += 1
+            try:
+                if self.written % 200 == 0:   # время от времени ужимаем файл до последних LIMIT записей
+                    tmp = self.path.with_suffix(".tmp")
+                    tmp.write_text("".join(json.dumps(i, ensure_ascii=False) + "\n" for i in self.items), encoding="utf-8")
+                    os.replace(tmp, self.path)
+                else:
+                    with open(self.path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            except OSError:
+                pass
+
+    def text(self, lines=300):
+        mark = {"info": " ", "warn": "⚠", "error": "✖"}
+        with self.lock:
+            items = list(self.items)[-lines:]
+        return "\n".join(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(i['t']))} {mark.get(i['level'], ' ')} {i['msg']}"
+                         + (f"  (×{i['n']})" if i.get("n", 1) > 1 else "") for i in items)
+
+
+JOURNAL = Journal()
+PANEL_PROFILE = ("lite2", False)   # (модель, определена ли сама) — ставит main()
 set_data_dir(ROOT)
 # Без пароля доступны только оболочка страницы и вход; всё остальное — после входа.
 PUBLIC_PATHS = {"/", "/index.html", "/manifest.webmanifest", "/sw.js", "/ca.crt", "/api/panel-auth",
@@ -526,6 +595,7 @@ class Connection:
 
     def note(self, msg, level="info"):
         self.log.append({"t": time.time(), "level": level, "msg": msg})
+        JOURNAL.add("связь: " + msg, level)
 
     def _set(self, state):
         if state != self.state:
@@ -3172,6 +3242,8 @@ bluetoothctl devices Connected 2>/dev/null | sed 's/^Device /bt_conn=/'
 
     def log(self, name, lines):
         lines = max(10, min(5000, int(lines)))
+        if name == "panel":   # журнал самой панели — на компьютере, не на колонке
+            return {"text": JOURNAL.text(lines) or "Журнал пуст."}
         if name == "dmesg":
             cmd = f"dmesg | tail -n {lines}"
         elif name in self.logs_list():
@@ -3427,15 +3499,77 @@ class Handler(BaseHTTPRequestHandler):
         b = self._body()
         return json.loads(b) if b else {}
 
+    def _report(self):
+        """Отчёт для Issue: окружение, колонка, хук, своё на колонке и хвост журнала — без личного (redact)."""
+        import profiles
+        p, out = self.panel, []
+        def row(name, fn):
+            try:
+                out.append(f"- {name}: {fn()}")
+            except Exception as e:  # noqa: BLE001 — отчёт собираем даже наполовину
+                out.append(f"- {name}: не удалось узнать ({type(e).__name__}: {e})")
+        model, auto = PANEL_PROFILE
+        out.append("## Панель")
+        row("Версия", lambda: f"{VERSION}, установка: {self.updater.kind() if self.updater else '?'}")
+        row("Профиль", lambda: f"{profiles.PROFILES[model]['name']} ({model}{', определён сам' if auto else ', задан вручную'})")
+        row("Система", lambda: f"{platform.system()} {platform.release()} ({platform.machine()}), Python {platform.python_version()}")
+        row("adb", lambda: ".".join(map(str, adb_version(p.adb.adb) or ())) or "?")
+        row("ffmpeg", lambda: "есть" if p.ffmpeg else "нет")
+        row("Вход в Яндекс", lambda: "есть" if AUTH_FILE.exists() else "нет")
+        out.append("\n## Колонка")
+        row("Связь", lambda: f"{p.conn.state}, попыток подключения: {p.conn.attempts}" if p.conn else "?")
+        if p.conn and p.conn.online:
+            row("Прошивка", lambda: p.version().get("quasar_version"))
+            row("Плата и ядро", lambda: " · ".join(x for x in strip_ansi(p.adb.shell(
+                "cat /proc/device-tree/model 2>/dev/null | tr -d '\\000'; echo; uname -rm; "
+                "df -h /data 2>/dev/null | tail -1 | awk '{print \"свободно в /data: \" $4}'", check=False)[0]).splitlines() if x.strip()))
+            def hook():
+                h = p.hook_status()
+                state = "подключён" + ("" if h["fresh"] else ", устарел") if h["hook"] else "не подключён"
+                return f"{state}; держится на нём: {', '.join(h['users']) or 'ничего'}" + ("" if h["possible"] else "; rootkeeper.sh нет")
+            row("Хук загрузки", hook)
+            row("Своё на колонке", lambda: ", ".join(f"{i['name']}" + (f" ({i['detail']})" if i.get("detail") else "")
+                                                     for i in p.footprint()["items"] if i["on"]) or "ничего")
+        out.append("\n## Журнал панели (последние 150 записей)\n```\n" + (JOURNAL.text(150) or "пусто") + "\n```")
+        return {"text": redact("\n".join(out)) + "\n"}
+
+    # Действия, которые шлются потоком (ползунки, живой предпросмотр): в журнал — только ошибки
+    JOURNAL_QUIET = {"/api/volume", "/api/ring", "/api/clock", "/api/radio/miss-seen", "/api/music/cmd"}
+    # Что из тела запроса можно показать в журнале: имена и режимы, но не тексты, ключи и пароли
+    JOURNAL_KEYS = ("name", "kind", "action", "which", "mode", "enabled", "id", "type")
+
+    def _journal(self, error=None, started=None):
+        path = urlparse(self.path).path
+        if self.command == "GET" and not error:
+            return
+        if not error and path in self.JOURNAL_QUIET:
+            return
+        d = getattr(self, "_jdata", None) or {}
+        detail = ", ".join(f"{k}={str(d[k])[:60]}" for k in self.JOURNAL_KEYS
+                           if isinstance(d.get(k), (str, int, bool)) and not isinstance(d.get(k), float))
+        name = unquote(self.headers.get("X-Sound") or self.headers.get("X-Filename") or "")
+        detail = ", ".join(x for x in (detail, name and f"файл={name[:60]}") if x)
+        took = f" за {time.time() - started:.1f} с" if started and time.time() - started >= 1 else ""
+        head = f"{self.command} {path}" + (f" ({detail})" if detail else "")
+        JOURNAL.add(f"{head}: {error}" if error else f"{head} — ок{took}", "error" if error else "info")
+
     def _handle(self, fn):
+        started, error = time.time(), None
         try:
             self._send(200, fn())
         except (AdbError, glagol.AuthError, ValueError, KeyError) as e:
+            error = f"{e}" if not isinstance(e, KeyError) else f"нет поля {e}"
             self._send(400, {"error": str(e)})
         except subprocess.TimeoutExpired as e:
-            self._send(504, {"error": f"таймаут: {e}"})
+            error = f"таймаут: {e}"
+            self._send(504, {"error": error})
         except Exception as e:  # noqa: BLE001
-            self._send(500, {"error": f"{type(e).__name__}: {e}"})
+            error = f"{type(e).__name__}: {e}"
+            self._send(500, {"error": error})
+        try:   # журнал — никогда не причина для ошибки ответа
+            self._journal(error, started)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _download(self, path):
         try:
@@ -3483,7 +3617,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _offline(self, path):
         """Пока колонки нет, API отвечает одним понятным статусом вместо ошибок adb."""
-        if path.startswith("/api/") and not path.startswith("/api/conn") and not self.panel.conn.online:
+        # отчёт для Issue нужнее всего как раз тогда, когда колонка не подключается
+        if path.startswith("/api/") and not path.startswith("/api/conn") and path != "/api/report" and not self.panel.conn.online:
             self._send(503, {"error": "Колонка не подключена", "offline": True})
             return True
         return False
@@ -3531,6 +3666,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/ring/frames": lambda: p.ring_frames(q.get("name", "")),
             "/api/anim/custom": p.anim_custom,
             "/api/hook": p.hook_status,
+            "/api/report": self._report,
             "/api/anim/original": lambda: p.anim_original(q.get("kind", ""), q.get("name", "")),
             "/api/yam/status": p.yam_status,
             "/api/music": p.music,
@@ -3624,6 +3760,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self._body()
             return self._handle(lambda: p.fs_upload(directory, name, body))
         d = self._json()
+        self._jdata = d if isinstance(d, dict) else {}
         routes = {
             "/api/volume": lambda: p.set_volume(d),
             "/api/play": lambda: p.play_system(d["name"]),
@@ -4035,6 +4172,8 @@ def main():
     model = (settings.get("model") if settings.get("model") in profiles.PROFILES else "lite2") if auto else args.model
     PanelUpdater().repair_missing()
     profiles.install(sys.modules[__name__], model, auto=auto)
+    global PANEL_PROFILE
+    PANEL_PROFILE = (model, auto)
 
     adb = Adb(find_adb(), device)
     panel = Panel(adb)
@@ -4070,6 +4209,8 @@ def main():
         Path(ready).write_text(json.dumps({"port": args.port}), encoding="utf8")
     shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
     print(f"Панель {VERSION} · профиль {model}{' (авто)' if auto else ''}")
+    JOURNAL.add(f"запуск панели {VERSION}: профиль {model}{' (авто)' if auto else ''}, {platform.system()} {platform.release()}, "
+                f"Python {platform.python_version()}, adb {'.'.join(map(str, adb_version(adb.adb) or ())) or '?'}")
     print(f"adb: {adb.adb}  колонка: {device or 'по USB / единственное устройство adb'}  данные: {DATA_DIR}")
     print(f"Панель: http://{shown}:{args.port}/")
     if args.https_port:

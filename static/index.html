@@ -590,6 +590,7 @@
   .anim-pick { gap: 8px; flex-wrap: nowrap; min-width: 0; }
   .anim-pick select { min-height: 36px; padding: 0 10px; max-width: 260px; min-width: 0; }
   [data-boot-only][hidden] { display: none !important; }
+  button.link { border: 0; background: none; padding: 0; font: inherit; color: var(--accent-ink); text-decoration: underline; cursor: pointer; }
   .anim-pending { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; padding: 10px 12px;
     border-radius: 10px; background: var(--accent-soft); color: var(--text-2); font-size: 13.5px; }
   .anim-pending[hidden] { display: none; }
@@ -753,6 +754,7 @@
         <p class="login-err" id="cs-login-err" role="alert"></p>
       </form>
       <details id="cs-log-box" hidden><summary>Лог подключения</summary><pre class="out" id="cs-log"></pre></details>
+      <p class="hint" id="cs-report-row" hidden>Не получается подключиться? <button class="link" data-report>Скопировать отчёт для Issue</button></p>
     </section>
   </main>
 
@@ -1061,6 +1063,10 @@
         <div class="set-item" id="upd-row" hidden><div class="set-label"><b>Доступна версия <span id="upd-latest">—</span></b><small id="upd-how">—</small></div>
           <div class="set-ctl"><a class="btn sm" id="upd-notes" target="_blank" rel="noopener">Что нового ↗</a><button class="btn sm primary" id="upd-go">Обновить</button></div></div>
         <pre class="set-cmd" id="upd-cmd" hidden></pre>
+        <div class="set-item"><div class="set-label"><b>Что-то не работает?</b><small>Отчёт для Issue: версии панели, adb и прошивки, хук,
+          своё на колонке и журнал панели (вкладка «Логи» → «журнал панели»). Токены, ключи, адреса и MAC в нём скрыты — но перед отправкой
+          всё равно просмотрите.</small></div>
+          <div class="set-ctl"><button class="btn sm" data-report>Скопировать отчёт</button><a class="btn sm" href="https://github.com/dimap/yandex-station-web/issues/new" target="_blank" rel="noopener">Новое Issue ↗</a></div></div>
       </section>
 
     </div>
@@ -1659,7 +1665,7 @@
 
   <!-- ================= ЛОГИ ================= -->
   <main id="tab-logs" data-page hidden>
-    <header class="page-head"><div><h1>Логи</h1><div class="sub">Демоны Quasar и журнал ядра</div></div></header>
+    <header class="page-head"><div><h1>Логи</h1><div class="sub">Демоны Quasar, журнал ядра и журнал самой панели</div></div></header>
     <section class="card">
       <div class="row" style="gap:8px">
         <select id="log-name" class="field" aria-label="Лог"></select>
@@ -2608,6 +2614,11 @@ async function loadLog(btn) {
   if (r) { logText = r.text; renderLog(); }
 }
 $('#log-load').onclick = e => loadLog(e.currentTarget);
+// Отчёт для Issue — и в «Настройках», и на экране подключения (там он нужнее всего)
+$$('[data-report]').forEach(b => b.onclick = e => act(e.currentTarget, async () => {
+  const r = await api('/api/report');
+  if (!await copyText(r.text)) throw new Error('Не удалось скопировать — откройте «Логи» → «журнал панели»');
+}, 'Отчёт скопирован — вставьте его в новое Issue и проверьте перед отправкой'));
 $('#log-name').onchange = () => { $('#log-out').scrollTop = 1e9; loadLog(); };
 $('#log-lines').onchange = () => loadLog();
 $('#log-filter').oninput = renderLog;
@@ -2711,7 +2722,8 @@ function showTab() {
   if (tab === 'logs' && !logsLoaded) {
     logsLoaded = true;
     api('/api/logs').then(l => {
-      $('#log-name').innerHTML = l.map(n => `<option ${n === 'maind.log' ? 'selected' : ''}>${esc(n)}</option>`).join('');
+      $('#log-name').innerHTML = '<option value="panel">журнал панели</option>'
+        + l.map(n => `<option ${n === 'maind.log' ? 'selected' : ''}>${esc(n)}</option>`).join('');
       loadLog();
     }).catch(e => toast(e.message, true));
   }
@@ -4627,6 +4639,7 @@ function renderConn() {
   if (form.hidden === locked) { form.hidden = !locked; if (locked) setTimeout(() => $('#cs-pass').focus(), 0); }
   $('#cs-retry').hidden = !['adb_error', 'waiting'].includes(i.state);
   $('#cs-log-box').hidden = !(i.log && i.log.length);
+  $('#cs-report-row').hidden = !(i.log && i.log.length) || i.state === 'locked';
   if (i.log) {
     const p = x => String(x).padStart(2, '0');
     $('#cs-log').textContent = i.log.map(l => {

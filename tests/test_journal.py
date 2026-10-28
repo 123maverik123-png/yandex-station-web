@@ -1,0 +1,64 @@
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import server
+
+
+class Redact(unittest.TestCase):
+    def test_hides_secrets_and_addresses(self):
+        text = server.redact("sk-proj-abcdefghijklmnop y0_AgAAAAABCDEFGHIJKLMNOP token=abcdefghijklmnopqrstu "
+                             "192.168.2.115:5555 aa:bb:cc:dd:ee:ff me@mail.ru /home/dimap/x C:\\Users\\Dima\\y")
+        for secret in ("abcdefghijklmnop", "ABCDEFGHIJKLMNOP", "abcdefghijklmnopqrstu", "192.168", "aa:bb", "me@", "dimap", "Dima"):
+            self.assertNotIn(secret, text)
+
+    def test_keeps_versions(self):
+        for keep in ("0.369.1.50.4794654278.20261021.133", "127.0.0.1:8765", "adb 1.0.41"):
+            self.assertEqual(server.redact(keep), keep)
+
+
+class JournalFile(unittest.TestCase):
+    def test_repeats_collapse_and_survive_restart(self):
+        path = Path(tempfile.mkdtemp()) / "j.jsonl"
+        j = server.Journal(); j.open(path)
+        for _ in range(3):
+            j.add("связь: потеряна", "warn")
+        j.add("POST /api/x — ок")
+        self.assertIn("(×3)", j.text())
+        again = server.Journal(); again.open(path)
+        self.assertEqual([i["msg"] for i in again.items], ["связь: потеряна", "POST /api/x — ок"])
+
+    def test_trims_to_limit(self):
+        path = Path(tempfile.mkdtemp()) / "j.jsonl"
+        j = server.Journal(); j.LIMIT = 50; j.open(path)
+        for n in range(450):
+            j.add(f"событие {n}")
+        self.assertLessEqual(len(path.read_text().splitlines()), 50 + 200)
+        self.assertEqual(j.items[-1]["msg"], "событие 449")
+
+
+class RequestJournal(unittest.TestCase):
+    def handler(self, method, path, data=None, headers=None):
+        h = SimpleNamespace(command=method, path=path, _jdata=data or {}, headers=headers or {}, JOURNAL_QUIET=server.Handler.JOURNAL_QUIET,
+                            JOURNAL_KEYS=server.Handler.JOURNAL_KEYS)
+        return lambda **kw: server.Handler._journal(h, **kw)
+
+    def setUp(self):
+        server.JOURNAL.items.clear()
+
+    def test_actions_without_secrets(self):
+        self.handler("POST", "/api/assistant", {"api_key": "sk-secret-123456789", "name": "x"})()
+        self.handler("POST", "/api/volume", {"level": 5})()          # ползунок — не пишем
+        self.handler("GET", "/api/status")()                          # опрос — не пишем
+        self.handler("GET", "/api/status")(error="Колонка не ответила")
+        msgs = [i["msg"] for i in server.JOURNAL.items]
+        self.assertEqual(msgs, ["POST /api/assistant (name=x) — ок", "GET /api/status: Колонка не ответила"])
+        self.assertNotIn("sk-secret", " ".join(msgs))
+
+
+if __name__ == "__main__":
+    unittest.main()

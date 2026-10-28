@@ -26,3 +26,4 @@ device/assistant/build/
 
 # локальные настройки Command Code
 .commandcode/
+.panel_journal.jsonl
