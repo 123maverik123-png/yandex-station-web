@@ -3910,8 +3910,8 @@ function readLayout() {
 }
 const DEFAULT_LAYOUT = { zones: {
   'wz-top': ['stats'],
-  'wz-left': ['model', 'alice', 'volume', 'say', 'bt', 'sounds'],
-  'wz-right': ['music', 'clock', 'light', 'device'],
+  'wz-left': ['model', 'alice', 'say', 'bt', 'sounds'],
+  'wz-right': ['music', 'volume', 'clock', 'light', 'device'],
 }, hidden: [] };
 const homeZone = id => ZONES.find(z => DEFAULT_LAYOUT.zones[z].includes(id)) || 'wz-right';
 function applyLayout(l) {
